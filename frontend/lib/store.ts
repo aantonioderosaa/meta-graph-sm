@@ -16,8 +16,17 @@ interface GraphSlice {
   nodes: GraphNode[];
   relationships: GraphRelationship[];
   selectedFactId: string | null;
+  historyHighlight: {
+    nodeIds: string[];
+    relIds: string[];
+  } | null;
+  onlyLatest: boolean;
   setGraph: (nodes: GraphNode[], relationships: GraphRelationship[]) => void;
   setSelectedFactId: (id: string | null) => void;
+  setHistoryHighlight: (
+    highlight: { nodeIds: string[]; relIds: string[] } | null,
+  ) => void;
+  setOnlyLatest: (value: boolean) => void;
 }
 
 interface PipelineSlice {
@@ -40,8 +49,12 @@ export const useAppStore = create<AppStore>((set) => ({
   nodes: [],
   relationships: [],
   selectedFactId: null,
+  historyHighlight: null,
+  onlyLatest: true,
   setGraph: (nodes, relationships) => set({ nodes, relationships }),
   setSelectedFactId: (selectedFactId) => set({ selectedFactId }),
+  setHistoryHighlight: (historyHighlight) => set({ historyHighlight }),
+  setOnlyLatest: (onlyLatest) => set({ onlyLatest }),
 
   // pipelineEvents
   pipelineEvents: [],

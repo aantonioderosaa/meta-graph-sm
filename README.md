@@ -91,7 +91,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | E4 Dreaming | completata |
 | E5 Query engine | completata |
 | E6 Frontend scaffold | completata |
-| E7 Graph Explorer | pending |
+| E7 Graph Explorer | completata |
 | E8 Pipeline Monitor | pending |
 | E9 Query Panel | pending |
 | E10 Qualità e accettazione | pending |
@@ -123,3 +123,7 @@ Endpoint query reali (stub E2.5 sostituiti): `GET /facts/{id}` (+ provenienza ch
 ## Note Epic 6
 
 Dashboard a 3 pannelli (`DashboardShell`): Graph Explorer centrale + Pipeline Monitor / Query Panel (Sheet su desktop, Tabs su mobile). Client API tipizzato unico in `frontend/lib/api-client.ts` (tipi hand-written in `lib/types.ts`, allineati agli schemi Pydantic). Store Zustand in `lib/store.ts` (slice graph / pipelineEvents / querySubgraph). Test store: `npm test` (vitest).
+
+## Note Epic 7
+
+Graph Explorer con `@neo4j-nvl/react` (`InteractiveNvlWrapper`, SSR off): fetch reale `GET /graph`, encoding §11.1 in `lib/graph-encoding.ts`, dettaglio fatto su click, catena `UPDATES` su doppio click, toggle «Solo correnti». Checklist: `frontend/docs/e7-visual-encoding-checklist.md`. Nessuna fixture nel componente (E7.6).

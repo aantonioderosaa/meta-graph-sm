@@ -17,6 +17,8 @@ describe("useAppStore", () => {
       nodes: [],
       relationships: [],
       selectedFactId: null,
+      historyHighlight: null,
+      onlyLatest: true,
       pipelineEvents: [],
       lastPipelineEvent: null,
       querySubgraph: null,
