@@ -88,7 +88,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | E1 Schema dati Neo4j | completata |
 | E2 Backend skeleton + contratti | completata |
 | E3 Ingestione | completata |
-| E4 Dreaming | pending |
+| E4 Dreaming | completata |
 | E5 Query engine | pending |
 | E6 Frontend scaffold | pending |
 | E7 Graph Explorer | pending |
@@ -111,3 +111,7 @@ Contratti API/eventi congelati (SYNC POINT 1): modelli Pydantic §17 in `backend
 ## Note Epic 3
 
 `POST /documents` esegue la pipeline reale: chunking → embedding locale (`BAAI/bge-base-en-v1.5`, 768 dim) → scrittura `Chunk` → estrazione LLM via wrapper → `Fact`+`DERIVED_FROM` (rumore scartato). Eventi SSE fino a `pipeline_complete`. Richiede `OPENAI_API_KEY` in `.env` per estrazione reale; i test mockano l'LLM. Primo caricamento del modello embedding: diversi minuti a freddo (download), poi singleton in memoria.
+
+## Note Epic 4
+
+`POST /dreaming/run` esegue grouping GDS (kNN mutate + WCC), consolidamento, classificazione relazioni con flip atomico di `is_latest`, e riconciliazione §7 (`drift_check`). Test critico: `test_update_targets_chain_head_not_historical_node`.

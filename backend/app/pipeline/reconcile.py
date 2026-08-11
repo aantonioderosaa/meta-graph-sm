@@ -1,0 +1,24 @@
+"""is_latest reconciliation (tech-spec §7, E4.6)."""
+
+from __future__ import annotations
+
+from app.core.neo4j_client import get_driver
+
+RECONCILE_CYPHER = """
+MATCH (f:Fact)
+WITH f, NOT EXISTS { ()-[:UPDATES]->(f) } AS correct
+WHERE f.is_latest <> correct
+SET f.is_latest = correct
+RETURN count(f) AS driftCount
+"""
+
+
+async def reconcile() -> int:
+    """Reconcile is_latest flags and return the number of corrected facts."""
+    driver = get_driver()
+    async with driver.session() as session:
+        result = await session.run(RECONCILE_CYPHER)
+        record = await result.single()
+        if record is None:
+            return 0
+        return int(record["driftCount"])

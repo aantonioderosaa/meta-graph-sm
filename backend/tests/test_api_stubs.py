@@ -50,7 +50,12 @@ async def test_post_documents_returns_job_id(client: AsyncClient, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_post_dreaming_run_returns_job_id(client: AsyncClient):
+async def test_post_dreaming_run_returns_job_id(client: AsyncClient, monkeypatch):
+    async def noop_pipeline(job_id: str, doc_id: str | None = None) -> None:
+        _ = job_id, doc_id
+
+    monkeypatch.setattr("app.api.dreaming.run_dreaming_pipeline", noop_pipeline)
+
     response = await client.post("/dreaming/run", json={})
     assert response.status_code == 202
     assert "job_id" in response.json()
@@ -101,7 +106,12 @@ async def test_post_query_returns_query_response(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_post_reconcile(client: AsyncClient):
+async def test_post_reconcile(client: AsyncClient, monkeypatch):
+    async def mock_reconcile() -> int:
+        return 0
+
+    monkeypatch.setattr("app.api.reconcile.reconcile", mock_reconcile)
+
     response = await client.post("/reconcile")
     assert response.status_code == 200
     assert response.json()["drift_count"] == 0

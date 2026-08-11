@@ -21,6 +21,7 @@ class DocumentRequest(BaseModel):
 
 class DreamingRunRequest(BaseModel):
     job_id: str | None = None
+    doc_id: str | None = None
 
 
 class GraphNode(BaseModel):
