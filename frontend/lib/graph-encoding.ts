@@ -142,6 +142,7 @@ export function toNvlGraph(
     historyNodeIds?: Set<string> | null;
     historyRelIds?: Set<string> | null;
     queryNodeIds?: Set<string> | null;
+    queryRelKeys?: Set<string> | null;
     pulsingIds?: Set<string> | null;
   } = {},
 ): { nodes: NvlNode[]; rels: NvlRelationship[] } {
@@ -160,22 +161,26 @@ export function toNvlGraph(
       return encodeNode(node, {
         selectedId: options.selectedId,
         dimmed,
-        historyHighlighted: inHistory,
+        historyHighlighted: inHistory || (queryActive && inQuery),
         pulsing,
       });
     });
 
   const nvlRels = relationships.map((rel) => {
     const inHistory = options.historyRelIds?.has(rel.id) ?? false;
+    const relKey = `${rel.from}->${rel.to}:${rel.type.toLowerCase()}`;
+    const inQuery = options.queryRelKeys?.has(relKey) ?? false;
     const pulsing =
       (options.pulsingIds?.has(rel.id) ||
         options.pulsingIds?.has(rel.from) ||
         options.pulsingIds?.has(rel.to)) ??
       false;
-    const dimmed = historyActive && !inHistory;
+    const dimmed =
+      (historyActive && !inHistory) ||
+      (queryActive && !inQuery && !historyActive);
     return encodeRelationship(rel, {
       dimmed,
-      historyHighlighted: inHistory || pulsing,
+      historyHighlighted: inHistory || inQuery || pulsing,
     });
   });
 

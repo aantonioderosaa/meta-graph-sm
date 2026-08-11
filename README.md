@@ -93,7 +93,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | E6 Frontend scaffold | completata |
 | E7 Graph Explorer | completata |
 | E8 Pipeline Monitor | completata |
-| E9 Query Panel | pending |
+| E9 Query Panel | completata |
 | E10 Qualità e accettazione | pending |
 
 ## Note Epic 0
@@ -131,3 +131,7 @@ Graph Explorer con `@neo4j-nvl/react` (`InteractiveNvlWrapper`, SSR off): fetch 
 ## Note Epic 8
 
 Pipeline Monitor offline-first: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` (default) usa `mockEventReplayer` (§10); `false` + `job_id` → SSE reale `/events/stream`. Step live + log JSON. Pulse sul Graph Explorer (~600ms) se `fact_id`/`src`/`tgt` sono già nel grafo; altrimenti no-op silenzioso. Bridge unico in `PipelineEventBridge`.
+
+## Note Epic 9
+
+Query Panel: input NL → `POST /query` (default, E9.3) oppure fixture con `NEXT_PUBLIC_USE_QUERY_FIXTURE=true`. Citazioni cliccabili aprono il dettaglio fatto; `subgraph` va nello store e il Graph Explorer evidenzia nodi/archi dimmando il resto. SYNC POINT 2 raggiunto sul fronte FE.

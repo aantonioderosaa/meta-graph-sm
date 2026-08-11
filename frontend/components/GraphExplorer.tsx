@@ -111,6 +111,14 @@ export function GraphExplorer() {
         : null,
     [querySubgraph],
   );
+  const queryRelKeys = useMemo(() => {
+    if (!querySubgraph) return null;
+    return new Set(
+      querySubgraph.relationships.map(
+        (r) => `${r.source}->${r.target}:${r.type.toLowerCase()}`,
+      ),
+    );
+  }, [querySubgraph]);
   const pulsingIdSet = useMemo(() => new Set(pulsingIds), [pulsingIds]);
 
   const { nodes: nvlNodes, rels: nvlRels } = useMemo(
@@ -120,6 +128,7 @@ export function GraphExplorer() {
         historyNodeIds,
         historyRelIds,
         queryNodeIds,
+        queryRelKeys,
         pulsingIds: pulsingIdSet,
       }),
     [
@@ -129,6 +138,7 @@ export function GraphExplorer() {
       historyNodeIds,
       historyRelIds,
       queryNodeIds,
+      queryRelKeys,
       pulsingIdSet,
     ],
   );
