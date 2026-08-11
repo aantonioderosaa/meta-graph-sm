@@ -7,78 +7,89 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 - [Scope e semantica](./milestone1/milestone1.md)
 - [Specifica tecnica](./milestone1/milestone1-tech-spec.md)
 - [Piano implementativo (epic/task)](./milestone1/milestone1-implementation-plan.md)
+- [Checklist UI manuale §8](./milestone1/e10-manual-ui-checklist.md)
 
 ## Prerequisiti
 
-- Docker Desktop (Neo4j + GDS)
-- Python **3.12+** (testato anche con 3.13)
-- Node.js **22+** / npm
-- (da Epic 3+) chiave OpenAI in `.env`
+- Docker Desktop (stack completo o solo Neo4j)
+- Python **3.12+** / Node.js **22+** (solo se non usi Compose per backend/frontend)
+- Chiave OpenAI in `.env` (estrazione/dreaming/query reali)
 
-## Avvio locale (meno di 15 min)
+## Avvio consigliato — tutto lo stack
 
 ```bash
-# 1. Env
 cp .env.example .env
+# Imposta OPENAI_API_KEY e NEO4J_PASSWORD
 
-# 2. Neo4j + Graph Data Science
+docker compose up --build
+# Neo4j Browser  http://localhost:7474
+# Backend API    http://localhost:8000/docs
+# Frontend UI    http://localhost:3000
+```
+
+Ordine di avvio: Neo4j (healthy) → backend (AUTO_MIGRATE + health) → frontend.
+
+Ciclo tipico in UI (con `NEXT_PUBLIC_USE_MOCK_EVENTS=false`):
+
+1. Ingest documento dalla barra eventi (doc_id + testo → **Ingest**)
+2. Osserva Pipeline Monitor (SSE)
+3. **Dream** per consolidamento/relazioni
+4. Esplora il grafo; interroga dal Query Panel
+
+## Avvio locale (dev, meno di 15 min)
+
+```bash
+cp .env.example .env
 docker compose up -d neo4j
-# Browser: http://localhost:7474  |  Bolt: bolt://localhost:7687
-# Credenziali: neo4j / valore di NEO4J_PASSWORD (.env)
-# Verifica GDS: CALL gds.version();
 
-# 3. Backend
 cd backend
 python -m venv .venv
 # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 uvicorn app.main:app --reload --port 8000
-# Health: http://localhost:8000/health  →  {"status":"not_implemented"}
 
-# 4. Frontend (altra shell)
-cd frontend
-cp .env.local.example .env.local   # opzionale
+cd ../frontend
+cp .env.local.example .env.local
+# Per SSE reale: NEXT_PUBLIC_USE_MOCK_EVENTS=false
 npm ci --legacy-peer-deps
 npm run dev
-# UI: http://localhost:3000
 ```
 
-Lo schema Neo4j (constraint, indici, vector index 768/cosine) viene applicato automaticamente all'avvio del backend se `AUTO_MIGRATE=true` (default). In alternativa:
+## Test
 
 ```bash
-cd backend
-python scripts/init_db.py
+# Backend — unit (veloci, no Docker)
+cd backend && pytest -q --ignore=tests/test_schema.py --ignore=tests/test_health.py \
+  --ignore=tests/test_ingestion_integration.py --ignore=tests/test_dreaming_integration.py \
+  --ignore=tests/test_query_integration.py --ignore=tests/test_acceptance_milestone1.py \
+  --ignore=tests/test_embeddings.py
+
+# Backend — accettazione §8 + integrazione (richiede Docker)
+cd backend && pytest -q tests/test_acceptance_milestone1.py --tb=short
+
+# Frontend
+cd frontend && npm test && npm run lint && npm run build
 ```
 
 ## Convenzione commit
 
-Usare [Conventional Commits](https://www.conventionalcommits.org/):
-
-- `feat:` nuova funzionalità
-- `fix:` bugfix
-- `chore:` tooling / infra / deps
-- `test:` test
-- `docs:` documentazione
-
-Esempio: `chore(e0): scaffold repo, CI e Neo4j compose`
+[Conventional Commits](https://www.conventionalcommits.org/): `feat:` / `fix:` / `chore:` / `test:` / `docs:`
 
 ## CI
 
-Su ogni `push` / `pull_request` verso `main`, GitHub Actions esegue in parallelo:
+Su ogni `push` / `pull_request` verso `main`:
 
-- **backend**: `ruff check` + `pytest` (i test di schema usano Testcontainers — Docker richiesto sul runner)
-- **frontend**: `npm ci --legacy-peer-deps` + `npm run lint` + `npm run build`
+- **backend** — ruff + unit pytest
+- **backend-integration** — suite Neo4j/GDS via Testcontainers (include accettazione §14)
+- **frontend** — lint + vitest + build
 
 Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 
-## Struttura repo
+## Note operative
 
-```
-backend/          FastAPI (app/, tests/, scripts/init_db.py)
-frontend/         Next.js App Router + shadcn/ui + Zustand + NVL
-milestone1/       requisiti e piano
-docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
-```
+- **OpenAI costi/rate-limit**: tutte le chiamate passano da `app/core/llm_client.py` (retry, timeout 30s, semaforo `LLM_MAX_CONCURRENCY`) — tech-spec §18.
+- **Cambio modello embedding**: gli indici vettoriali sono fissati a 768 dim (`BAAI/bge-base-en-v1.5`); un cambio modello richiede ricreare indici e ricalcolare embedding — tech-spec §15.
+- **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline; `NEXT_PUBLIC_USE_QUERY_FIXTURE=true` per Query Panel senza backend.
 
 ## Progresso Milestone 1
 
@@ -94,44 +105,8 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | E7 Graph Explorer | completata |
 | E8 Pipeline Monitor | completata |
 | E9 Query Panel | completata |
-| E10 Qualità e accettazione | pending |
+| E10 Qualità e accettazione | completata |
 
-## Note Epic 0
+## Note Epic 10
 
-Nessuna logica applicativa (modelli dominio, endpoint di business, componenti React di prodotto): solo infrastruttura condivisa per le epic successive.
-
-## Note Epic 1
-
-Schema Cypher versionato in `backend/app/db/schema.cypher` (tech-spec §4.2), bootstrap idempotente via `scripts/init_db.py` e hook `AUTO_MIGRATE` all'avvio FastAPI. Vector index su `Fact.embedding` e `Chunk.embedding`: 768 dimensioni, similarità cosine.
-
-## Note Epic 2
-
-Contratti API/eventi congelati (SYNC POINT 1): modelli Pydantic §17 in `backend/app/models/`, endpoint REST stub in `backend/app/api/`, SSE su `/events/stream`, wrapper LLM unico in `app/core/llm_client.py`. `GET /health` verifica Neo4j + GDS. OpenAPI: `http://localhost:8000/docs`.
-
-## Note Epic 3
-
-`POST /documents` esegue la pipeline reale: chunking → embedding locale (`BAAI/bge-base-en-v1.5`, 768 dim) → scrittura `Chunk` → estrazione LLM via wrapper → `Fact`+`DERIVED_FROM` (rumore scartato). Eventi SSE fino a `pipeline_complete`. Richiede `OPENAI_API_KEY` in `.env` per estrazione reale; i test mockano l'LLM. Primo caricamento del modello embedding: diversi minuti a freddo (download), poi singleton in memoria.
-
-## Note Epic 4
-
-`POST /dreaming/run` esegue grouping GDS (kNN mutate + WCC), consolidamento, classificazione relazioni con flip atomico di `is_latest`, e riconciliazione §7 (`drift_check`). Test critico: `test_update_targets_chain_head_not_historical_node`.
-
-## Note Epic 5
-
-Endpoint query reali (stub E2.5 sostituiti): `GET /facts/{id}` (+ provenienza chunk), `GET /facts/{id}/history` (catena `UPDATES`), `POST /query` (embedding → vector search solo `is_latest` → espansione EXTENDS/DERIVES → risposta LLM), `GET /graph` (formato NVL, senza Chunk; `is_latest=false` include lo storico), `POST /reconcile`. Logica in `backend/app/pipeline/query_engine.py`.
-
-## Note Epic 6
-
-Dashboard a 3 pannelli (`DashboardShell`): Graph Explorer centrale + Pipeline Monitor / Query Panel (Sheet su desktop, Tabs su mobile). Client API tipizzato unico in `frontend/lib/api-client.ts` (tipi hand-written in `lib/types.ts`, allineati agli schemi Pydantic). Store Zustand in `lib/store.ts` (slice graph / pipelineEvents / querySubgraph). Test store: `npm test` (vitest).
-
-## Note Epic 7
-
-Graph Explorer con `@neo4j-nvl/react` (`InteractiveNvlWrapper`, SSR off): fetch reale `GET /graph`, encoding §11.1 in `lib/graph-encoding.ts`, dettaglio fatto su click, catena `UPDATES` su doppio click, toggle «Solo correnti». Checklist: `frontend/docs/e7-visual-encoding-checklist.md`. Nessuna fixture nel componente (E7.6).
-
-## Note Epic 8
-
-Pipeline Monitor offline-first: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` (default) usa `mockEventReplayer` (§10); `false` + `job_id` → SSE reale `/events/stream`. Step live + log JSON. Pulse sul Graph Explorer (~600ms) se `fact_id`/`src`/`tgt` sono già nel grafo; altrimenti no-op silenzioso. Bridge unico in `PipelineEventBridge`.
-
-## Note Epic 9
-
-Query Panel: input NL → `POST /query` (default, E9.3) oppure fixture con `NEXT_PUBLIC_USE_QUERY_FIXTURE=true`. Citazioni cliccabili aprono il dettaglio fatto; `subgraph` va nello store e il Graph Explorer evidenzia nodi/archi dimmando il resto. SYNC POINT 2 raggiunto sul fronte FE.
+Suite accettazione `tests/test_acceptance_milestone1.py` (8/8 criteri §8). `docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: `milestone1/e10-manual-ui-checklist.md`. CI con job `backend-integration` come gate.

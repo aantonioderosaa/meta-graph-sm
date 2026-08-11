@@ -25,8 +25,43 @@ jobs:
           pip install -e ".[dev]"
       - name: Ruff
         run: ruff check .
-      - name: Pytest
-        run: pytest
+      - name: Unit tests (no Docker)
+        run: >
+          pytest -q
+          --ignore=tests/test_schema.py
+          --ignore=tests/test_health.py
+          --ignore=tests/test_ingestion_integration.py
+          --ignore=tests/test_dreaming_integration.py
+          --ignore=tests/test_query_integration.py
+          --ignore=tests/test_acceptance_milestone1.py
+          --ignore=tests/test_embeddings.py
+
+  backend-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Acceptance + integration (Docker / testcontainers)
+        run: >
+          pytest -q
+          tests/test_schema.py
+          tests/test_health.py
+          tests/test_ingestion_integration.py
+          tests/test_dreaming_integration.py
+          tests/test_query_integration.py
+          tests/test_acceptance_milestone1.py
+          --tb=short
 
   frontend:
     runs-on: ubuntu-latest
@@ -44,5 +79,7 @@ jobs:
         run: npm ci --legacy-peer-deps
       - name: Lint
         run: npm run lint
+      - name: Unit tests
+        run: npm test
       - name: Build
         run: npm run build

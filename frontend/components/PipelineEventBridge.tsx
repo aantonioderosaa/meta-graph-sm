@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * Single mount point for pipeline event subscription (avoids duplicate
- * EventSource / mock replays when the monitor is rendered in multiple places).
+ * Single mount point for pipeline event subscription + document ingest (E8/E10).
  */
 
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { postDocuments, postDreamingRun } from "@/lib/api-client";
 import { useEventStream, useMockEventsFlag } from "@/lib/useEventStream";
 import { useAppStore } from "@/lib/store";
 
@@ -15,6 +15,10 @@ export function PipelineEventBridge() {
   const useMock = useMockEventsFlag();
   const [jobId, setJobId] = useState("");
   const [restartToken, setRestartToken] = useState(0);
+  const [docId, setDocId] = useState("doc-1");
+  const [docText, setDocText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const clearPipelineEvents = useAppStore((s) => s.clearPipelineEvents);
 
   const { mode } = useEventStream({
@@ -23,23 +27,68 @@ export function PipelineEventBridge() {
     restartToken,
   });
 
+  async function onIngest() {
+    if (!docText.trim()) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const { job_id } = await postDocuments({
+        doc_id: docId || "doc-1",
+        text: docText,
+      });
+      setJobId(job_id);
+      setRestartToken((t) => t + 1);
+      setStatus(`Ingest avviato · job_id=${job_id}`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Ingest fallito");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDream() {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const { job_id } = await postDreamingRun({});
+      setJobId(job_id);
+      setRestartToken((t) => t + 1);
+      setStatus(`Dreaming avviato · job_id=${job_id}`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Dreaming fallito");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div
-      className="flex flex-wrap items-center gap-2 border-b border-border/40 bg-muted/20 px-3 py-1.5 text-[10px] text-muted-foreground"
-      data-pipeline-mode={mode}
-    >
-      <span>
-        Eventi: <strong className="text-foreground">{mode}</strong>
-        {useMock ? " (mock offline)" : null}
-      </span>
-      {!useMock ? (
-        <>
-          <input
-            className="min-w-[10rem] flex-1 rounded border border-input bg-background px-2 py-0.5 text-[11px] text-foreground"
-            placeholder="job_id SSE"
-            value={jobId}
-            onChange={(e) => setJobId(e.target.value.trim())}
-          />
+    <div className="space-y-2 border-b border-border/40 bg-muted/20 px-3 py-2 text-[10px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2" data-pipeline-mode={mode}>
+        <span>
+          Eventi: <strong className="text-foreground">{mode}</strong>
+          {useMock ? " (mock offline)" : null}
+        </span>
+        {!useMock ? (
+          <>
+            <input
+              className="min-w-[10rem] flex-1 rounded border border-input bg-background px-2 py-0.5 text-[11px] text-foreground"
+              placeholder="job_id SSE"
+              value={jobId}
+              onChange={(e) => setJobId(e.target.value.trim())}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[10px]"
+              onClick={() => {
+                clearPipelineEvents();
+                setRestartToken((t) => t + 1);
+              }}
+            >
+              Reset
+            </Button>
+          </>
+        ) : (
           <Button
             size="sm"
             variant="ghost"
@@ -49,22 +98,53 @@ export function PipelineEventBridge() {
               setRestartToken((t) => t + 1);
             }}
           >
-            Reset
+            Replay mock
           </Button>
-        </>
-      ) : (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 px-2 text-[10px]"
-          onClick={() => {
-            clearPipelineEvents();
-            setRestartToken((t) => t + 1);
-          }}
-        >
-          Replay mock
-        </Button>
-      )}
+        )}
+      </div>
+
+      {!useMock ? (
+        <div className="flex flex-col gap-1.5 md:flex-row md:items-end">
+          <label className="flex min-w-[8rem] flex-col gap-0.5">
+            <span>doc_id</span>
+            <input
+              className="rounded border border-input bg-background px-2 py-1 text-[11px] text-foreground"
+              value={docId}
+              onChange={(e) => setDocId(e.target.value)}
+            />
+          </label>
+          <label className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span>testo documento</span>
+            <textarea
+              className="min-h-[2.5rem] rounded border border-input bg-background px-2 py-1 text-[11px] text-foreground"
+              value={docText}
+              onChange={(e) => setDocText(e.target.value)}
+              placeholder="Incolla un paragrafo da ingerire…"
+            />
+          </label>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              className="h-7 text-[10px]"
+              disabled={busy || !docText.trim()}
+              onClick={() => void onIngest()}
+            >
+              Ingest
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px]"
+              disabled={busy}
+              onClick={() => void onDream()}
+            >
+              Dream
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {status ? <p className="text-[10px] text-foreground">{status}</p> : null}
     </div>
   );
 }
