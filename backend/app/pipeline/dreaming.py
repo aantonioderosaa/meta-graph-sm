@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from neo4j import AsyncSession
 
 from app.core import event_bus
+from app.core.config import settings
 from app.core.llm_client import LLMValidationError, get_token_usage
 from app.core.neo4j_client import get_driver
 from app.models.consolidation import ConsolidationOutcome, ConsolidationResult
@@ -159,6 +160,29 @@ async def _write_cleaned_fact(
     )
 
 
+async def _add_facts_as_individual_candidates(
+    session: AsyncSession,
+    fact_ids: list[str],
+    new_facts: list[NewFactForRelations],
+    successfully_processed_fact_ids: set[str],
+) -> None:
+    """Load each fact and queue it for relation detection on its own — used both
+    for singleton groups and, while ENABLE_DERIVES=False, for grouped facts that
+    would otherwise have been collapsed into an abstraction."""
+    for fact_id in fact_ids:
+        fact = await _load_fact(session, fact_id)
+        if fact is None:
+            continue
+        new_facts.append(
+            NewFactForRelations(
+                fact_id=fact["id"],
+                text=fact["text"],
+                embedding=fact["embedding"],
+            )
+        )
+        successfully_processed_fact_ids.add(fact_id)
+
+
 async def _process_consolidation_group(
     session: AsyncSession,
     *,
@@ -207,6 +231,15 @@ async def _process_consolidation_group(
 
     source_doc_id = await _resolve_source_doc_id(session, fact_ids)
     if result.outcome == ConsolidationOutcome.abstraction:
+        if not settings.ENABLE_DERIVES:
+            # derives disabled (default): don't collapse the group into an
+            # abstraction — evaluate each original fact individually for
+            # updates/extends instead. Re-enable via settings/.env (see
+            # milestone1-tech-spec discussion) once derives semantics are reworked.
+            await _add_facts_as_individual_candidates(
+                session, fact_ids, new_facts, successfully_processed_fact_ids
+            )
+            return
         new_fact = await _write_abstraction(session, result, source_doc_id, job_id)
         new_facts.append(new_fact)
         successfully_processed_fact_ids.update(fact_ids)
@@ -303,6 +336,10 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
     async with driver.session() as session:
         component_id = 0
         for group in groups:
+            # Consolidation always runs for multi-member groups (grouping + cleaned_fact
+            # dedup are independent of ENABLE_DERIVES); the flag only gates whether an
+            # "abstraction" outcome is allowed to collapse the group into a DERIVES fact
+            # (see _process_consolidation_group).
             if len(group) >= 2:
                 await _process_consolidation_group(
                     session,
@@ -316,18 +353,9 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
                 )
                 component_id += 1
             else:
-                for fact_id in group:
-                    fact = await _load_fact(session, fact_id)
-                    if fact is None:
-                        continue
-                    new_facts.append(
-                        NewFactForRelations(
-                            fact_id=fact["id"],
-                            text=fact["text"],
-                            embedding=fact["embedding"],
-                        )
-                    )
-                    successfully_processed_fact_ids.add(fact_id)
+                await _add_facts_as_individual_candidates(
+                    session, group, new_facts, successfully_processed_fact_ids
+                )
 
         for new_fact in new_facts:
             await _process_relation_detection(

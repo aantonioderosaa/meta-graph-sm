@@ -326,6 +326,10 @@ async def test_criterion_consolidation_abstraction_derives_sources_remain(
     neo4j_ready, monkeypatch
 ):
     """milestone1.md §8: consolidamento → DERIVES; sorgenti restano."""
+    # ENABLE_DERIVES defaults to False (kill-switch); this criterion explicitly
+    # re-enables it to keep validating the mechanism works when turned on.
+    monkeypatch.setattr("app.core.config.settings.ENABLE_DERIVES", True)
+
     base = _unit_vector(5)
     await _create_fact(fact_id="s1", text="Alice likes tea", embedding=base)
     await _create_fact(

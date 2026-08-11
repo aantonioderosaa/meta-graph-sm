@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     AUTO_MIGRATE: bool = True
     LLM_MAX_CONCURRENCY: int = 5
     CORS_ORIGINS: str = "http://localhost:3000"
+    # Temporary kill-switch: `derives` semantics need rework (see milestone1-tech-spec
+    # discussion) — while False, consolidation groups skip abstraction entirely and each
+    # fact is evaluated individually for updates/extends instead. Flip to re-enable.
+    ENABLE_DERIVES: bool = False
 
 
 settings = Settings()

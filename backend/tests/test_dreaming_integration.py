@@ -191,6 +191,10 @@ async def test_grouping_drops_fresh_facts_after_exception(neo4j_ready, monkeypat
 
 @pytest.mark.asyncio
 async def test_abstraction_writes_derives_sources_is_latest_unchanged(neo4j_ready, monkeypatch):
+    # ENABLE_DERIVES defaults to False (kill-switch); this test explicitly re-enables
+    # it to keep validating the abstraction mechanism itself works when turned on.
+    monkeypatch.setattr("app.core.config.settings.ENABLE_DERIVES", True)
+
     base = _unit_vector(10)
     await _create_fact(fact_id="s1", text="Alice likes tea.", embedding=base)
     await _create_fact(
@@ -250,6 +254,77 @@ async def test_abstraction_writes_derives_sources_is_latest_unchanged(neo4j_read
         latest_record = await latest.single()
         assert latest_record is not None
         assert latest_record["vals"] == [True, True]
+
+
+@pytest.mark.asyncio
+async def test_derives_disabled_by_default_ignores_abstraction_outcome(
+    neo4j_ready, monkeypatch
+):
+    """ENABLE_DERIVES defaults to False: consolidate_group still runs (grouping and
+    cleaned_fact dedup are independent of the flag) and group_formed still fires,
+    but an "abstraction" outcome must be ignored — no DERIVES edge, no fact_derived
+    event, no new hub fact; the original facts are evaluated individually instead."""
+    base = _unit_vector(11)
+    await _create_fact(fact_id="d1", text="Alice likes coffee.", embedding=base)
+    await _create_fact(
+        fact_id="d2",
+        text="Alice prefers coffee.",
+        embedding=_similar_vector(base),
+    )
+
+    async def mock_consolidate(facts, job_id=None):
+        _ = facts, job_id
+        return ConsolidationResult(
+            outcome=ConsolidationOutcome.abstraction,
+            text="Alice likes coffee (abstraction attempt).",
+            type=FactType.preference,
+            source_fact_ids=["d1", "d2"],
+        )
+
+    async def mock_classify(n_text, v_text, job_id=None):
+        _ = n_text, v_text, job_id
+        return RelationClassification(relation=RelationLabel.none)
+
+    monkeypatch.setattr("app.pipeline.dreaming.consolidation.consolidate_group", mock_consolidate)
+    monkeypatch.setattr("app.pipeline.dreaming.relations.classify_relation", mock_classify)
+
+    job_id = "job-derives-disabled"
+    queue = await event_bus.subscribe(job_id)
+    await run_dreaming_pipeline(job_id)
+
+    events = []
+    while True:
+        event = await asyncio.wait_for(queue.get(), timeout=5)
+        events.append(event)
+        if event.get("stage") == "done":
+            break
+
+    assert not [e for e in events if e["event"] == "fact_derived"]
+    group_events = [e for e in events if e["event"] == "group_formed"]
+    assert len(group_events) == 1
+    assert set(group_events[0]["payload"]["fact_ids"]) == {"d1", "d2"}
+
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        derives = await session.run("MATCH ()-[r:DERIVES]->() RETURN count(r) AS n")
+        record = await derives.single()
+        assert record is not None
+        assert record["n"] == 0
+
+        # No new abstraction fact was created: still exactly d1 and d2.
+        total = await session.run(
+            "MATCH (f:Fact) WHERE f.id IN ['d1', 'd2'] RETURN count(f) AS n"
+        )
+        total_record = await total.single()
+        assert total_record is not None
+        assert total_record["n"] == 2
+
+        facts = await session.run(
+            "MATCH (f:Fact) WHERE f.id IN ['d1', 'd2'] RETURN collect(f.dreamed) AS dreamed"
+        )
+        facts_record = await facts.single()
+        assert facts_record is not None
+        assert facts_record["dreamed"] == [True, True]
 
 
 @pytest.mark.asyncio

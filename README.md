@@ -90,6 +90,7 @@ Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 - **OpenAI costi/rate-limit**: tutte le chiamate passano da `app/core/llm_client.py` (retry, timeout 30s, semaforo `LLM_MAX_CONCURRENCY`) — tech-spec §18.
 - **Cambio modello embedding**: gli indici vettoriali sono fissati a 768 dim (`BAAI/bge-base-en-v1.5`); un cambio modello richiede ricreare indici e ricalcolare embedding — tech-spec §15.
 - **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline; `NEXT_PUBLIC_USE_QUERY_FIXTURE=true` per Query Panel senza backend.
+- **`derives` temporaneamente disattivata**: `ENABLE_DERIVES=false` (default) — la semantica dell'astrazione va rivista (vedi discussione in chat/tech-spec) prima di riabilitarla. Con il flag off, i gruppi di fatti simili non vengono più collassati in un'astrazione: ogni fatto è valutato singolarmente per `updates`/`extends`. `ENABLE_DERIVES=true` riattiva il meccanismo com'era.
 
 ## Progresso Milestone 1
 
