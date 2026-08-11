@@ -38,9 +38,16 @@ uvicorn app.main:app --reload --port 8000
 # 4. Frontend (altra shell)
 cd frontend
 cp .env.local.example .env.local   # opzionale
-npm ci
+npm ci --legacy-peer-deps
 npm run dev
 # UI: http://localhost:3000
+```
+
+Lo schema Neo4j (constraint, indici, vector index 768/cosine) viene applicato automaticamente all'avvio del backend se `AUTO_MIGRATE=true` (default). In alternativa:
+
+```bash
+cd backend
+python scripts/init_db.py
 ```
 
 ## Convenzione commit
@@ -59,15 +66,15 @@ Esempio: `chore(e0): scaffold repo, CI e Neo4j compose`
 
 Su ogni `push` / `pull_request` verso `main`, GitHub Actions esegue in parallelo:
 
-- **backend**: `ruff check` + `pytest`
-- **frontend**: `npm ci` + `npm run lint` + `npm run build`
+- **backend**: `ruff check` + `pytest` (i test di schema usano Testcontainers — Docker richiesto sul runner)
+- **frontend**: `npm ci --legacy-peer-deps` + `npm run lint` + `npm run build`
 
 Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 
 ## Struttura repo
 
 ```
-backend/          FastAPI (app/, tests/)
+backend/          FastAPI (app/, tests/, scripts/init_db.py)
 frontend/         Next.js App Router + shadcn/ui + Zustand + NVL
 milestone1/       requisiti e piano
 docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
@@ -78,7 +85,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | Epic | Stato |
 |------|--------|
 | E0 Fondamenta progetto | completata |
-| E1 Schema dati Neo4j | pending |
+| E1 Schema dati Neo4j | completata |
 | E2 Backend skeleton + contratti | pending |
 | E3 Ingestione | pending |
 | E4 Dreaming | pending |
@@ -92,3 +99,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 ## Note Epic 0
 
 Nessuna logica applicativa (modelli dominio, endpoint di business, componenti React di prodotto): solo infrastruttura condivisa per le epic successive.
+
+## Note Epic 1
+
+Schema Cypher versionato in `backend/app/db/schema.cypher` (tech-spec §4.2), bootstrap idempotente via `scripts/init_db.py` e hook `AUTO_MIGRATE` all'avvio FastAPI. Vector index su `Fact.embedding` e `Chunk.embedding`: 768 dimensioni, similarità cosine.
