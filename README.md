@@ -90,7 +90,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | E3 Ingestione | completata |
 | E4 Dreaming | completata |
 | E5 Query engine | completata |
-| E6 Frontend scaffold | pending |
+| E6 Frontend scaffold | completata |
 | E7 Graph Explorer | pending |
 | E8 Pipeline Monitor | pending |
 | E9 Query Panel | pending |
@@ -119,3 +119,7 @@ Contratti API/eventi congelati (SYNC POINT 1): modelli Pydantic §17 in `backend
 ## Note Epic 5
 
 Endpoint query reali (stub E2.5 sostituiti): `GET /facts/{id}` (+ provenienza chunk), `GET /facts/{id}/history` (catena `UPDATES`), `POST /query` (embedding → vector search solo `is_latest` → espansione EXTENDS/DERIVES → risposta LLM), `GET /graph` (formato NVL, senza Chunk; `is_latest=false` include lo storico), `POST /reconcile`. Logica in `backend/app/pipeline/query_engine.py`.
+
+## Note Epic 6
+
+Dashboard a 3 pannelli (`DashboardShell`): Graph Explorer centrale + Pipeline Monitor / Query Panel (Sheet su desktop, Tabs su mobile). Client API tipizzato unico in `frontend/lib/api-client.ts` (tipi hand-written in `lib/types.ts`, allineati agli schemi Pydantic). Store Zustand in `lib/store.ts` (slice graph / pipelineEvents / querySubgraph). Test store: `npm test` (vitest).
