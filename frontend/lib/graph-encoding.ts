@@ -78,6 +78,7 @@ export function encodeNode(
     selectedId?: string | null;
     dimmed?: boolean;
     historyHighlighted?: boolean;
+    pulsing?: boolean;
   } = {},
 ): NvlNode {
   const type = factTypeOf(node);
@@ -85,12 +86,13 @@ export function encodeNode(
   const base = FACT_TYPE_COLORS[type];
   const selected = options.selectedId === node.id;
   const historyHighlighted = options.historyHighlighted === true;
+  const pulsing = options.pulsing === true;
 
   let color = historical ? hexToRgba(base, HISTORICAL_ALPHA) : base;
-  if (options.dimmed && !selected && !historyHighlighted) {
+  if (options.dimmed && !selected && !historyHighlighted && !pulsing) {
     color = hexToRgba(base, historical ? 0.15 : 0.25);
   }
-  if (historyHighlighted) {
+  if (historyHighlighted || pulsing) {
     color = base;
   }
 
@@ -100,10 +102,10 @@ export function encodeNode(
   return {
     id: node.id,
     caption: caption.length > 48 ? `${caption.slice(0, 45)}…` : caption,
-    size: NODE_SIZE,
+    size: pulsing ? NODE_SIZE + 10 : NODE_SIZE,
     color,
-    selected: selected || historyHighlighted,
-    disabled: historical && !historyHighlighted && !selected,
+    selected: selected || historyHighlighted || pulsing,
+    disabled: historical && !historyHighlighted && !selected && !pulsing,
   };
 }
 
@@ -140,6 +142,7 @@ export function toNvlGraph(
     historyNodeIds?: Set<string> | null;
     historyRelIds?: Set<string> | null;
     queryNodeIds?: Set<string> | null;
+    pulsingIds?: Set<string> | null;
   } = {},
 ): { nodes: NvlNode[]; rels: NvlRelationship[] } {
   const historyActive = Boolean(options.historyNodeIds?.size);
@@ -150,21 +153,29 @@ export function toNvlGraph(
     .map((node) => {
       const inHistory = options.historyNodeIds?.has(node.id) ?? false;
       const inQuery = options.queryNodeIds?.has(node.id) ?? false;
+      const pulsing = options.pulsingIds?.has(node.id) ?? false;
       const dimmed =
-        (historyActive && !inHistory) || (queryActive && !inQuery && !historyActive);
+        (historyActive && !inHistory) ||
+        (queryActive && !inQuery && !historyActive);
       return encodeNode(node, {
         selectedId: options.selectedId,
         dimmed,
         historyHighlighted: inHistory,
+        pulsing,
       });
     });
 
   const nvlRels = relationships.map((rel) => {
     const inHistory = options.historyRelIds?.has(rel.id) ?? false;
+    const pulsing =
+      (options.pulsingIds?.has(rel.id) ||
+        options.pulsingIds?.has(rel.from) ||
+        options.pulsingIds?.has(rel.to)) ??
+      false;
     const dimmed = historyActive && !inHistory;
     return encodeRelationship(rel, {
       dimmed,
-      historyHighlighted: inHistory,
+      historyHighlighted: inHistory || pulsing,
     });
   });
 

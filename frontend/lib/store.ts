@@ -21,12 +21,15 @@ interface GraphSlice {
     relIds: string[];
   } | null;
   onlyLatest: boolean;
+  /** Node/rel ids currently pulsing from pipeline events (E8.3). */
+  pulsingIds: string[];
   setGraph: (nodes: GraphNode[], relationships: GraphRelationship[]) => void;
   setSelectedFactId: (id: string | null) => void;
   setHistoryHighlight: (
     highlight: { nodeIds: string[]; relIds: string[] } | null,
   ) => void;
   setOnlyLatest: (value: boolean) => void;
+  pulseEntities: (ids: string[]) => void;
 }
 
 interface PipelineSlice {
@@ -51,10 +54,22 @@ export const useAppStore = create<AppStore>((set) => ({
   selectedFactId: null,
   historyHighlight: null,
   onlyLatest: true,
+  pulsingIds: [],
   setGraph: (nodes, relationships) => set({ nodes, relationships }),
   setSelectedFactId: (selectedFactId) => set({ selectedFactId }),
   setHistoryHighlight: (historyHighlight) => set({ historyHighlight }),
   setOnlyLatest: (onlyLatest) => set({ onlyLatest }),
+  pulseEntities: (ids) => {
+    if (ids.length === 0) return;
+    set((state) => ({
+      pulsingIds: Array.from(new Set([...state.pulsingIds, ...ids])),
+    }));
+    const clear = () =>
+      set((state) => ({
+        pulsingIds: state.pulsingIds.filter((id) => !ids.includes(id)),
+      }));
+    globalThis.setTimeout(clear, 600);
+  },
 
   // pipelineEvents
   pipelineEvents: [],

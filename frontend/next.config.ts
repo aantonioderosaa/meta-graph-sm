@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000",
+    NEXT_PUBLIC_USE_MOCK_EVENTS:
+      process.env.NEXT_PUBLIC_USE_MOCK_EVENTS ?? "true",
   },
   transpilePackages: [
     "@neo4j-nvl/react",

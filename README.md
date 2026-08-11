@@ -92,7 +92,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | E5 Query engine | completata |
 | E6 Frontend scaffold | completata |
 | E7 Graph Explorer | completata |
-| E8 Pipeline Monitor | pending |
+| E8 Pipeline Monitor | completata |
 | E9 Query Panel | pending |
 | E10 Qualità e accettazione | pending |
 
@@ -127,3 +127,7 @@ Dashboard a 3 pannelli (`DashboardShell`): Graph Explorer centrale + Pipeline Mo
 ## Note Epic 7
 
 Graph Explorer con `@neo4j-nvl/react` (`InteractiveNvlWrapper`, SSR off): fetch reale `GET /graph`, encoding §11.1 in `lib/graph-encoding.ts`, dettaglio fatto su click, catena `UPDATES` su doppio click, toggle «Solo correnti». Checklist: `frontend/docs/e7-visual-encoding-checklist.md`. Nessuna fixture nel componente (E7.6).
+
+## Note Epic 8
+
+Pipeline Monitor offline-first: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` (default) usa `mockEventReplayer` (§10); `false` + `job_id` → SSE reale `/events/stream`. Step live + log JSON. Pulse sul Graph Explorer (~600ms) se `fact_id`/`src`/`tgt` sono già nel grafo; altrimenti no-op silenzioso. Bridge unico in `PipelineEventBridge`.

@@ -19,6 +19,7 @@ describe("useAppStore", () => {
       selectedFactId: null,
       historyHighlight: null,
       onlyLatest: true,
+      pulsingIds: [],
       pipelineEvents: [],
       lastPipelineEvent: null,
       querySubgraph: null,

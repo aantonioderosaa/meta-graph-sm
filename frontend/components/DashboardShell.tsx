@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Activity, MessageSquareText, Network } from "lucide-react";
 
 import { GraphExplorerPanel } from "@/components/GraphExplorerPanel";
+import { PipelineEventBridge } from "@/components/PipelineEventBridge";
 import { PipelineMonitorPanel } from "@/components/PipelineMonitorPanel";
 import { QueryPanel } from "@/components/QueryPanel";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,8 @@ export function DashboardShell() {
           </Sheet>
         </div>
       </header>
+
+      <PipelineEventBridge />
 
       {/* Desktop / tablet: graph dominates; side panels visible below */}
       <div className="hidden flex-1 flex-col gap-3 p-3 md:flex lg:flex-row">

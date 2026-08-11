@@ -35,10 +35,13 @@ export function GraphExplorer() {
   const historyHighlight = useAppStore((s) => s.historyHighlight);
   const onlyLatest = useAppStore((s) => s.onlyLatest);
   const querySubgraph = useAppStore((s) => s.querySubgraph);
+  const lastPipelineEvent = useAppStore((s) => s.lastPipelineEvent);
+  const pulsingIds = useAppStore((s) => s.pulsingIds);
   const setGraph = useAppStore((s) => s.setGraph);
   const setSelectedFactId = useAppStore((s) => s.setSelectedFactId);
   const setHistoryHighlight = useAppStore((s) => s.setHistoryHighlight);
   const setOnlyLatest = useAppStore((s) => s.setOnlyLatest);
+  const pulseEntities = useAppStore((s) => s.pulseEntities);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +69,33 @@ export function GraphExplorer() {
     void loadGraph();
   }, [loadGraph, reloadToken]);
 
+  // Pulse nodes/edges referenced by pipeline events (E8.3). Missing ids → no-op.
+  useEffect(() => {
+    if (!lastPipelineEvent) return;
+    const payload = lastPipelineEvent.payload;
+    const candidates: string[] = [];
+    for (const key of ["fact_id", "src", "tgt"] as const) {
+      const value = payload[key];
+      if (typeof value === "string") candidates.push(value);
+    }
+    const factIds = payload.fact_ids;
+    if (Array.isArray(factIds)) {
+      for (const id of factIds) {
+        if (typeof id === "string") candidates.push(id);
+      }
+    }
+    if (candidates.length === 0) return;
+
+    const present = new Set([
+      ...nodes.map((n) => n.id),
+      ...relationships.map((r) => r.id),
+    ]);
+    const toPulse = candidates.filter((id) => present.has(id));
+    if (toPulse.length > 0) {
+      pulseEntities(toPulse);
+    }
+  }, [lastPipelineEvent, nodes, relationships, pulseEntities]);
+
   const historyNodeIds = useMemo(
     () => (historyHighlight ? new Set(historyHighlight.nodeIds) : null),
     [historyHighlight],
@@ -81,6 +111,7 @@ export function GraphExplorer() {
         : null,
     [querySubgraph],
   );
+  const pulsingIdSet = useMemo(() => new Set(pulsingIds), [pulsingIds]);
 
   const { nodes: nvlNodes, rels: nvlRels } = useMemo(
     () =>
@@ -89,6 +120,7 @@ export function GraphExplorer() {
         historyNodeIds,
         historyRelIds,
         queryNodeIds,
+        pulsingIds: pulsingIdSet,
       }),
     [
       nodes,
@@ -97,6 +129,7 @@ export function GraphExplorer() {
       historyNodeIds,
       historyRelIds,
       queryNodeIds,
+      pulsingIdSet,
     ],
   );
 
