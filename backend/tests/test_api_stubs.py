@@ -33,7 +33,12 @@ async def test_openapi_docs_available(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_post_documents_returns_job_id(client: AsyncClient):
+async def test_post_documents_returns_job_id(client: AsyncClient, monkeypatch):
+    async def noop_pipeline(doc_id: str, text: str, job_id: str) -> None:
+        _ = doc_id, text, job_id
+
+    monkeypatch.setattr("app.api.documents.run_ingestion_pipeline", noop_pipeline)
+
     response = await client.post(
         "/documents",
         json={"doc_id": "doc-1", "text": "Sample document text."},

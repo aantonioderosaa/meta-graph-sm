@@ -87,7 +87,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | E0 Fondamenta progetto | completata |
 | E1 Schema dati Neo4j | completata |
 | E2 Backend skeleton + contratti | completata |
-| E3 Ingestione | pending |
+| E3 Ingestione | completata |
 | E4 Dreaming | pending |
 | E5 Query engine | pending |
 | E6 Frontend scaffold | pending |
@@ -107,3 +107,7 @@ Schema Cypher versionato in `backend/app/db/schema.cypher` (tech-spec §4.2), bo
 ## Note Epic 2
 
 Contratti API/eventi congelati (SYNC POINT 1): modelli Pydantic §17 in `backend/app/models/`, endpoint REST stub in `backend/app/api/`, SSE su `/events/stream`, wrapper LLM unico in `app/core/llm_client.py`. `GET /health` verifica Neo4j + GDS. OpenAPI: `http://localhost:8000/docs`.
+
+## Note Epic 3
+
+`POST /documents` esegue la pipeline reale: chunking → embedding locale (`BAAI/bge-base-en-v1.5`, 768 dim) → scrittura `Chunk` → estrazione LLM via wrapper → `Fact`+`DERIVED_FROM` (rumore scartato). Eventi SSE fino a `pipeline_complete`. Richiede `OPENAI_API_KEY` in `.env` per estrazione reale; i test mockano l'LLM. Primo caricamento del modello embedding: diversi minuti a freddo (download), poi singleton in memoria.
