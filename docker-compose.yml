@@ -28,6 +28,7 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
       AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
       LLM_MAX_CONCURRENCY: ${LLM_MAX_CONCURRENCY:-5}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     depends_on:
       neo4j:
         condition: service_healthy
