@@ -89,7 +89,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 | E2 Backend skeleton + contratti | completata |
 | E3 Ingestione | completata |
 | E4 Dreaming | completata |
-| E5 Query engine | pending |
+| E5 Query engine | completata |
 | E6 Frontend scaffold | pending |
 | E7 Graph Explorer | pending |
 | E8 Pipeline Monitor | pending |
@@ -115,3 +115,7 @@ Contratti API/eventi congelati (SYNC POINT 1): modelli Pydantic §17 in `backend
 ## Note Epic 4
 
 `POST /dreaming/run` esegue grouping GDS (kNN mutate + WCC), consolidamento, classificazione relazioni con flip atomico di `is_latest`, e riconciliazione §7 (`drift_check`). Test critico: `test_update_targets_chain_head_not_historical_node`.
+
+## Note Epic 5
+
+Endpoint query reali (stub E2.5 sostituiti): `GET /facts/{id}` (+ provenienza chunk), `GET /facts/{id}/history` (catena `UPDATES`), `POST /query` (embedding → vector search solo `is_latest` → espansione EXTENDS/DERIVES → risposta LLM), `GET /graph` (formato NVL, senza Chunk; `is_latest=false` include lo storico), `POST /reconcile`. Logica in `backend/app/pipeline/query_engine.py`.

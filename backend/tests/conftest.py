@@ -9,7 +9,12 @@ import pytest
 def configure_test_environment(monkeypatch, request):
     """Avoid Neo4j bootstrap during API/unit tests unless explicitly using Neo4j fixtures."""
     fixture_names = set(getattr(request, "fixturenames", ()))
-    if fixture_names & {"neo4j_container", "neo4j_driver", "neo4j_ready", "health_client"}:
+    if fixture_names & {
+        "neo4j_container",
+        "neo4j_driver",
+        "neo4j_ready",
+        "health_client",
+    }:
         return
 
     monkeypatch.setattr("app.core.config.settings.AUTO_MIGRATE", False)
