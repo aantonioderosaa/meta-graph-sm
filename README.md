@@ -86,7 +86,7 @@ docker-compose.yml   (Epic 0: solo Neo4j; backend/frontend in E10)
 |------|--------|
 | E0 Fondamenta progetto | completata |
 | E1 Schema dati Neo4j | completata |
-| E2 Backend skeleton + contratti | pending |
+| E2 Backend skeleton + contratti | completata |
 | E3 Ingestione | pending |
 | E4 Dreaming | pending |
 | E5 Query engine | pending |
@@ -103,3 +103,7 @@ Nessuna logica applicativa (modelli dominio, endpoint di business, componenti Re
 ## Note Epic 1
 
 Schema Cypher versionato in `backend/app/db/schema.cypher` (tech-spec §4.2), bootstrap idempotente via `scripts/init_db.py` e hook `AUTO_MIGRATE` all'avvio FastAPI. Vector index su `Fact.embedding` e `Chunk.embedding`: 768 dimensioni, similarità cosine.
+
+## Note Epic 2
+
+Contratti API/eventi congelati (SYNC POINT 1): modelli Pydantic §17 in `backend/app/models/`, endpoint REST stub in `backend/app/api/`, SSE su `/events/stream`, wrapper LLM unico in `app/core/llm_client.py`. `GET /health` verifica Neo4j + GDS. OpenAPI: `http://localhost:8000/docs`.
