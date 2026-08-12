@@ -37,6 +37,9 @@ export const RELATION_COLORS = {
 export const NODE_SIZE = 28;
 export const HISTORICAL_ALPHA = 0.4;
 
+/** Caption prefix for facts that replaced a previous version (outgoing UPDATES). */
+export const HAS_HISTORY_MARKER = "●";
+
 export type NvlNode = {
   id: string;
   caption: string;
@@ -81,6 +84,11 @@ export function isHistoricalNode(node: GraphNode): boolean {
   return node.properties?.is_latest === false;
 }
 
+/** True when the backend marked this fact as having replaced a prior version. */
+export function hasHistoryNode(node: GraphNode): boolean {
+  return node.properties?.has_history === true;
+}
+
 export function encodeNode(
   node: GraphNode,
   options: {
@@ -92,6 +100,7 @@ export function encodeNode(
 ): NvlNode {
   const type = factTypeOf(node);
   const historical = isHistoricalNode(node);
+  const hasHistory = hasHistoryNode(node);
   const base = FACT_TYPE_COLORS[type];
   const selected = options.selectedId === node.id;
   const historyHighlighted = options.historyHighlighted === true;
@@ -101,6 +110,7 @@ export function encodeNode(
   const signature = [
     type,
     historical ? "1" : "0",
+    hasHistory ? "1" : "0",
     selected ? "1" : "0",
     dimmed ? "1" : "0",
     historyHighlighted ? "1" : "0",
@@ -122,7 +132,10 @@ export function encodeNode(
   }
 
   const captionBase = node.caption || node.id;
-  const caption = historical ? `${captionBase} (storico)` : captionBase;
+  let caption = historical ? `${captionBase} (storico)` : captionBase;
+  if (hasHistory) {
+    caption = `${HAS_HISTORY_MARKER} ${caption}`;
+  }
 
   const value: NvlNode = {
     id: node.id,

@@ -293,7 +293,7 @@ async def test_reciprocal_pair_classified_once_per_cycle(neo4j_ready, monkeypatc
         "app.pipeline.dreaming.relations.classify_relation", mock_classify
     )
     monkeypatch.setattr(
-        "app.pipeline.dreaming.reconcile.reconcile",
+        "app.pipeline.dreaming.reconcile.reconcile_scoped",
         AsyncMock(return_value=0),
     )
 
@@ -384,7 +384,7 @@ async def test_classify_receives_locality_flags_from_via(neo4j_ready, monkeypatc
         "app.pipeline.dreaming.relations.classify_relation", mock_classify
     )
     monkeypatch.setattr(
-        "app.pipeline.dreaming.reconcile.reconcile",
+        "app.pipeline.dreaming.reconcile.reconcile_scoped",
         AsyncMock(return_value=0),
     )
 

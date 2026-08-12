@@ -473,6 +473,71 @@ async def test_get_graph_latest_filter_and_include_historical(neo4j_ready):
 
 
 @pytest.mark.asyncio
+async def test_get_graph_has_history_flag(neo4j_ready):
+    """V1.1: nodes with outgoing UPDATES get has_history=true; others false."""
+    await _create_fact(
+        fact_id="with-hist", text="Replaced something", embedding=_unit_vector(6), is_latest=True
+    )
+    await _create_fact(
+        fact_id="old", text="Old version", embedding=_unit_vector(7), is_latest=False
+    )
+    await _create_fact(
+        fact_id="no-hist", text="Never updated", embedding=_unit_vector(8), is_latest=True
+    )
+    await _link_updates("with-hist", "old")
+
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        # Current-only view: historical node excluded, but has_history still set
+        only_latest = await query_engine.get_graph(session, is_latest=True)
+        include_all = await query_engine.get_graph(session, is_latest=False)
+
+    by_id_latest = {n.id: n for n in only_latest.nodes}
+    assert set(by_id_latest) == {"with-hist", "no-hist"}
+    assert by_id_latest["with-hist"].properties.get("has_history") is True
+    assert by_id_latest["no-hist"].properties.get("has_history") is False
+
+    by_id_all = {n.id: n for n in include_all.nodes}
+    assert by_id_all["with-hist"].properties.get("has_history") is True
+    assert by_id_all["no-hist"].properties.get("has_history") is False
+    # Historical node has no outgoing UPDATES
+    assert by_id_all["old"].properties.get("has_history") is False
+
+
+@pytest.mark.asyncio
+async def test_get_graph_has_history_is_additive(neo4j_ready):
+    """V1.1: has_history query does not change node/rel count or order."""
+    await _create_fact(
+        fact_id="a", text="A", embedding=_unit_vector(1), is_latest=True
+    )
+    await _create_fact(
+        fact_id="b", text="B", embedding=_unit_vector(2), is_latest=False
+    )
+    await _create_fact(
+        fact_id="c", text="C", embedding=_unit_vector(3), is_latest=True
+    )
+    await _link_updates("a", "b")
+
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        graph = await query_engine.get_graph(session, is_latest=False)
+
+    node_ids = [n.id for n in graph.nodes]
+    assert set(node_ids) == {"a", "b", "c"}
+    assert len(graph.nodes) == 3
+    assert len(graph.relationships) == 1
+    assert graph.relationships[0].type == "UPDATES"
+    # Every node has the additive flag; only the UPDATES source is true
+    assert all("has_history" in n.properties for n in graph.nodes)
+    assert {n.id for n in graph.nodes if n.properties["has_history"]} == {"a"}
+    # Re-fetch: same node set and relationship count (purely additive)
+    async with driver.session() as session:
+        again = await query_engine.get_graph(session, is_latest=False)
+    assert [n.id for n in again.nodes] == node_ids
+    assert len(again.relationships) == len(graph.relationships)
+
+
+@pytest.mark.asyncio
 async def test_reconcile_endpoint_detects_and_fixes_drift(neo4j_ready):
     await _create_fact(
         fact_id="head", text="Head", embedding=_unit_vector(8), is_latest=False

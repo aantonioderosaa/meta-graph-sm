@@ -16,6 +16,48 @@ describe("graph visual encoding (§11.1)", () => {
     clearEncodingCache();
   });
 
+  it("shows ● caption marker only when has_history is true (V1.2)", () => {
+    const withHistory = encodeNode({
+      id: "n1",
+      caption: "Current fact",
+      properties: { type: "fact", is_latest: true, has_history: true },
+    });
+    const without = encodeNode({
+      id: "n2",
+      caption: "Plain fact",
+      properties: { type: "fact", is_latest: true, has_history: false },
+    });
+    const missing = encodeNode({
+      id: "n3",
+      caption: "No flag",
+      properties: { type: "fact", is_latest: true },
+    });
+
+    expect(withHistory.caption.startsWith("● ")).toBe(true);
+    expect(withHistory.color).toBe(FACT_TYPE_COLORS.fact);
+    expect(without.caption.startsWith("●")).toBe(false);
+    expect(missing.caption.startsWith("●")).toBe(false);
+  });
+
+  it("keeps type color and historical opacity when has_history is set (V1.2)", () => {
+    const current = encodeNode({
+      id: "c",
+      caption: "Head",
+      properties: { type: "preference", is_latest: true, has_history: true },
+    });
+    const historical = encodeNode({
+      id: "h",
+      caption: "Old",
+      properties: { type: "preference", is_latest: false, has_history: true },
+    });
+
+    expect(current.color).toBe(FACT_TYPE_COLORS.preference);
+    expect(current.caption).toMatch(/^● /);
+    expect(historical.color).toContain("rgba");
+    expect(historical.caption).toContain("storico");
+    expect(historical.caption.startsWith("● ")).toBe(true);
+  });
+
   it("covers all fact types × is_latest states with distinct colors", () => {
     const encoded = FIXTURE_NODES.map((n) => encodeNode(n));
     const byId = Object.fromEntries(encoded.map((n) => [n.id, n]));
@@ -28,6 +70,38 @@ describe("graph visual encoding (§11.1)", () => {
     expect(byId["fact-historical"].caption).toContain("storico");
     expect(byId["pref-historical"].disabled).toBe(true);
     expect(byId["ep-historical"].disabled).toBe(true);
+  });
+
+  it("crosses has_history with type / storico / pulse without regressing encoding (V1.3)", () => {
+    const encoded = FIXTURE_NODES.map((n) => encodeNode(n));
+    const byId = Object.fromEntries(encoded.map((n) => [n.id, n]));
+
+    // has_history on current fact: badge + teal unchanged
+    expect(byId["fact-latest"].caption.startsWith("● ")).toBe(true);
+    expect(byId["fact-latest"].color).toBe(FACT_TYPE_COLORS.fact);
+
+    // has_history on current preference: badge + amber unchanged
+    expect(byId["pref-with-history"].caption.startsWith("● ")).toBe(true);
+    expect(byId["pref-with-history"].color).toBe(FACT_TYPE_COLORS.preference);
+
+    // has_history on historical episode: ● + (storico) + rgba
+    expect(byId["ep-historical-with-history"].caption.startsWith("● ")).toBe(true);
+    expect(byId["ep-historical-with-history"].caption).toContain("storico");
+    expect(byId["ep-historical-with-history"].color).toContain("rgba");
+    expect(byId["ep-historical-with-history"].disabled).toBe(true);
+
+    // no badge when has_history is false
+    expect(byId["pref-latest"].caption.startsWith("●")).toBe(false);
+    expect(byId["fact-historical"].caption.startsWith("●")).toBe(false);
+
+    // pulse still enlarges only that node; ● remains
+    const pulsed = encodeNode(
+      FIXTURE_NODES.find((n) => n.id === "fact-latest")!,
+      { pulsing: true },
+    );
+    expect(pulsed.caption.startsWith("● ")).toBe(true);
+    expect(pulsed.size).toBeGreaterThan(byId["fact-latest"].size);
+    expect(pulsed.selected).toBe(true);
   });
 
   it("encodes UPDATES / EXTENDS / DERIVES with warning / info / success colors", () => {

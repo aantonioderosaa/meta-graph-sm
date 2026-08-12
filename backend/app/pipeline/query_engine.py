@@ -98,6 +98,12 @@ WHERE a.id IN $ids AND b.id IN $ids
 RETURN elementId(r) AS id, a.id AS from_id, b.id AS to_id, type(r) AS rel_type
 """
 
+GRAPH_HAS_HISTORY_CYPHER = """
+MATCH (f:Fact)-[:UPDATES]->()
+WHERE f.id IN $ids
+RETURN DISTINCT f.id AS id
+"""
+
 ANSWER_SYSTEM_PROMPT = (
     "Sei un assistente che risponde a domande basandoti SOLO sui fatti forniti. "
     "Non scrivere mai ID o UUID dentro il testo di `answer` — scrivi prosa naturale "
@@ -230,6 +236,7 @@ async def get_graph(
             ),
             "text": fact.get("text"),
             "source_doc_id": fact.get("source_doc_id"),
+            "has_history": False,
         }
         nodes.append(
             GraphNode(
@@ -242,6 +249,14 @@ async def get_graph(
 
     relationships: list[GraphRelationship] = []
     if ids:
+        history_ids: set[str] = set()
+        hist_result = await session.run(GRAPH_HAS_HISTORY_CYPHER, ids=ids)
+        async for record in hist_result:
+            history_ids.add(record["id"])
+        for node in nodes:
+            if node.id in history_ids:
+                node.properties["has_history"] = True
+
         rel_result = await session.run(GRAPH_RELS_CYPHER, ids=ids)
         async for record in rel_result:
             rel_type = record["rel_type"]

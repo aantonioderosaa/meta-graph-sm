@@ -269,6 +269,7 @@ async def _process_relation_detection(
     job_id: str,
     stats: DreamingStats,
     classified_pairs: set[frozenset[str]],
+    touched_fact_ids: set[str],
 ) -> None:
     candidates = await relations.find_candidates(
         session,
@@ -331,6 +332,9 @@ async def _process_relation_detection(
             relation=classification.relation,
             job_id=job_id,
         )
+        # Track both endpoints regardless of outcome (replaces/extends/none).
+        touched_fact_ids.add(new_fact.fact_id)
+        touched_fact_ids.add(candidate.id)
         if wrote:
             stats.edges_created += 1
 
@@ -342,6 +346,7 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
     failed_fact_ids: set[str] = set()
     successfully_processed_fact_ids: set[str] = set()
     classified_pairs: set[frozenset[str]] = set()
+    touched_fact_ids: set[str] = set()
 
     groups = await grouping.group_fresh_facts(doc_id)
     driver = get_driver()
@@ -377,6 +382,7 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
                 job_id=job_id,
                 stats=stats,
                 classified_pairs=classified_pairs,
+                touched_fact_ids=touched_fact_ids,
             )
             successfully_processed_fact_ids.add(new_fact.fact_id)
             stats.facts_processed += 1
@@ -389,7 +395,7 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
         if mark_ids:
             await session.run(MARK_DREAMED_CYPHER, fact_ids=mark_ids)
 
-    drift_count = await reconcile.reconcile()
+    drift_count = await reconcile.reconcile_scoped(list(touched_fact_ids))
     stats.drift_count = drift_count
     await event_bus.publish(
         job_id,

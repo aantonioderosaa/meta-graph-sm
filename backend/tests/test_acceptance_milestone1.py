@@ -347,7 +347,7 @@ async def test_criterion_consolidation_abstraction_derives_sources_remain(
             source_fact_ids=["s1", "s2"],
         )
 
-    async def mock_classify(n_text, v_text, job_id=None):
+    async def mock_classify(n_text, v_text, job_id=None, **kwargs):
         _ = n_text, v_text, job_id
         return RelationClassification(relation=RelationLabel.none)
 
@@ -406,7 +406,7 @@ async def test_criterion_update_on_historical_targets_chain_head_not_node(
         _ = facts, job_id
         raise AssertionError("singleton should skip consolidation")
 
-    async def mock_classify(n_text, v_text, job_id=None):
+    async def mock_classify(n_text, v_text, job_id=None, **kwargs):
         _ = n_text, job_id
         if v_text.startswith("Alice works at Acme Corp"):
             return RelationClassification(relation=RelationLabel.replaces)
@@ -466,7 +466,7 @@ async def test_criterion_reconcile_zero_drift_after_dreaming_cycle(
             source_fact_ids=[],
         )
 
-    async def mock_classify(n_text, v_text, job_id=None):
+    async def mock_classify(n_text, v_text, job_id=None, **kwargs):
         _ = n_text, v_text, job_id
         return RelationClassification(relation=RelationLabel.none)
 
@@ -478,6 +478,7 @@ async def test_criterion_reconcile_zero_drift_after_dreaming_cycle(
     )
 
     await run_dreaming_pipeline("job-acc-drift")
+    # D1.4: independent full-KB oracle — must NOT call reconcile_scoped (would be tautological)
     drift = await reconcile()
     assert drift == 0
 

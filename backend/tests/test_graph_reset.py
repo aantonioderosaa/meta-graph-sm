@@ -226,7 +226,7 @@ async def test_e2e_ingest_dream_query_then_reset_is_empty(neo4j_ready, monkeypat
         "app.pipeline.dreaming.relations.classify_relation", mock_classify
     )
     monkeypatch.setattr(
-        "app.pipeline.dreaming.reconcile.reconcile",
+        "app.pipeline.dreaming.reconcile.reconcile_scoped",
         AsyncMock(return_value=0),
     )
 

@@ -248,7 +248,7 @@ async def test_abstraction_writes_derives_sources_is_latest_unchanged(neo4j_read
             source_fact_ids=["s1", "s2"],
         )
 
-    async def mock_classify(n_text, v_text, job_id=None):
+    async def mock_classify(n_text, v_text, job_id=None, **kwargs):
         _ = n_text, v_text, job_id
         return RelationClassification(relation=RelationLabel.none)
 
@@ -317,7 +317,7 @@ async def test_derives_disabled_by_default_ignores_abstraction_outcome(
             source_fact_ids=["d1", "d2"],
         )
 
-    async def mock_classify(n_text, v_text, job_id=None):
+    async def mock_classify(n_text, v_text, job_id=None, **kwargs):
         _ = n_text, v_text, job_id
         return RelationClassification(relation=RelationLabel.none)
 
@@ -409,7 +409,7 @@ async def test_update_targets_chain_head_not_historical_node(neo4j_ready, monkey
         _ = facts, job_id
         raise AssertionError("singleton should skip consolidation")
 
-    async def mock_classify(n_text, v_text, job_id=None):
+    async def mock_classify(n_text, v_text, job_id=None, **kwargs):
         _ = n_text, job_id
         if v_text.startswith("Alice works at Acme Corp"):
             return RelationClassification(relation=RelationLabel.replaces)
@@ -454,7 +454,171 @@ async def test_reconcile_zero_drift_after_clean_cycle(neo4j_ready, monkeypatch):
     )
 
     await run_dreaming_pipeline("job-drift-clean")
+    # Independent full-KB oracle (D1.4): not the scoped canary used inside the cycle
     assert await reconcile() == 0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_scoped_only_touches_given_ids(neo4j_ready):
+    """D1.2: scoped reconcile fixes only the provided ids; full reconcile remains global."""
+    from app.pipeline.reconcile import reconcile_scoped
+
+    await _create_fact(fact_id="keep-drift", text="A.", embedding=_unit_vector(1), dreamed=True)
+    await _create_fact(fact_id="fix-me", text="B.", embedding=_unit_vector(2), dreamed=True)
+    await _create_fact(fact_id="also-drift", text="C.", embedding=_unit_vector(3), dreamed=True)
+
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        await session.run(
+            "MATCH (f:Fact) WHERE f.id IN $ids SET f.is_latest = false",
+            ids=["keep-drift", "fix-me", "also-drift"],
+        )
+
+    scoped = await reconcile_scoped(["fix-me"])
+    assert scoped == 1
+
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (f:Fact) RETURN f.id AS id, f.is_latest AS latest"
+        )
+        rows = {r["id"]: r["latest"] async for r in result}
+    assert rows["fix-me"] is True
+    assert rows["keep-drift"] is False
+    assert rows["also-drift"] is False
+
+    # Full reconcile still repairs the rest (POST /reconcile contract)
+    full = await reconcile()
+    assert full == 2
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (f:Fact) RETURN f.id AS id, f.is_latest AS latest"
+        )
+        rows = {r["id"]: r["latest"] async for r in result}
+    assert all(rows[i] is True for i in ("keep-drift", "fix-me", "also-drift"))
+
+
+@pytest.mark.asyncio
+async def test_dreaming_reconcile_scoped_to_touched_not_whole_kb(neo4j_ready, monkeypatch):
+    """D1.2: dreaming passes only cycle-touched ids to reconcile_scoped."""
+    from app.pipeline.relations import Candidate
+
+    # Large pre-existing KB (already dreamed — not reprocessed)
+    preexisting = [f"old-{i}" for i in range(30)]
+    for i, fid in enumerate(preexisting):
+        await _create_fact(
+            fact_id=fid,
+            text=f"Old fact {i}.",
+            embedding=_unit_vector(100 + i),
+            dreamed=True,
+        )
+
+    await _create_fact(
+        fact_id="fresh",
+        text="Brand new fact.",
+        embedding=_unit_vector(10),
+        dreamed=False,
+    )
+    candidates = [
+        Candidate(id="old-0", text="Old fact 0.", score=0.95, via="embedding"),
+        Candidate(id="old-1", text="Old fact 1.", score=0.9, via="embedding"),
+    ]
+
+    monkeypatch.setattr(
+        "app.pipeline.dreaming.relations.find_candidates",
+        AsyncMock(return_value=candidates),
+    )
+    monkeypatch.setattr(
+        "app.pipeline.dreaming.relations.classify_relation",
+        AsyncMock(return_value=RelationClassification(relation=RelationLabel.none)),
+    )
+
+    captured: list[list[str]] = []
+
+    async def capture_scoped(fact_ids: list[str]) -> int:
+        captured.append(list(fact_ids))
+        return 0
+
+    monkeypatch.setattr(
+        "app.pipeline.dreaming.reconcile.reconcile_scoped",
+        capture_scoped,
+    )
+
+    await run_dreaming_pipeline("job-scoped")
+
+    assert len(captured) == 1
+    touched = set(captured[0])
+    assert touched == {"fresh", "old-0", "old-1"}
+    assert len(touched) == 3
+    assert touched.isdisjoint(set(preexisting) - {"old-0", "old-1"})
+
+
+@pytest.mark.asyncio
+async def test_reconcile_scoped_scales_independent_of_kb_size(neo4j_ready, monkeypatch):
+    """D1.3: automatic reconcile row count tracks the new cycle, not pre-existing KB size."""
+    from app.pipeline.relations import Candidate
+
+    kb_size = 100
+    preexisting = [f"kb-{i}" for i in range(kb_size)]
+    for i, fid in enumerate(preexisting):
+        await _create_fact(
+            fact_id=fid,
+            text=f"Preexisting {i}.",
+            embedding=_unit_vector(200 + i),
+            dreamed=True,
+        )
+
+    # Small "document": two fresh facts, each compared to 2 candidates
+    await _create_fact(
+        fact_id="doc-f1", text="New doc fact one.", embedding=_unit_vector(11), dreamed=False
+    )
+    await _create_fact(
+        fact_id="doc-f2", text="New doc fact two.", embedding=_unit_vector(12), dreamed=False
+    )
+
+    async def mock_find(session, fact_id, embedding, source_doc_id=None):
+        _ = session, embedding, source_doc_id
+        if fact_id == "doc-f1":
+            return [
+                Candidate(id="kb-0", text="Preexisting 0.", score=0.9, via="embedding"),
+                Candidate(id="kb-1", text="Preexisting 1.", score=0.85, via="embedding"),
+            ]
+        return [
+            Candidate(id="kb-2", text="Preexisting 2.", score=0.9, via="embedding"),
+            Candidate(id="kb-3", text="Preexisting 3.", score=0.8, via="embedding"),
+        ]
+
+    monkeypatch.setattr(
+        "app.pipeline.dreaming.relations.find_candidates",
+        mock_find,
+    )
+    monkeypatch.setattr(
+        "app.pipeline.dreaming.relations.classify_relation",
+        AsyncMock(return_value=RelationClassification(relation=RelationLabel.none)),
+    )
+
+    scanned_sizes: list[int] = []
+    from app.pipeline import reconcile as reconcile_mod
+
+    real_scoped = reconcile_mod.reconcile_scoped
+
+    async def capture_scoped(fact_ids: list[str]) -> int:
+        scanned_sizes.append(len(fact_ids))
+        return await real_scoped(fact_ids)
+
+    monkeypatch.setattr(
+        "app.pipeline.dreaming.reconcile.reconcile_scoped",
+        capture_scoped,
+    )
+
+    await run_dreaming_pipeline("job-scale")
+
+    assert len(scanned_sizes) == 1
+    rows_touched = scanned_sizes[0]
+    # Proportional to cycle work: 2 fresh + 4 distinct candidates = 6 (≪ 100)
+    assert rows_touched == 6
+    assert rows_touched < kb_size / 5
+    # Pre-fix behaviour would have scanned all Fact nodes (= kb_size + 2)
+    assert rows_touched != kb_size + 2
 
 
 @pytest.mark.asyncio
@@ -512,7 +676,7 @@ async def test_llm_failures_do_not_stop_cycle(neo4j_ready, monkeypatch):
             source_fact_ids=[],
         )
 
-    async def mock_classify(n_text, v_text, job_id=None):
+    async def mock_classify(n_text, v_text, job_id=None, **kwargs):
         _ = n_text, job_id
         if "fail-pair-target" in v_text:
             raise LLMValidationError("forced classification failure")
@@ -618,7 +782,7 @@ async def test_replaces_extends_and_update_chain(neo4j_ready, monkeypatch):
         _ = facts, job_id
         raise AssertionError("singletons only")
 
-    async def mock_classify(n_text, v_text, job_id=None):
+    async def mock_classify(n_text, v_text, job_id=None, **kwargs):
         _ = job_id
         if n_text.startswith("Office is in Milan") and "Milan city" in v_text:
             return RelationClassification(relation=RelationLabel.replaces)

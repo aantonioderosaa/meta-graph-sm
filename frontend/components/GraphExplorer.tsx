@@ -302,6 +302,9 @@ export function GraphExplorer() {
           episode
         </span>
         <span className="opacity-60">storico = opacità ridotta</span>
+        <span title="Doppio click per vedere la catena">
+          ● = questo fatto ha sostituito una versione precedente
+        </span>
         <span style={{ color: "#D97706" }}>UPDATES</span>
         <span style={{ color: "#2563EB" }}>EXTENDS</span>
         <span style={{ color: "#16A34A" }}>DERIVES</span>
