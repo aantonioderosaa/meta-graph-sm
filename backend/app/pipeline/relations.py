@@ -52,11 +52,15 @@ MATCH (n:Fact {id: $n_id}), (v:Fact {id: $v_id})
 CREATE (n)-[:EXTENDS {created_at: datetime()}]->(v)
 """
 
-# Byte-stable replaces definition (R2.2 must not alter this section).
 _REPLACES_SECTION = (
-    '- `"replaces"` se il fatto nuovo contraddice o sostituisce il fatto esistente (es. cambia un '
-    "valore, un'informazione più recente annulla o rimpiazza la precedente sullo stesso "
-    "soggetto/attributo).\n"
+    '- `"replaces"` se il fatto nuovo contraddice o sostituisce il fatto esistente sullo stesso '
+    "soggetto/attributo: un'informazione più recente annulla o rimpiazza la precedente. "
+    "Per stabilire quale dei due descrive lo stato più recente, cerca marcatori temporali nel "
+    'testo di entrambi i fatti (date assolute, espressioni relative come "ora", "da allora", '
+    '"fino al", "ho appena iniziato", "il mese scorso") — questi sono la base primaria della '
+    "decisione, non l'ordine di presentazione. Le etichette FATTO NUOVO/FATTO ESISTENTE "
+    "indicano solo quale dei due stai valutando ora — non implicano da sole che uno sia "
+    "temporalmente precedente all'altro.\n"
 )
 
 SYSTEM_PROMPT = (
@@ -74,6 +78,11 @@ SYSTEM_PROMPT = (
     "  Esempio none: \"Il vento soffiava forte\" e \"Alice lavora ad Acme\" — argomenti "
     "scorrelati, anche se nello stesso documento.\n"
     '- `"none"` se non c\'è relazione significativa tra i due.\n\n'
+    "Se nessuno dei due fatti contiene un marcatore temporale esplicito che stabilisca quale "
+    "dei due descrive lo stato più recente, non scegliere `replaces` sulla sola base "
+    "dell'ordine di presentazione — valuta invece se i due fatti possono coesistere "
+    "(`extends`) o se non c'è relazione significativa (`none`). Dichiarare erroneamente "
+    "`replaces` nasconde un fatto vero: è un errore peggiore di non dichiarare nulla.\n\n"
     "Rispondi solo secondo lo schema fornito, senza aggiungere testo libero."
 )
 

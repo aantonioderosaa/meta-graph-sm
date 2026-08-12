@@ -1,4 +1,4 @@
-"""Manual validation of relation classification against a real OpenAI model (R2.3).
+"""Manual validation of relation classification against a real OpenAI model (R2.3 / T1.3).
 
 Not part of CI — requires OPENAI_API_KEY (from env or repo-root /.env).
 
@@ -27,12 +27,12 @@ class Case:
     name: str
     n_text: str
     v_text: str
-    expected: RelationLabel
+    expected: RelationLabel | None  # None = qualitative / borderline (no pass-fail)
     same_chunk: bool = False
     same_doc: bool = False
 
 
-# Fixed set: ≥2 none, ≥2 extends (incl. Sole/Vento), ≥2 replaces.
+# Fixed set: R2.3 baseline + T1.3 temporal-marker cases.
 CASES: list[Case] = [
     Case(
         name="extends_sole_vento_episode",
@@ -61,16 +61,17 @@ CASES: list[Case] = [
         v_text="Il treno per Milano parte alle 9:00.",
         expected=RelationLabel.none,
     ),
+    # R2.3 replaces cases updated with explicit temporal markers (T1.3 non-regression).
     Case(
-        name="replaces_employer_change",
-        n_text="Alice lavora a Beta Corp.",
-        v_text="Alice lavora ad Acme Corp.",
+        name="replaces_employer_change_temporal",
+        n_text="Da gennaio 2024 Alice lavora a Beta Corp.",
+        v_text="Fino al 2023 Alice lavorava ad Acme Corp.",
         expected=RelationLabel.replaces,
     ),
     Case(
-        name="replaces_office_city",
-        n_text="L'ufficio è a Milano.",
-        v_text="L'ufficio è a Roma.",
+        name="replaces_office_city_temporal",
+        n_text="Ora l'ufficio è a Milano.",
+        v_text="Fino al mese scorso l'ufficio era a Roma.",
         expected=RelationLabel.replaces,
     ),
     Case(
@@ -87,6 +88,28 @@ CASES: list[Case] = [
         expected=RelationLabel.none,
         same_doc=True,
     ),
+    # T1.3: no temporal markers — sequential narrative moments → extends (not replaces).
+    Case(
+        name="extends_narrative_no_temporal_mantello",
+        n_text="Il viandante strinse il mantello intorno alle spalle.",
+        v_text="Il vento soffiava forte sulla strada.",
+        expected=RelationLabel.extends,
+        same_chunk=True,
+    ),
+    Case(
+        name="extends_narrative_no_temporal_sole",
+        n_text="Il sole uscì e scaldò il viandante.",
+        v_text="Il vento soffiava cercando di strappargli il mantello.",
+        expected=RelationLabel.extends,
+        same_chunk=True,
+    ),
+    # T1.3: borderline / ambiguous — observe justification only.
+    Case(
+        name="borderline_job_without_temporal",
+        n_text="Alice lavora a Beta Corp.",
+        v_text="Alice lavora ad Acme Corp.",
+        expected=None,
+    ),
 ]
 
 
@@ -99,6 +122,7 @@ async def run() -> int:
     print(f"Cases: {len(CASES)}\n")
 
     failures = 0
+    scored = 0
     for case in CASES:
         result = await classify_relation(
             case.n_text,
@@ -107,6 +131,16 @@ async def run() -> int:
             same_doc=case.same_doc,
         )
         got = result.relation
+        if case.expected is None:
+            print(
+                f"[OBS] {case.name}: got={got.value}"
+                f" (same_chunk={case.same_chunk}, same_doc={case.same_doc})"
+            )
+            print(f"       N: {case.n_text}")
+            print(f"       V: {case.v_text}")
+            continue
+
+        scored += 1
         ok = got == case.expected
         mark = "OK" if ok else "FAIL"
         if not ok:
@@ -121,11 +155,12 @@ async def run() -> int:
     print()
     if failures:
         print(
-            f"RESULT: {failures}/{len(CASES)} mismatches — "
-            "refine SYSTEM_PROMPT (R2.2) and re-run."
+            f"RESULT: {failures}/{scored} mismatches — "
+            "refine SYSTEM_PROMPT (T1.1/T1.2) and re-run."
         )
         return 1
-    print(f"RESULT: all {len(CASES)} expected outcomes confirmed.")
+    print(f"RESULT: all {scored} expected outcomes confirmed "
+          f"({len(CASES) - scored} observational).")
     return 0
 
 

@@ -9,6 +9,7 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 - [Piano implementativo (epic/task)](./milestone1/milestone1-implementation-plan.md)
 - [Piano fix post-E10 (F1–F4)](./milestone1/milestone1-fixes-plan.md)
 - [Piano coerenza documento/chunk e reset KB (R1–R4)](./milestone1/milestone1-relation-detection-plan.md)
+- [Piano ragionamento temporale in `replaces` (T1)](./milestone1/milestone1-temporal-reasoning-plan.md)
 - [Checklist UI manuale §8](./milestone1/e10-manual-ui-checklist.md)
 
 ## Prerequisiti
@@ -97,6 +98,23 @@ Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 - **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline; `NEXT_PUBLIC_USE_QUERY_FIXTURE=true` per Query Panel senza backend. `NEXT_PUBLIC_API_URL` punta al backend (default Compose: `http://localhost:8000`).
 - **`derives` temporaneamente disattivata**: `ENABLE_DERIVES=false` (default) — la semantica dell'astrazione va rivista (vedi discussione in chat/tech-spec) prima di riabilitarla. Con il flag off, i gruppi di fatti simili non vengono più collassati in un'astrazione: ogni fatto è valutato singolarmente per `updates`/`extends`. `ENABLE_DERIVES=true` riattiva il meccanismo com'era.
 
+## Limiti della knowledge base
+
+### Formati ingeribili
+
+Solo **testo semplice** o **Markdown**, passati come stringa (`doc_id` + `text` a `POST /documents` o dal form in `/documents`). Non c'è parsing di PDF, DOCX, HTML, immagini o altri formati strutturati: va convertito in testo prima dell'ingest. Il Markdown è trattato come testo piano nel chunking (intestazioni e liste non diventano struttura del grafo).
+
+### Cosa il sistema coglie (e cosa no) a livello temporale
+
+Nella classificazione `replaces` / `UPDATES`, il segnale primario sono i **marcatori temporali espliciti nel contenuto** (date, espressioni come «ora», «da allora», «fino al», «il mese scorso»). Senza un segnale del genere, il sistema è istruito a **non** trattare l'ordine di presentazione dei fatti come priorità cronologica.
+
+**Non** è un segnale temporale valido:
+
+- la posizione o l'ordine di lettura nel documento;
+- la struttura di una conversazione multi-turno (chi ha detto cosa e in quale ordine) — un transcript viene letto come prosa continua, non come sequenza di turni datati.
+
+Se stai ingerendo un chat log o un diario senza date/espressioni temporali nel testo, aspetati che fatti sequenziali restino affiancati (`extends`) piuttosto che sovrascriversi a vicenda.
+
 ## Progresso Milestone 1
 
 | Epic | Stato |
@@ -132,6 +150,12 @@ Stato verificato contro il codice (non solo le checkbox del piano).
 | R2 Classificazione `extends` | segnale località nel prompt + system prompt allargato | completata |
 | R3 Reset knowledge base | `DELETE /graph` + UI «Elimina tutto» con conferma e clear client | completata |
 | R4 Igiene README / gitignore | link piani, ciclo UI, env vars, tabelle progresso; `.loop-progress.md` ignorato | completata |
+
+### Ragionamento temporale in `replaces` (piano `milestone1-temporal-reasoning-plan.md`)
+
+| Epic | Contenuto | Stato |
+|------|-----------|--------|
+| T1 Marcatori temporali + limiti KB | prompt `replaces` guidato da marker nel testo + prudenza senza segnale; sezione README limiti | completata |
 
 ## Note Epic 10
 

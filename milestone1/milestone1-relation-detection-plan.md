@@ -7,6 +7,8 @@
 > Include inoltre un terzo Epic (R3), indipendente dai primi due: un pulsante di reset completo della knowledge base nella pagina Documenti — utile come funzionalità reale e come strumento indispensabile per verificare a mano R1/R2 partendo da uno stato pulito, senza l'inquinamento di ingest precedenti.
 >
 > E un quarto Epic (R4), di manutenzione pura: il README ha accumulato disallineamenti rispetto allo stato reale del repo (nuova pagina Documenti, cronologia query, citazioni strutturate, variabili d'ambiente aggiunte nei fix precedenti) e va riportato a specchio del progetto attuale; inoltre `.loop-progress.md` — un artefatto di sessione, non un documento di progetto — va escluso da git in modo permanente, non gestito manualmente ad ogni commit.
+>
+> Il seguito di questa diagnosi (priorità ai marcatori temporali nel testo per `replaces`, prudenza quando non ce ne sono, limiti della KB nel README) è pianificato in un documento separato: [`milestone1-temporal-reasoning-plan.md`](./milestone1-temporal-reasoning-plan.md).
 
 ---
 
