@@ -21,6 +21,18 @@ export interface DocumentRequest {
   text: string;
 }
 
+export interface DocumentSummary {
+  doc_id: string;
+  chunk_count: number;
+  fact_count: number;
+  first_ingested_at: string;
+  last_ingested_at: string;
+}
+
+export interface DocumentListResponse {
+  documents: DocumentSummary[];
+}
+
 export interface DreamingRunRequest {
   job_id?: string | null;
   doc_id?: string | null;
@@ -107,7 +119,18 @@ export interface Subgraph {
 export interface QueryResponse {
   answer: string;
   facts_used: FactUsed[];
+  cited_fact_ids: string[];
   subgraph: Subgraph;
+}
+
+export interface QueryHistoryEntry {
+  id: string;
+  text: string;
+  created_at: string;
+}
+
+export interface QueryHistoryResponse {
+  items: QueryHistoryEntry[];
 }
 
 export interface ReconcileResponse {

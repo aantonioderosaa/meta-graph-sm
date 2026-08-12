@@ -9,8 +9,14 @@ from neo4j import Driver, GraphDatabase
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.cypher"
 
-REQUIRED_CONSTRAINTS = {"fact_id", "chunk_id"}
-REQUIRED_BTREE_INDEXES = {"fact_is_latest", "fact_type", "fact_doc", "chunk_doc"}
+REQUIRED_CONSTRAINTS = {"fact_id", "chunk_id", "query_log_id"}
+REQUIRED_BTREE_INDEXES = {
+    "fact_is_latest",
+    "fact_type",
+    "fact_doc",
+    "chunk_doc",
+    "query_log_created_at",
+}
 REQUIRED_VECTOR_INDEXES = {"fact_embedding", "chunk_embedding"}
 
 

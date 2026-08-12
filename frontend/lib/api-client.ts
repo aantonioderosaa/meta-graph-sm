@@ -4,6 +4,7 @@
  */
 
 import type {
+  DocumentListResponse,
   DocumentRequest,
   DreamingRunRequest,
   FactDetailResponse,
@@ -11,6 +12,7 @@ import type {
   GetGraphParams,
   GraphResponse,
   JobResponse,
+  QueryHistoryResponse,
   QueryRequest,
   QueryResponse,
   ReconcileResponse,
@@ -71,6 +73,10 @@ export function postDocuments(body: DocumentRequest): Promise<JobResponse> {
   });
 }
 
+export function getDocuments(): Promise<DocumentListResponse> {
+  return request<DocumentListResponse>("/documents");
+}
+
 export function postDreamingRun(
   body: DreamingRunRequest = {},
 ): Promise<JobResponse> {
@@ -98,6 +104,10 @@ export function getGraph(params: GetGraphParams = {}): Promise<GraphResponse> {
   return request<GraphResponse>(`/graph${qs ? `?${qs}` : ""}`);
 }
 
+export async function resetKnowledgeBase(): Promise<void> {
+  await request<{ deleted: boolean }>("/graph", { method: "DELETE" });
+}
+
 export function getFact(id: string): Promise<FactDetailResponse> {
   return request<FactDetailResponse>(`/facts/${encodeURIComponent(id)}`);
 }
@@ -113,6 +123,15 @@ export function postQuery(body: QueryRequest): Promise<QueryResponse> {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function getQueryHistory(limit = 20): Promise<QueryHistoryResponse> {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  return request<QueryHistoryResponse>(`/queries?${qs.toString()}`);
+}
+
+export function getQueryLogDetail(id: string): Promise<QueryResponse> {
+  return request<QueryResponse>(`/queries/${encodeURIComponent(id)}`);
 }
 
 export function postReconcile(): Promise<ReconcileResponse> {

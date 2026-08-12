@@ -20,6 +20,7 @@ export const QUERY_FIXTURE_RESPONSE: QueryResponse = {
       source_doc_id: "doc-stub-1",
     },
   ],
+  cited_fact_ids: ["fact-a"],
   subgraph: {
     nodes: [
       {

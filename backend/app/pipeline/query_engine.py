@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import uuid
 from typing import Any
 
 from neo4j import AsyncSession
@@ -21,6 +23,8 @@ from app.core.llm_client import call_structured
 from app.models.extraction import FactType
 from app.models.query import FactUsed, QueryResponse, Subgraph, SubgraphNode, SubgraphRelationship
 from app.pipeline import embeddings
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 5
 
@@ -96,15 +100,23 @@ RETURN elementId(r) AS id, a.id AS from_id, b.id AS to_id, type(r) AS rel_type
 
 ANSWER_SYSTEM_PROMPT = (
     "Sei un assistente che risponde a domande basandoti SOLO sui fatti forniti. "
-    "Cita i fatti rilevanti nella risposta. Se i fatti non bastano a rispondere, "
-    "dillo esplicitamente senza inventare informazioni."
+    "Non scrivere mai ID o UUID dentro il testo di `answer` — scrivi prosa naturale "
+    "e leggibile, come se parlassi a una persona. Elenca invece in `cited_fact_ids` "
+    "gli ID (tra quelli forniti sotto) dei fatti che hai usato per costruire la risposta. "
+    "Se i fatti non bastano a rispondere, dillo esplicitamente senza inventare informazioni."
 )
 
 
 class QueryAnswer(BaseModel):
     """Structured LLM answer for POST /query (natural-language portion only)."""
 
-    answer: str = Field(description="Natural-language answer grounded in the provided facts.")
+    answer: str = Field(
+        description="Risposta in linguaggio naturale, senza ID o UUID nel testo."
+    )
+    cited_fact_ids: list[str] = Field(
+        default_factory=list,
+        description="ID (tra quelli forniti nel prompt) dei fatti usati per costruire answer.",
+    )
 
 
 def _datetime_to_str(value: Any) -> str:
@@ -322,11 +334,14 @@ async def run_query(
         top_ids.append(record["id"])
 
     if not top_ids:
-        return QueryResponse(
+        response = QueryResponse(
             answer="Nessun fatto rilevante trovato per questa domanda.",
             facts_used=[],
+            cited_fact_ids=[],
             subgraph=Subgraph(nodes=[], relationships=[]),
         )
+        await _persist_query_log(session, text=text, response=response)
+        return response
 
     expand = await session.run(EXPAND_CYPHER, topKIds=top_ids)
     all_ids: set[str] = set(top_ids)
@@ -380,12 +395,18 @@ async def run_query(
                 )
 
     system, user = build_query_answer_prompt(text, facts_used)
+    cited: list[str] = []
     try:
         answer_model = await call_structured(
             system, user, QueryAnswer, temperature=0, job_id=job_id
         )
         answer = answer_model.answer
+        valid_ids = {f.id for f in facts_used}
+        cited = [fid for fid in answer_model.cited_fact_ids if fid in valid_ids]
+        if not cited and facts_used:
+            cited = [f.id for f in facts_used]
     except Exception:
+        cited = []
         if facts_used:
             answer = (
                 "Ecco i fatti rilevanti trovati (generazione risposta non disponibile): "
@@ -394,8 +415,30 @@ async def run_query(
         else:
             answer = "Nessun fatto rilevante trovato per questa domanda."
 
-    return QueryResponse(
+    response = QueryResponse(
         answer=answer,
         facts_used=facts_used,
+        cited_fact_ids=cited,
         subgraph=Subgraph(nodes=subgraph_nodes, relationships=rels),
     )
+    await _persist_query_log(session, text=text, response=response)
+    return response
+
+
+async def _persist_query_log(
+    session: AsyncSession, *, text: str, response: QueryResponse
+) -> None:
+    """Best-effort QueryLog write — never fails the user-facing query (F4.2)."""
+    from app.pipeline import query_log
+
+    try:
+        await query_log.write_query_log(
+            session,
+            query_id=str(uuid.uuid4()),
+            text=text,
+            answer=response.answer,
+            cited_fact_ids=response.cited_fact_ids,
+            all_fact_ids=[f.id for f in response.facts_used],
+        )
+    except Exception:
+        logger.warning("Failed to persist QueryLog for text=%r", text[:80], exc_info=True)

@@ -35,8 +35,13 @@ interface GraphSlice {
 interface PipelineSlice {
   pipelineEvents: PipelineEvent[];
   lastPipelineEvent: PipelineEvent | null;
+  /** Active SSE job — owned globally so stream survives route changes (F3.2). */
+  activeJobId: string | null;
+  streamRestartToken: number;
   pushPipelineEvent: (event: PipelineEvent) => void;
   clearPipelineEvents: () => void;
+  setActiveJobId: (id: string | null) => void;
+  bumpStreamRestart: () => void;
 }
 
 interface QuerySlice {
@@ -45,7 +50,53 @@ interface QuerySlice {
   clearHighlight: () => void;
 }
 
-export type AppStore = GraphSlice & PipelineSlice & QuerySlice;
+/** Bumped after DELETE /graph so mounted views can drop local UI state (R3.4). */
+interface ResetSlice {
+  kbResetEpoch: number;
+  notifyKnowledgeBaseReset: () => void;
+}
+
+export type AppStore = GraphSlice & PipelineSlice & QuerySlice & ResetSlice;
+
+/** Perceived pulse duration per id (ms). */
+export const PULSE_DURATION_MS = 600;
+/** Shared sweep interval for expired pulses (ms). */
+export const PULSE_TICK_MS = 150;
+
+const pulseExpiryById = new Map<string, number>();
+let pulseTimer: ReturnType<typeof setInterval> | null = null;
+
+function sweepExpiredPulses(): void {
+  const now = Date.now();
+  let removed = false;
+  for (const [id, expiresAt] of pulseExpiryById) {
+    if (expiresAt <= now) {
+      pulseExpiryById.delete(id);
+      removed = true;
+    }
+  }
+  if (removed || pulseExpiryById.size === 0) {
+    useAppStore.setState({ pulsingIds: Array.from(pulseExpiryById.keys()) });
+  }
+  if (pulseExpiryById.size === 0 && pulseTimer !== null) {
+    globalThis.clearInterval(pulseTimer);
+    pulseTimer = null;
+  }
+}
+
+/** Test helper: clear module-level pulse timer/map between cases. */
+export function resetPulseSchedulerForTests(): void {
+  if (pulseTimer !== null) {
+    globalThis.clearInterval(pulseTimer);
+    pulseTimer = null;
+  }
+  pulseExpiryById.clear();
+}
+
+/** Test helper: whether the shared pulse interval is armed. */
+export function isPulseTimerActiveForTests(): boolean {
+  return pulseTimer !== null;
+}
 
 export const useAppStore = create<AppStore>((set) => ({
   // graph
@@ -61,19 +112,21 @@ export const useAppStore = create<AppStore>((set) => ({
   setOnlyLatest: (onlyLatest) => set({ onlyLatest }),
   pulseEntities: (ids) => {
     if (ids.length === 0) return;
-    set((state) => ({
-      pulsingIds: Array.from(new Set([...state.pulsingIds, ...ids])),
-    }));
-    const clear = () =>
-      set((state) => ({
-        pulsingIds: state.pulsingIds.filter((id) => !ids.includes(id)),
-      }));
-    globalThis.setTimeout(clear, 600);
+    const expiresAt = Date.now() + PULSE_DURATION_MS;
+    for (const id of ids) {
+      pulseExpiryById.set(id, expiresAt);
+    }
+    set({ pulsingIds: Array.from(pulseExpiryById.keys()) });
+    if (pulseTimer === null) {
+      pulseTimer = globalThis.setInterval(sweepExpiredPulses, PULSE_TICK_MS);
+    }
   },
 
   // pipelineEvents
   pipelineEvents: [],
   lastPipelineEvent: null,
+  activeJobId: null,
+  streamRestartToken: 0,
   pushPipelineEvent: (event) =>
     set((state) => ({
       pipelineEvents: [...state.pipelineEvents, event],
@@ -81,9 +134,34 @@ export const useAppStore = create<AppStore>((set) => ({
     })),
   clearPipelineEvents: () =>
     set({ pipelineEvents: [], lastPipelineEvent: null }),
+  setActiveJobId: (activeJobId) => set({ activeJobId }),
+  bumpStreamRestart: () =>
+    set((state) => ({ streamRestartToken: state.streamRestartToken + 1 })),
 
   // querySubgraph
   querySubgraph: null,
   setQuerySubgraph: (querySubgraph) => set({ querySubgraph }),
   clearHighlight: () => set({ querySubgraph: null }),
+
+  // knowledge-base reset (R3.4)
+  kbResetEpoch: 0,
+  notifyKnowledgeBaseReset: () => {
+    pulseExpiryById.clear();
+    if (pulseTimer !== null) {
+      globalThis.clearInterval(pulseTimer);
+      pulseTimer = null;
+    }
+    set((state) => ({
+      nodes: [],
+      relationships: [],
+      selectedFactId: null,
+      historyHighlight: null,
+      pulsingIds: [],
+      pipelineEvents: [],
+      lastPipelineEvent: null,
+      activeJobId: null,
+      querySubgraph: null,
+      kbResetEpoch: state.kbResetEpoch + 1,
+    }));
+  },
 }));

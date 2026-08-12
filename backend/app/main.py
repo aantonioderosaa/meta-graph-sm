@@ -9,7 +9,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import documents, dreaming, events, facts, graph, health, query, reconcile
+from app.api import (
+    documents,
+    dreaming,
+    events,
+    facts,
+    graph,
+    health,
+    query,
+    query_history,
+    reconcile,
+)
 from app.core.config import settings
 from app.core.neo4j_client import close_neo4j_driver, init_neo4j_driver
 from app.db.schema import apply_schema
@@ -56,4 +66,5 @@ app.include_router(dreaming.router)
 app.include_router(graph.router)
 app.include_router(facts.router)
 app.include_router(query.router)
+app.include_router(query_history.router)
 app.include_router(reconcile.router)

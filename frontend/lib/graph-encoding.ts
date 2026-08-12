@@ -14,6 +14,10 @@
  * - UPDATES → warning (full, wider)
  * - EXTENDS → info (full)
  * - DERIVES → success (thinner; NVL has no dashed stroke — thinner width is the proxy)
+ *
+ * F2.2: encodeNode/encodeRelationship reuse cached object identity when the
+ * visual signature is unchanged, so InteractiveNvlWrapper does not treat the
+ * whole graph as dirty on every unrelated re-render.
  */
 
 import type { GraphNode, GraphRelationship } from "./types";
@@ -52,6 +56,11 @@ export type NvlRelationship = {
   selected?: boolean;
 };
 
+type CacheEntry<T> = { signature: string; value: T };
+
+const nodeCache = new Map<string, CacheEntry<NvlNode>>();
+const relCache = new Map<string, CacheEntry<NvlRelationship>>();
+
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = hex.replace("#", "");
   const r = Number.parseInt(normalized.slice(0, 2), 16);
@@ -87,9 +96,25 @@ export function encodeNode(
   const selected = options.selectedId === node.id;
   const historyHighlighted = options.historyHighlighted === true;
   const pulsing = options.pulsing === true;
+  const dimmed = options.dimmed === true;
+
+  const signature = [
+    type,
+    historical ? "1" : "0",
+    selected ? "1" : "0",
+    dimmed ? "1" : "0",
+    historyHighlighted ? "1" : "0",
+    pulsing ? "1" : "0",
+    node.caption || node.id,
+  ].join("|");
+
+  const cached = nodeCache.get(node.id);
+  if (cached && cached.signature === signature) {
+    return cached.value;
+  }
 
   let color = historical ? hexToRgba(base, HISTORICAL_ALPHA) : base;
-  if (options.dimmed && !selected && !historyHighlighted && !pulsing) {
+  if (dimmed && !selected && !historyHighlighted && !pulsing) {
     color = hexToRgba(base, historical ? 0.15 : 0.25);
   }
   if (historyHighlighted || pulsing) {
@@ -99,7 +124,7 @@ export function encodeNode(
   const captionBase = node.caption || node.id;
   const caption = historical ? `${captionBase} (storico)` : captionBase;
 
-  return {
+  const value: NvlNode = {
     id: node.id,
     caption: caption.length > 48 ? `${caption.slice(0, 45)}…` : caption,
     size: pulsing ? NODE_SIZE + 10 : NODE_SIZE,
@@ -107,6 +132,8 @@ export function encodeNode(
     selected: selected || historyHighlighted || pulsing,
     disabled: historical && !historyHighlighted && !selected && !pulsing,
   };
+  nodeCache.set(node.id, { signature, value });
+  return value;
 }
 
 export function encodeRelationship(
@@ -117,21 +144,63 @@ export function encodeRelationship(
   const baseColor: string =
     RELATION_COLORS[typeKey] ?? RELATION_COLORS.EXTENDS;
   const width = typeKey === "DERIVES" ? 1 : typeKey === "UPDATES" ? 2.5 : 2;
+  const dimmed = options.dimmed === true;
+  const historyHighlighted = options.historyHighlighted === true;
+
+  const signature = [
+    typeKey,
+    dimmed ? "1" : "0",
+    historyHighlighted ? "1" : "0",
+    rel.from,
+    rel.to,
+    rel.caption ?? rel.type,
+  ].join("|");
+
+  const cached = relCache.get(rel.id);
+  if (cached && cached.signature === signature) {
+    return cached.value;
+  }
 
   let finalColor = baseColor;
-  if (options.dimmed && !options.historyHighlighted) {
+  if (dimmed && !historyHighlighted) {
     finalColor = hexToRgba(baseColor, 0.2);
   }
 
-  return {
+  const value: NvlRelationship = {
     id: rel.id,
     from: rel.from,
     to: rel.to,
     caption: rel.caption ?? rel.type,
     color: finalColor,
-    width: options.historyHighlighted ? width + 1 : width,
-    selected: options.historyHighlighted === true,
+    width: historyHighlighted ? width + 1 : width,
+    selected: historyHighlighted,
   };
+  relCache.set(rel.id, { signature, value });
+  return value;
+}
+
+function pruneCaches(activeNodeIds: Set<string>, activeRelIds: Set<string>): void {
+  for (const id of nodeCache.keys()) {
+    if (!activeNodeIds.has(id)) {
+      nodeCache.delete(id);
+    }
+  }
+  for (const id of relCache.keys()) {
+    if (!activeRelIds.has(id)) {
+      relCache.delete(id);
+    }
+  }
+}
+
+/** Test helper: current encoding cache sizes (nodes, rels). */
+export function getEncodingCacheSize(): { nodes: number; rels: number } {
+  return { nodes: nodeCache.size, rels: relCache.size };
+}
+
+/** Test helper: clear encoding caches between cases. */
+export function clearEncodingCache(): void {
+  nodeCache.clear();
+  relCache.clear();
 }
 
 export function toNvlGraph(
@@ -183,6 +252,11 @@ export function toNvlGraph(
       historyHighlighted: inHistory || inQuery || pulsing,
     });
   });
+
+  pruneCaches(
+    new Set(nvlNodes.map((n) => n.id)),
+    new Set(nvlRels.map((r) => r.id)),
+  );
 
   return { nodes: nvlNodes, rels: nvlRels };
 }

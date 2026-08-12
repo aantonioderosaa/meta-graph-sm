@@ -19,6 +19,18 @@ class DocumentRequest(BaseModel):
     text: str
 
 
+class DocumentSummary(BaseModel):
+    doc_id: str
+    chunk_count: int
+    fact_count: int
+    first_ingested_at: str
+    last_ingested_at: str
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentSummary]
+
+
 class DreamingRunRequest(BaseModel):
     job_id: str | None = None
     doc_id: str | None = None
@@ -45,6 +57,10 @@ class GraphRelationship(BaseModel):
 class GraphResponse(BaseModel):
     nodes: list[GraphNode]
     relationships: list[GraphRelationship]
+
+
+class GraphResetResponse(BaseModel):
+    deleted: bool
 
 
 class ChunkProvenance(BaseModel):
@@ -81,6 +97,16 @@ class QueryRequest(BaseModel):
     type_filter: FactType | None = None
 
 
+class QueryHistoryEntry(BaseModel):
+    id: str
+    text: str
+    created_at: str
+
+
+class QueryHistoryResponse(BaseModel):
+    items: list[QueryHistoryEntry]
+
+
 class ReconcileResponse(BaseModel):
     drift_count: int
 
@@ -93,7 +119,9 @@ class HealthResponse(BaseModel):
 # Re-export QueryResponse for OpenAPI consistency
 __all__ = [
     "ChunkProvenance",
+    "DocumentListResponse",
     "DocumentRequest",
+    "DocumentSummary",
     "DreamingRunRequest",
     "FactDetailResponse",
     "FactHistoryEntry",
@@ -101,8 +129,11 @@ __all__ = [
     "GraphNode",
     "GraphRelationship",
     "GraphResponse",
+    "GraphResetResponse",
     "HealthResponse",
     "JobResponse",
+    "QueryHistoryEntry",
+    "QueryHistoryResponse",
     "QueryRequest",
     "QueryResponse",
     "ReconcileResponse",

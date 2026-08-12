@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from testcontainers.community.neo4j import Neo4jContainer
+from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
 from app.core import event_bus, neo4j_client
 from app.core.llm_client import LLMValidationError
@@ -26,10 +27,16 @@ EMBEDDING_DIM = 768
 
 @pytest.fixture(scope="module")
 def neo4j_container():
+    # GDS plugin download on first start often exceeds the default 120s wait.
     container = (
         Neo4jContainer(NEO4J_IMAGE)
         .with_env("NEO4J_PLUGINS", '["graph-data-science"]')
         .with_env("NEO4J_dbms_security_procedures_unrestricted", "gds.*")
+        .waiting_for(
+            LogMessageWaitStrategy("Remote interface available at").with_startup_timeout(
+                600
+            )
+        )
     )
     container.start()
     try:
@@ -136,6 +143,35 @@ async def _create_updates(src_id: str, tgt_id: str) -> None:
             """,
             src_id=src_id,
             tgt_id=tgt_id,
+        )
+
+
+async def _link_fact_to_chunk(
+    *,
+    fact_id: str,
+    chunk_id: str,
+    doc_id: str = "doc-chunk",
+    chunk_text: str = "shared chunk",
+) -> None:
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        await session.run(
+            """
+            MERGE (c:Chunk {id: $chunk_id})
+            ON CREATE SET
+              c.doc_id = $doc_id,
+              c.text = $chunk_text,
+              c.embedding = $embedding,
+              c.created_at = datetime()
+            WITH c
+            MATCH (f:Fact {id: $fact_id})
+            MERGE (f)-[:DERIVED_FROM]->(c)
+            """,
+            chunk_id=chunk_id,
+            doc_id=doc_id,
+            chunk_text=chunk_text,
+            embedding=_unit_vector(0),
+            fact_id=fact_id,
         )
 
 

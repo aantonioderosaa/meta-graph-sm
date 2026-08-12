@@ -7,6 +7,8 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 - [Scope e semantica](./milestone1/milestone1.md)
 - [Specifica tecnica](./milestone1/milestone1-tech-spec.md)
 - [Piano implementativo (epic/task)](./milestone1/milestone1-implementation-plan.md)
+- [Piano fix post-E10 (F1–F4)](./milestone1/milestone1-fixes-plan.md)
+- [Piano coerenza documento/chunk e reset KB (R1–R4)](./milestone1/milestone1-relation-detection-plan.md)
 - [Checklist UI manuale §8](./milestone1/e10-manual-ui-checklist.md)
 
 ## Prerequisiti
@@ -31,10 +33,11 @@ Ordine di avvio: Neo4j (healthy) → backend (AUTO_MIGRATE + health) → fronten
 
 Ciclo tipico in UI (con `NEXT_PUBLIC_USE_MOCK_EVENTS=false`):
 
-1. Ingest documento dalla barra eventi (doc_id + testo → **Ingest**)
-2. Osserva Pipeline Monitor (SSE)
-3. **Dream** per consolidamento/relazioni
-4. Esplora il grafo; interroga dal Query Panel
+1. Vai su **Documenti** (`/documents`), ingerisci un documento (doc_id + testo → **Ingest**)
+2. Osserva il **Pipeline Monitor** sulla dashboard principale (`/`) — resta aggiornato anche se hai lanciato l'azione da un'altra pagina (SSE globale)
+3. **Dream** per consolidamento/relazioni (sempre da `/documents`)
+4. Esplora il grafo (si aggiorna da solo a fine pipeline); interroga dal **Query Panel**; richiama query precedenti dalla cronologia a tendina
+5. Per azzerare la knowledge base: su `/documents` → **Elimina tutto** → conferma nel dialog
 
 ## Avvio locale (dev, meno di 15 min)
 
@@ -87,9 +90,11 @@ Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 
 ## Note operative
 
-- **OpenAI costi/rate-limit**: tutte le chiamate passano da `app/core/llm_client.py` (retry, timeout 30s, semaforo `LLM_MAX_CONCURRENCY`) — tech-spec §18.
-- **Cambio modello embedding**: gli indici vettoriali sono fissati a 768 dim (`BAAI/bge-base-en-v1.5`); un cambio modello richiede ricreare indici e ricalcolare embedding — tech-spec §15.
-- **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline; `NEXT_PUBLIC_USE_QUERY_FIXTURE=true` per Query Panel senza backend.
+- **OpenAI costi/rate-limit**: tutte le chiamate passano da `app/core/llm_client.py` (retry, timeout 30s, semaforo `LLM_MAX_CONCURRENCY`) — tech-spec §18. Il modello di default è `OPENAI_MODEL` (`gpt-4o-mini`).
+- **Cambio modello embedding**: gli indici vettoriali sono fissati a 768 dim (`EMBEDDING_MODEL` = `BAAI/bge-base-en-v1.5`); un cambio modello richiede ricreare indici e ricalcolare embedding — tech-spec §15.
+- **CORS**: `CORS_ORIGINS` (default `http://localhost:3000`) elenca le origini browser autorizzate a chiamare l'API — va estesa (valori separati da virgola) se il frontend gira su un host/porta diversa.
+- **Schema Neo4j**: `AUTO_MIGRATE=true` (default) applica constraint/indici all'avvio del backend; in test/CI di solito è `false` e lo schema è applicato esplicitamente.
+- **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline; `NEXT_PUBLIC_USE_QUERY_FIXTURE=true` per Query Panel senza backend. `NEXT_PUBLIC_API_URL` punta al backend (default Compose: `http://localhost:8000`).
 - **`derives` temporaneamente disattivata**: `ENABLE_DERIVES=false` (default) — la semantica dell'astrazione va rivista (vedi discussione in chat/tech-spec) prima di riabilitarla. Con il flag off, i gruppi di fatti simili non vengono più collassati in un'astrazione: ogni fatto è valutato singolarmente per `updates`/`extends`. `ENABLE_DERIVES=true` riattiva il meccanismo com'era.
 
 ## Progresso Milestone 1
@@ -107,6 +112,26 @@ Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 | E8 Pipeline Monitor | completata |
 | E9 Query Panel | completata |
 | E10 Qualità e accettazione | completata |
+
+### Fix post-E10 (piano `milestone1-fixes-plan.md`)
+
+Stato verificato contro il codice (non solo le checkbox del piano).
+
+| Epic | Contenuto | Stato |
+|------|-----------|--------|
+| F1 Citazioni strutturate | `cited_fact_ids` in `query_engine` / `QueryResponse` + UI citazioni | completata |
+| F2 Stabilità Graph Explorer | pulse batched in `store.ts` (`PULSE_DURATION_MS`) | completata |
+| F3 Pagina Documenti + refresh | `/documents`, SSE globale, auto-refresh grafo a fine pipeline | completata |
+| F4 Cronologia query | `QueryLog` + tendina in Query Panel | completata |
+
+### Relation-detection / reset KB (piano `milestone1-relation-detection-plan.md`)
+
+| Epic | Contenuto | Stato |
+|------|-----------|--------|
+| R1 Candidati chunk/doc | `find_candidates` con fonti embedding/chunk/doc + dedup coppie | completata |
+| R2 Classificazione `extends` | segnale località nel prompt + system prompt allargato | completata |
+| R3 Reset knowledge base | `DELETE /graph` + UI «Elimina tutto» con conferma e clear client | completata |
+| R4 Igiene README / gitignore | link piani, ciclo UI, env vars, tabelle progresso; `.loop-progress.md` ignorato | completata |
 
 ## Note Epic 10
 

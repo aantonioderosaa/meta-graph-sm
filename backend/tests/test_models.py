@@ -90,6 +90,7 @@ def test_query_response_valid():
         facts_used=[
             FactUsed(id="f1", text="Alice works at Acme.", source_doc_id="doc-1")
         ],
+        cited_fact_ids=["f1"],
         subgraph=Subgraph(
             nodes=[
                 SubgraphNode(id="f1", label="Fact", properties={"type": "fact"}),
@@ -100,6 +101,42 @@ def test_query_response_valid():
         ),
     )
     assert response.answer.startswith("Alice")
+    assert response.cited_fact_ids == ["f1"]
+
+
+def test_query_response_cited_fact_ids_default_empty():
+    response = QueryResponse(
+        answer="No citations.",
+        facts_used=[],
+        subgraph=Subgraph(nodes=[], relationships=[]),
+    )
+    assert response.cited_fact_ids == []
+
+
+def test_query_answer_schema_cited_fact_ids():
+    from app.pipeline.query_engine import QueryAnswer
+
+    empty = QueryAnswer(answer="Nessuna citazione.")
+    assert empty.cited_fact_ids == []
+    populated = QueryAnswer(answer="Alice lavora in Acme.", cited_fact_ids=["f1", "f2"])
+    assert populated.cited_fact_ids == ["f1", "f2"]
+    assert "f1" not in populated.answer
+
+
+def test_query_answer_prompt_forbids_ids_in_answer_text():
+    from app.pipeline.query_engine import ANSWER_SYSTEM_PROMPT, build_query_answer_prompt
+
+    assert "Non scrivere mai ID o UUID dentro il testo di `answer`" in ANSWER_SYSTEM_PROMPT
+    assert "cited_fact_ids" in ANSWER_SYSTEM_PROMPT
+
+    system, user = build_query_answer_prompt(
+        "Dove lavora Alice?",
+        [FactUsed(id="fact-1", text="Alice works at Acme.", source_doc_id="doc-1")],
+    )
+    assert system == ANSWER_SYSTEM_PROMPT
+    assert "Dove lavora Alice?" in user
+    assert "[fact-1]" in user
+    assert "Alice works at Acme." in user
 
 
 def test_subgraph_relationship_invalid_type():

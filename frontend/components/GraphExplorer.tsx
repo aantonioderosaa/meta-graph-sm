@@ -42,6 +42,7 @@ export function GraphExplorer() {
   const setHistoryHighlight = useAppStore((s) => s.setHistoryHighlight);
   const setOnlyLatest = useAppStore((s) => s.setOnlyLatest);
   const pulseEntities = useAppStore((s) => s.pulseEntities);
+  const kbResetEpoch = useAppStore((s) => s.kbResetEpoch);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +96,24 @@ export function GraphExplorer() {
       pulseEntities(toPulse);
     }
   }, [lastPipelineEvent, nodes, relationships, pulseEntities]);
+
+  // Auto-refresh graph when an ingest/dreaming pipeline completes (F3.5).
+  useEffect(() => {
+    if (!lastPipelineEvent) return;
+    if (
+      lastPipelineEvent.stage === "done" &&
+      lastPipelineEvent.event === "pipeline_complete"
+    ) {
+      setReloadToken((t) => t + 1);
+    }
+  }, [lastPipelineEvent]);
+
+  // R3.4: after KB reset, store is already empty — refetch to confirm empty UI.
+  useEffect(() => {
+    if (kbResetEpoch === 0) return;
+    setError(null);
+    setReloadToken((t) => t + 1);
+  }, [kbResetEpoch]);
 
   const historyNodeIds = useMemo(
     () => (historyHighlight ? new Set(historyHighlight.nodeIds) : null),

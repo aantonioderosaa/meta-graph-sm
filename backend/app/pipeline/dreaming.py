@@ -71,6 +71,7 @@ class NewFactForRelations:
     text: str
     embedding: list[float]
     source_fact_ids: list[str] = field(default_factory=list)
+    source_doc_id: str = ""
 
 
 @dataclass
@@ -135,6 +136,7 @@ async def _write_abstraction(
         text=result.text,
         embedding=embedding,
         source_fact_ids=list(result.source_fact_ids),
+        source_doc_id=source_doc_id,
     )
 
 
@@ -157,6 +159,7 @@ async def _write_cleaned_fact(
         fact_id=fact_id,
         text=result.text,
         embedding=embedding,
+        source_doc_id=source_doc_id,
     )
 
 
@@ -178,6 +181,7 @@ async def _add_facts_as_individual_candidates(
                 fact_id=fact["id"],
                 text=fact["text"],
                 embedding=fact["embedding"],
+                source_doc_id=fact.get("source_doc_id") or "",
             )
         )
         successfully_processed_fact_ids.add(fact_id)
@@ -264,18 +268,25 @@ async def _process_relation_detection(
     new_fact: NewFactForRelations,
     job_id: str,
     stats: DreamingStats,
+    classified_pairs: set[frozenset[str]],
 ) -> None:
     candidates = await relations.find_candidates(
         session,
         new_fact.fact_id,
         new_fact.embedding,
+        source_doc_id=new_fact.source_doc_id,
     )
     for candidate in candidates:
+        pair = frozenset({new_fact.fact_id, candidate.id})
+        if pair in classified_pairs:
+            continue
         try:
             classification = await relations.classify_relation(
                 new_fact.text,
                 candidate.text,
                 job_id=job_id,
+                same_chunk=candidate.via == "chunk",
+                same_doc=candidate.via == "doc",
             )
         except LLMValidationError as exc:
             logger.exception(
@@ -312,6 +323,7 @@ async def _process_relation_detection(
             )
             continue
 
+        classified_pairs.add(pair)
         wrote = await relations.apply_relation(
             session,
             n_id=new_fact.fact_id,
@@ -329,6 +341,7 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
     new_facts: list[NewFactForRelations] = []
     failed_fact_ids: set[str] = set()
     successfully_processed_fact_ids: set[str] = set()
+    classified_pairs: set[frozenset[str]] = set()
 
     groups = await grouping.group_fresh_facts(doc_id)
     driver = get_driver()
@@ -363,6 +376,7 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
                 new_fact=new_fact,
                 job_id=job_id,
                 stats=stats,
+                classified_pairs=classified_pairs,
             )
             successfully_processed_fact_ids.add(new_fact.fact_id)
             stats.facts_processed += 1

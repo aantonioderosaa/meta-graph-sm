@@ -319,8 +319,132 @@ async def test_query_empty_facts_returns_explicit_answer(neo4j_ready, monkeypatc
         response = await query_engine.run_query(session, "Unrelated question about zebras")
 
     assert response.facts_used == []
+    assert response.cited_fact_ids == []
     assert "Nessun fatto rilevante" in response.answer
     assert response.subgraph.nodes == []
+
+
+@pytest.mark.asyncio
+async def test_cited_fact_ids_filters_invented_and_falls_back(neo4j_ready, monkeypatch):
+    """F1.3: invented IDs dropped; empty cited_fact_ids falls back to facts_used."""
+    base = _unit_vector(20)
+    await _create_fact(
+        fact_id="cite-a",
+        text="Alice works at Acme.",
+        embedding=base,
+        is_latest=True,
+    )
+    await _create_fact(
+        fact_id="cite-b",
+        text="Alice prefers remote work.",
+        embedding=_unit_vector(21),
+        is_latest=True,
+        fact_type="preference",
+    )
+    await _link_extends("cite-b", "cite-a")
+    await _await_vector_index()
+
+    monkeypatch.setattr(
+        "app.pipeline.query_engine.embeddings.embed",
+        lambda text: base,
+    )
+
+    # Invented ID must be filtered out; only real ids remain.
+    monkeypatch.setattr(
+        "app.pipeline.query_engine.call_structured",
+        AsyncMock(
+            return_value=QueryAnswer(
+                answer="Alice lavora in Acme e preferisce il remoto.",
+                cited_fact_ids=["cite-a", "invented-id", "cite-typo"],
+            )
+        ),
+    )
+
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        filtered = await query_engine.run_query(session, "Tell me about Alice")
+
+    assert filtered.cited_fact_ids == ["cite-a"]
+    assert "invented-id" not in filtered.cited_fact_ids
+    for fid in filtered.facts_used:
+        assert fid.id not in filtered.answer  # AC: no IDs in answer text
+    assert set(filtered.cited_fact_ids).issubset({f.id for f in filtered.facts_used})
+
+    # Empty cited_fact_ids + non-empty facts_used → fallback to all facts_used.
+    monkeypatch.setattr(
+        "app.pipeline.query_engine.call_structured",
+        AsyncMock(
+            return_value=QueryAnswer(
+                answer="Alice lavora in Acme e preferisce il remoto.",
+                cited_fact_ids=[],
+            )
+        ),
+    )
+    async with driver.session() as session:
+        fallback = await query_engine.run_query(session, "Tell me about Alice")
+
+    assert set(fallback.cited_fact_ids) == {f.id for f in fallback.facts_used}
+    assert fallback.cited_fact_ids  # non-empty when facts exist
+
+
+@pytest.mark.asyncio
+async def test_cited_fact_ids_empty_on_llm_failure(neo4j_ready, monkeypatch):
+    """F1.3: LLM failure path returns cited_fact_ids=[] explicitly."""
+    base = _unit_vector(22)
+    await _create_fact(
+        fact_id="fail-a",
+        text="Bob likes tea.",
+        embedding=base,
+        is_latest=True,
+    )
+    await _await_vector_index()
+
+    monkeypatch.setattr(
+        "app.pipeline.query_engine.embeddings.embed",
+        lambda text: base,
+    )
+    monkeypatch.setattr(
+        "app.pipeline.query_engine.call_structured",
+        AsyncMock(side_effect=RuntimeError("llm down")),
+    )
+
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        response = await query_engine.run_query(session, "What does Bob like?")
+
+    assert response.facts_used
+    assert response.cited_fact_ids == []
+    assert "generazione risposta non disponibile" in response.answer
+
+
+def test_no_code_parses_ids_from_answer_text():
+    """F1.6 canary: citations must not be extracted from free-text answer."""
+    from pathlib import Path
+
+    roots = [
+        Path(__file__).resolve().parents[1] / "app",
+        Path(__file__).resolve().parents[2] / "frontend",
+    ]
+    forbidden = (
+        "extract_ids_from_answer",
+        "parse_citation",
+        "cited_from_answer",
+        "answer.match(",
+    )
+    hits: list[str] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if path.suffix not in {".py", ".ts", ".tsx"}:
+                continue
+            if "node_modules" in path.parts or ".next" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for needle in forbidden:
+                if needle in text:
+                    hits.append(f"{path}:{needle}")
+    assert hits == []
 
 
 @pytest.mark.asyncio
@@ -421,7 +545,13 @@ async def test_http_endpoints_against_neo4j(neo4j_ready, monkeypatch):
         assert query.status_code == 200
         body = query.json()
         assert body["facts_used"]
+        assert "cited_fact_ids" in body
+        assert set(body["cited_fact_ids"]).issubset(
+            {f["id"] for f in body["facts_used"]}
+        )
         assert all(f["id"] != "hist" for f in body["facts_used"])
+        for fid in body["cited_fact_ids"]:
+            assert fid not in body["answer"]
 
         recon = await client.post("/reconcile")
         assert recon.status_code == 200

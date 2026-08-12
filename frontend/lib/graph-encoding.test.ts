@@ -1,15 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  clearEncodingCache,
   FACT_TYPE_COLORS,
   RELATION_COLORS,
   encodeNode,
   encodeRelationship,
+  getEncodingCacheSize,
   toNvlGraph,
 } from "./graph-encoding";
 import { FIXTURE_NODES, FIXTURE_RELATIONSHIPS } from "./graph-visual-fixture";
 
 describe("graph visual encoding (§11.1)", () => {
+  beforeEach(() => {
+    clearEncodingCache();
+  });
+
   it("covers all fact types × is_latest states with distinct colors", () => {
     const encoded = FIXTURE_NODES.map((n) => encodeNode(n));
     const byId = Object.fromEntries(encoded.map((n) => [n.id, n]));
@@ -60,5 +66,45 @@ describe("graph visual encoding (§11.1)", () => {
       ["fact-historical", "fact-latest"].sort(),
     );
     expect(rels.find((r) => r.id === "rel-updates")?.selected).toBe(true);
+  });
+
+  it("reuses the same node object identity when visual state is unchanged", () => {
+    const first = toNvlGraph(FIXTURE_NODES, FIXTURE_RELATIONSHIPS);
+    const second = toNvlGraph(FIXTURE_NODES, FIXTURE_RELATIONSHIPS);
+
+    expect(second.nodes).toHaveLength(first.nodes.length);
+    for (let i = 0; i < first.nodes.length; i += 1) {
+      expect(second.nodes[i]).toBe(first.nodes[i]);
+    }
+    for (let i = 0; i < first.rels.length; i += 1) {
+      expect(second.rels[i]).toBe(first.rels[i]);
+    }
+  });
+
+  it("replaces only the pulsing node object when pulse state changes", () => {
+    const baseline = toNvlGraph(FIXTURE_NODES, FIXTURE_RELATIONSHIPS);
+    const pulsed = toNvlGraph(FIXTURE_NODES, FIXTURE_RELATIONSHIPS, {
+      pulsingIds: new Set(["fact-latest"]),
+    });
+
+    const baselineById = Object.fromEntries(baseline.nodes.map((n) => [n.id, n]));
+    const pulsedById = Object.fromEntries(pulsed.nodes.map((n) => [n.id, n]));
+
+    expect(pulsedById["fact-latest"]).not.toBe(baselineById["fact-latest"]);
+    for (const id of Object.keys(baselineById)) {
+      if (id === "fact-latest") continue;
+      expect(pulsedById[id]).toBe(baselineById[id]);
+    }
+  });
+
+  it("prunes encoding cache entries for removed ids", () => {
+    toNvlGraph(FIXTURE_NODES, FIXTURE_RELATIONSHIPS);
+    expect(getEncodingCacheSize().nodes).toBe(FIXTURE_NODES.length);
+    expect(getEncodingCacheSize().rels).toBe(FIXTURE_RELATIONSHIPS.length);
+
+    const subset = FIXTURE_NODES.filter((n) => n.id === "fact-latest");
+    toNvlGraph(subset, []);
+    expect(getEncodingCacheSize().nodes).toBe(1);
+    expect(getEncodingCacheSize().rels).toBe(0);
   });
 });

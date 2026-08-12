@@ -48,8 +48,36 @@ async def test_openapi_docs_available(client: AsyncClient):
     assert "/facts/{fact_id}" in paths
     assert "/facts/{fact_id}/history" in paths
     assert "/query" in paths
+    assert "/queries" in paths
+    assert "/queries/{query_id}" in paths
     assert "/reconcile" in paths
     assert "/events/stream" in paths
+
+
+@pytest.mark.asyncio
+async def test_get_documents_returns_list(client: AsyncClient, monkeypatch):
+    from app.api.schemas import DocumentListResponse, DocumentSummary
+
+    async def mock_list(session):
+        _ = session
+        return [
+            DocumentSummary(
+                doc_id="doc-1",
+                chunk_count=2,
+                fact_count=3,
+                first_ingested_at="2026-01-01T00:00:00Z",
+                last_ingested_at="2026-01-02T00:00:00Z",
+            )
+        ]
+
+    monkeypatch.setattr("app.api.documents.documents_engine.list_documents", mock_list)
+
+    response = await client.get("/documents")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["documents"][0]["doc_id"] == "doc-1"
+    assert body["documents"][0]["chunk_count"] == 2
+    assert DocumentListResponse.model_validate(body)
 
 
 @pytest.mark.asyncio
@@ -200,6 +228,7 @@ async def test_post_query_returns_query_response(client: AsyncClient, monkeypatc
     body = response.json()
     assert "answer" in body
     assert "facts_used" in body
+    assert "cited_fact_ids" in body
     assert "subgraph" in body
     assert body["subgraph"]["nodes"][0]["label"] == "Fact"
 

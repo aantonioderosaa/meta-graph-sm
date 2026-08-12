@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.api.schemas import GraphResponse
+from app.api.schemas import GraphResetResponse, GraphResponse
 from app.core.neo4j_client import Neo4jSessionDep
 from app.models.extraction import FactType
 from app.pipeline import query_engine
@@ -33,3 +33,10 @@ async def get_graph(
         doc_id=doc_id,
         limit=limit,
     )
+
+
+@router.delete("", response_model=GraphResetResponse)
+async def reset_graph(session: Neo4jSessionDep) -> GraphResetResponse:
+    """Delete all nodes and relationships; leave constraints/indexes intact."""
+    await session.run("MATCH (n) DETACH DELETE n")
+    return GraphResetResponse(deleted=True)

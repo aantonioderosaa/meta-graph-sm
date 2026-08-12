@@ -38,9 +38,11 @@ def neo4j_driver():
 def test_schema_file_has_expected_statements():
     statements = load_schema_statements()
     joined = "\n".join(statements)
-    assert len(statements) == 8
+    assert len(statements) == 10
     assert "fact_id" in joined
     assert "chunk_id" in joined
+    assert "query_log_id" in joined
+    assert "query_log_created_at" in joined
     assert "fact_embedding" in joined
     assert "chunk_embedding" in joined
     assert "768" in joined
@@ -49,9 +51,9 @@ def test_schema_file_has_expected_statements():
 
 def test_apply_schema_idempotent_and_indexes(neo4j_driver):
     # First application
-    assert apply_schema_with_driver(neo4j_driver) == 8
+    assert apply_schema_with_driver(neo4j_driver) == 10
     # Second application must not error (IF NOT EXISTS)
-    assert apply_schema_with_driver(neo4j_driver) == 8
+    assert apply_schema_with_driver(neo4j_driver) == 10
 
     constraints = fetch_constraint_names(neo4j_driver)
     assert REQUIRED_CONSTRAINTS.issubset(constraints)
