@@ -37,3 +37,7 @@ graphify-out/
 .env.local
 .env.*.local
 *.pem
+
+# Session artifacts (not project docs — never commit)
+.loop-progress.md
+.loop_progress*
