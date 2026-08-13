@@ -97,6 +97,10 @@ class QueryRequest(BaseModel):
     type_filter: FactType | None = None
 
 
+class NodeQueryRequest(BaseModel):
+    text: str
+
+
 class QueryHistoryEntry(BaseModel):
     id: str
     text: str
@@ -132,6 +136,7 @@ __all__ = [
     "GraphResetResponse",
     "HealthResponse",
     "JobResponse",
+    "NodeQueryRequest",
     "QueryHistoryEntry",
     "QueryHistoryResponse",
     "QueryRequest",

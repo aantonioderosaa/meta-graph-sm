@@ -17,6 +17,7 @@ from app.api import (
     graph,
     health,
     node_graph,
+    node_query,
     query,
     query_history,
     reconcile,
@@ -66,6 +67,7 @@ app.include_router(documents.router)
 app.include_router(dreaming.router)
 app.include_router(graph.router)
 app.include_router(node_graph.router)
+app.include_router(node_query.router)
 app.include_router(facts.router)
 app.include_router(query.router)
 app.include_router(query_history.router)

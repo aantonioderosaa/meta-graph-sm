@@ -191,7 +191,7 @@ Endpoint gemello di `POST /query` (che resta sul grafo `:Fact`): `POST /graph/qu
 | Q2 Proiezione GDS | `nodeQueryGraph` refresh a fine dreaming + lazy ensure | completata |
 | Q3 Query engine | seeding ibrido → PPR → cross-encoder → contesto | completata |
 | Q4 NodeQueryLog | cronologia `:NodeQueryLog` distinta da `:QueryLog` | completata |
-| Q5 API | `POST /graph/query`, `GET /graph/queries[/{id}]` | da fare |
+| Q5 API | `POST /graph/query`, `GET /graph/queries[/{id}]` | completata |
 | Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | da fare |
 | Q7 Accettazione e-e | scenari PPR / relazione / isolamento Fact | da fare |
 
