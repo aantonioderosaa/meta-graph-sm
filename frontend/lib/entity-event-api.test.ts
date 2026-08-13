@@ -47,6 +47,22 @@ describe("entity/event/concept API client paths", () => {
     );
   });
 
+  it("getEntityGraph sends include_concepts when true", async () => {
+    await getEntityGraph({ is_latest: true, include_concepts: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/graph/entities?is_latest=true&include_concepts=true",
+      expect.any(Object),
+    );
+  });
+
+  it("getEventGraph sends include_concepts when true", async () => {
+    await getEventGraph({ include_concepts: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/graph/events?include_concepts=true",
+      expect.any(Object),
+    );
+  });
+
   it("getParticipationGraph hits /graph/participation", async () => {
     await getParticipationGraph({ limit: 10 });
     expect(fetchMock).toHaveBeenCalledWith(

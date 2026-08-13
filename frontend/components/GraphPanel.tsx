@@ -88,6 +88,8 @@ export interface GraphPanelProps {
   highlightIds?: Set<string> | null;
   selectedId?: string | null;
   emptyMessage?: string;
+  /** Changing this value re-runs `fetcher` (e.g. concept-bridge toggle). */
+  reloadKey?: unknown;
 }
 
 export function GraphPanel({
@@ -99,6 +101,7 @@ export function GraphPanel({
   highlightIds = null,
   selectedId = null,
   emptyMessage = "Nessun nodo nel grafo.",
+  reloadKey,
 }: GraphPanelProps) {
   const lastPipelineEvent = useAppStore((s) => s.lastPipelineEvent);
   const kbResetEpoch = useAppStore((s) => s.kbResetEpoch);
@@ -134,7 +137,7 @@ export function GraphPanel({
 
   useEffect(() => {
     void loadGraph();
-  }, [loadGraph, reloadToken]);
+  }, [loadGraph, reloadToken, reloadKey]);
 
   useEffect(() => {
     if (!lastPipelineEvent) return;

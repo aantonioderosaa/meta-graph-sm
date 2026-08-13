@@ -47,8 +47,10 @@ def _sample_graph() -> GraphResponse:
 
 @pytest.mark.asyncio
 async def test_get_entity_graph_returns_nvl_shape(client: AsyncClient, monkeypatch):
-    async def mock_graph(session, is_latest=True, limit=200) -> GraphResponse:
-        _ = session, is_latest, limit
+    async def mock_graph(
+        session, is_latest=True, limit=200, include_concepts=False
+    ) -> GraphResponse:
+        _ = session, is_latest, limit, include_concepts
         return _sample_graph()
 
     monkeypatch.setattr("app.api.node_graph.node_graph_engine.get_entity_graph", mock_graph)
@@ -66,8 +68,10 @@ async def test_get_entity_graph_returns_nvl_shape(client: AsyncClient, monkeypat
 
 @pytest.mark.asyncio
 async def test_get_event_graph_returns_nvl_shape(client: AsyncClient, monkeypatch):
-    async def mock_graph(session, is_latest=True, limit=200) -> GraphResponse:
-        _ = session, is_latest, limit
+    async def mock_graph(
+        session, is_latest=True, limit=200, include_concepts=False
+    ) -> GraphResponse:
+        _ = session, is_latest, limit, include_concepts
         return _sample_graph()
 
     monkeypatch.setattr("app.api.node_graph.node_graph_engine.get_event_graph", mock_graph)
@@ -155,3 +159,43 @@ async def test_get_concept_neighbors_returns_nvl_shape(client: AsyncClient, monk
     assert "from" in rel
     assert "to" in rel
     assert "type" in rel
+
+
+@pytest.mark.asyncio
+async def test_get_entity_graph_passes_include_concepts(client: AsyncClient, monkeypatch):
+    captured: dict[str, bool] = {}
+
+    async def mock_graph(
+        session, is_latest=True, limit=200, include_concepts=False
+    ) -> GraphResponse:
+        _ = session, is_latest, limit
+        captured["include_concepts"] = include_concepts
+        return _sample_graph()
+
+    monkeypatch.setattr("app.api.node_graph.node_graph_engine.get_entity_graph", mock_graph)
+
+    omitted = await client.get("/graph/entities")
+    assert omitted.status_code == 200
+    assert captured["include_concepts"] is False
+
+    enabled = await client.get("/graph/entities?include_concepts=true")
+    assert enabled.status_code == 200
+    assert captured["include_concepts"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_event_graph_passes_include_concepts(client: AsyncClient, monkeypatch):
+    captured: dict[str, bool] = {}
+
+    async def mock_graph(
+        session, is_latest=True, limit=200, include_concepts=False
+    ) -> GraphResponse:
+        _ = session, is_latest, limit
+        captured["include_concepts"] = include_concepts
+        return _sample_graph()
+
+    monkeypatch.setattr("app.api.node_graph.node_graph_engine.get_event_graph", mock_graph)
+
+    enabled = await client.get("/graph/events?include_concepts=true")
+    assert enabled.status_code == 200
+    assert captured["include_concepts"] is True

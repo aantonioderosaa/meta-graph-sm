@@ -28,12 +28,14 @@ async def get_entity_graph_endpoint(
         ),
     ),
     limit: int = Query(default=200, ge=1, le=1000),
+    include_concepts: bool = Query(default=False),
 ) -> GraphResponse:
     """Return NVL-compatible entity graph (no event or participates edges)."""
     return await node_graph_engine.get_entity_graph(
         session,
         is_latest=is_latest,
         limit=limit,
+        include_concepts=include_concepts,
     )
 
 
@@ -47,12 +49,14 @@ async def get_event_graph_endpoint(
         ),
     ),
     limit: int = Query(default=200, ge=1, le=1000),
+    include_concepts: bool = Query(default=False),
 ) -> GraphResponse:
     """Return NVL-compatible event graph (no entity nodes)."""
     return await node_graph_engine.get_event_graph(
         session,
         is_latest=is_latest,
         limit=limit,
+        include_concepts=include_concepts,
     )
 
 

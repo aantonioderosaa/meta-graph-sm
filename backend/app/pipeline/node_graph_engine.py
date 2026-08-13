@@ -36,6 +36,18 @@ RETURN elementId(r) AS id, a.id AS from_id, b.id AS to_id, r.relation AS caption
        coalesce(r.normalized_relation, r.relation) AS rel_type
 """
 
+ENTITY_GRAPH_CONCEPT_RELS_CYPHER = """
+MATCH (a:Node {type:'entity'})-[:HAS_CONCEPT]->(c:Concept)
+WHERE a.id IN $ids
+RETURN a.id AS from_id, c.id AS concept_id, c.name AS concept_name
+"""
+
+EVENT_GRAPH_CONCEPT_RELS_CYPHER = """
+MATCH (a:Node {type:'event'})-[:HAS_CONCEPT]->(c:Concept)
+WHERE a.id IN $ids
+RETURN a.id AS from_id, c.id AS concept_id, c.name AS concept_name
+"""
+
 PARTICIPATION_GRAPH_CYPHER = """
 MATCH (ev:Node {type:'event'})-[r:Relation {normalized_relation:'participates'}]
       ->(e:Node {type:'entity'})
@@ -142,18 +154,64 @@ async def _typed_node_graph(
     return GraphResponse(nodes=nodes, relationships=relationships)
 
 
+async def _append_concept_bridge(
+    session: AsyncSession,
+    base: GraphResponse,
+    *,
+    cypher: str,
+    include_concepts: bool,
+) -> GraphResponse:
+    """Attach Concept nodes and HAS_CONCEPT edges scoped to `base` node ids."""
+    if not include_concepts or not base.nodes:
+        return base
+    ids = [n.id for n in base.nodes]
+    concept_rows = await session.run(cypher, ids=ids)
+    concept_nodes: dict[str, GraphNode] = {}
+    extra_rels: list[GraphRelationship] = []
+    async for row in concept_rows:
+        cid = str(row["concept_id"])
+        concept_nodes.setdefault(
+            cid,
+            GraphNode(
+                id=cid,
+                caption=row["concept_name"] or cid,
+                properties={"type": "concept"},
+            ),
+        )
+        extra_rels.append(
+            _graph_relationship(
+                f"{row['from_id']}-HAS_CONCEPT-{cid}",
+                row["from_id"],
+                cid,
+                "HAS_CONCEPT",
+                "HAS_CONCEPT",
+            )
+        )
+    return GraphResponse(
+        nodes=base.nodes + list(concept_nodes.values()),
+        relationships=base.relationships + extra_rels,
+    )
+
+
 async def get_entity_graph(
     session: AsyncSession,
     is_latest: bool | None = True,
     limit: int = 200,
+    include_concepts: bool = False,
 ) -> GraphResponse:
     """Entity–entity graph. Relations among the fetched entity ids only."""
-    return await _typed_node_graph(
+    base = await _typed_node_graph(
         session,
         nodes_cypher=ENTITY_GRAPH_NODES_CYPHER,
         rels_cypher=ENTITY_GRAPH_RELS_CYPHER,
         is_latest=is_latest,
         limit=limit,
+    )
+    return await _append_concept_bridge(
+        session,
+        base,
+        cypher=ENTITY_GRAPH_CONCEPT_RELS_CYPHER,
+        include_concepts=include_concepts,
     )
 
 
@@ -161,14 +219,21 @@ async def get_event_graph(
     session: AsyncSession,
     is_latest: bool | None = True,
     limit: int = 200,
+    include_concepts: bool = False,
 ) -> GraphResponse:
     """Event–event graph. Relations among the fetched event ids only."""
-    return await _typed_node_graph(
+    base = await _typed_node_graph(
         session,
         nodes_cypher=EVENT_GRAPH_NODES_CYPHER,
         rels_cypher=EVENT_GRAPH_RELS_CYPHER,
         is_latest=is_latest,
         limit=limit,
+    )
+    return await _append_concept_bridge(
+        session,
+        base,
+        cypher=EVENT_GRAPH_CONCEPT_RELS_CYPHER,
+        include_concepts=include_concepts,
     )
 
 

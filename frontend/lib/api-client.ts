@@ -95,6 +95,9 @@ export function getEntityGraph(
   if (params.limit !== undefined) {
     search.set("limit", String(params.limit));
   }
+  if (params.include_concepts) {
+    search.set("include_concepts", "true");
+  }
   const qs = search.toString();
   return request<GraphResponse>(`/graph/entities${qs ? `?${qs}` : ""}`);
 }
@@ -108,6 +111,9 @@ export function getEventGraph(
   }
   if (params.limit !== undefined) {
     search.set("limit", String(params.limit));
+  }
+  if (params.include_concepts) {
+    search.set("include_concepts", "true");
   }
   const qs = search.toString();
   return request<GraphResponse>(`/graph/events${qs ? `?${qs}` : ""}`);

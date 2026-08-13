@@ -213,3 +213,132 @@ def test_no_cypher_matches_fact_or_chunk_labels():
     for cypher in _cyphers():
         assert ":Fact" not in cypher
         assert ":Chunk" not in cypher
+
+
+@pytest.mark.asyncio
+async def test_entity_graph_default_does_not_query_concepts():
+    session = FakeSession()
+    session.enqueue([{"n": FakeNode(id="alice", name="Alice", type="entity")}])
+    session.enqueue([])
+
+    graph = await get_entity_graph(session)
+
+    assert len(session.calls) == 2
+    assert session.calls[0][0] == node_graph_engine.ENTITY_GRAPH_NODES_CYPHER
+    assert session.calls[1][0] == ENTITY_GRAPH_RELS_CYPHER
+    assert all("HAS_CONCEPT" not in cypher for cypher, _ in session.calls)
+    assert [node.properties.get("type") for node in graph.nodes] == ["entity"]
+    assert graph.relationships == []
+
+
+@pytest.mark.asyncio
+async def test_entity_graph_include_concepts_false_matches_default():
+    session_default = FakeSession()
+    session_default.enqueue([{"n": FakeNode(id="alice", name="Alice", type="entity")}])
+    session_default.enqueue(
+        [
+            {
+                "id": "rel-works-at",
+                "from_id": "alice",
+                "to_id": "alice",
+                "caption": "works_at",
+                "rel_type": "works_at",
+            }
+        ]
+    )
+    session_explicit = FakeSession()
+    session_explicit.enqueue([{"n": FakeNode(id="alice", name="Alice", type="entity")}])
+    session_explicit.enqueue(
+        [
+            {
+                "id": "rel-works-at",
+                "from_id": "alice",
+                "to_id": "alice",
+                "caption": "works_at",
+                "rel_type": "works_at",
+            }
+        ]
+    )
+
+    default_graph = await get_entity_graph(session_default)
+    explicit_graph = await get_entity_graph(session_explicit, include_concepts=False)
+
+    assert default_graph.model_dump() == explicit_graph.model_dump()
+    assert len(session_explicit.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_entity_graph_include_concepts_appends_has_concept_bridge():
+    session = FakeSession()
+    session.enqueue([{"n": FakeNode(id="alice", name="Alice", type="entity")}])
+    session.enqueue([])
+    session.enqueue(
+        [
+            {
+                "from_id": "alice",
+                "concept_id": "tech",
+                "concept_name": "technology",
+            }
+        ]
+    )
+
+    graph = await get_entity_graph(session, include_concepts=True)
+
+    assert len(session.calls) == 3
+    assert session.calls[2][0] == node_graph_engine.ENTITY_GRAPH_CONCEPT_RELS_CYPHER
+    assert session.calls[2][1]["ids"] == ["alice"]
+    by_id = {node.id: node for node in graph.nodes}
+    assert by_id["alice"].properties["type"] == "entity"
+    assert by_id["tech"].properties["type"] == "concept"
+    assert by_id["tech"].caption == "technology"
+    assert len(graph.relationships) == 1
+    rel = graph.relationships[0]
+    assert rel.id == "alice-HAS_CONCEPT-tech"
+    assert rel.type == "HAS_CONCEPT"
+    assert rel.caption == "HAS_CONCEPT"
+    dumped = rel.model_dump(by_alias=True)
+    assert dumped["from"] == "alice"
+    assert dumped["to"] == "tech"
+
+
+@pytest.mark.asyncio
+async def test_event_graph_include_concepts_appends_has_concept_bridge():
+    session = FakeSession()
+    session.enqueue([{"n": FakeNode(id="summit", name="Summit", type="event")}])
+    session.enqueue([])
+    session.enqueue(
+        [
+            {
+                "from_id": "summit",
+                "concept_id": "tech",
+                "concept_name": "technology",
+            }
+        ]
+    )
+
+    graph = await get_event_graph(session, include_concepts=True)
+
+    assert len(session.calls) == 3
+    assert session.calls[2][0] == node_graph_engine.EVENT_GRAPH_CONCEPT_RELS_CYPHER
+    assert session.calls[2][1]["ids"] == ["summit"]
+    by_id = {node.id: node for node in graph.nodes}
+    assert by_id["summit"].properties["type"] == "event"
+    assert by_id["tech"].properties["type"] == "concept"
+    rel = graph.relationships[0]
+    dumped = rel.model_dump(by_alias=True)
+    assert dumped["from"] == "summit"
+    assert dumped["to"] == "tech"
+    assert rel.type == "HAS_CONCEPT"
+
+
+@pytest.mark.asyncio
+async def test_entity_graph_include_concepts_empty_nodes_skips_concept_query():
+    session = FakeSession()
+    session.enqueue([])
+
+    graph = await get_entity_graph(session, include_concepts=True)
+
+    assert graph.nodes == []
+    assert graph.relationships == []
+    assert len(session.calls) == 1
+    assert session.calls[0][0] == node_graph_engine.ENTITY_GRAPH_NODES_CYPHER

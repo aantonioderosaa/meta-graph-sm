@@ -137,6 +137,7 @@ export interface PipelineEvent {
 export interface GetEntityEventGraphParams {
   is_latest?: boolean;
   limit?: number;
+  include_concepts?: boolean;
 }
 
 /** Limit-only graph views (`GET /graph/participation`, `/graph/concepts`). */
