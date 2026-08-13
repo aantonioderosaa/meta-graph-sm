@@ -67,7 +67,8 @@ cd backend && pytest -q --ignore=tests/test_schema.py --ignore=tests/test_health
   --ignore=tests/test_ingestion_integration.py --ignore=tests/test_dreaming_integration.py \
   --ignore=tests/test_query_integration.py --ignore=tests/test_acceptance_milestone1.py \
   --ignore=tests/test_embeddings.py --ignore=tests/test_nodes_integration.py \
-  --ignore=tests/test_ppr_projection_integration.py
+  --ignore=tests/test_ppr_projection_integration.py \
+  --ignore=tests/test_node_query_engine_integration.py
 
 # Backend — accettazione §8 + integrazione (richiede Docker)
 cd backend && pytest -q tests/test_acceptance_milestone1.py --tb=short
@@ -188,7 +189,7 @@ Endpoint gemello di `POST /query` (che resta sul grafo `:Fact`): `POST /graph/qu
 |-----------|-----------|--------|
 | Q1 Schema + pin GDS | embedding/indici su Concept e Relation; fulltext; GDS 2.12.0 jar locale | completata |
 | Q2 Proiezione GDS | `nodeQueryGraph` refresh a fine dreaming + lazy ensure | completata |
-| Q3 Query engine | seeding ibrido → PPR → cross-encoder → contesto | da fare |
+| Q3 Query engine | seeding ibrido → PPR → cross-encoder → contesto | completata |
 | Q4 NodeQueryLog | cronologia `:NodeQueryLog` distinta da `:QueryLog` | da fare |
 | Q5 API | `POST /graph/query`, `GET /graph/queries[/{id}]` | da fare |
 | Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | da fare |

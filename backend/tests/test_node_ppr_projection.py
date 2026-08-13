@@ -46,6 +46,9 @@ def test_projection_queries_exclude_merged_nodes():
     assert "Concept" in NODE_QUERY
     assert "Relation|HAS_CONCEPT" in REL_QUERY
     assert "merged_into IS NULL" in REL_QUERY
+    assert "UNION" in REL_QUERY
+    compact_rels = " ".join(REL_QUERY.split())
+    assert "id(b) AS source, id(a) AS target" in compact_rels
     assert "MATCH (n:Node) RETURN n" not in compact_nodes
 
 

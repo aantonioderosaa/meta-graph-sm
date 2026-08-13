@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
     EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
+    RERANK_MODEL: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     AUTO_MIGRATE: bool = True
     LLM_MAX_CONCURRENCY: int = 5
     CORS_ORIGINS: str = "http://localhost:3000"

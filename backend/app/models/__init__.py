@@ -3,7 +3,13 @@
 from app.models.consolidation import ConsolidationOutcome, ConsolidationResult
 from app.models.extraction import ExtractedFact, FactExtractionResult, FactType
 from app.models.query import (
+    ConceptUsed,
     FactUsed,
+    NodeQueryResponse,
+    NodeSubgraph,
+    NodeSubgraphNode,
+    NodeSubgraphRelationship,
+    NodeUsed,
     QueryResponse,
     Subgraph,
     SubgraphNode,
@@ -17,7 +23,13 @@ __all__ = [
     "ExtractedFact",
     "FactExtractionResult",
     "FactType",
+    "ConceptUsed",
     "FactUsed",
+    "NodeQueryResponse",
+    "NodeSubgraph",
+    "NodeSubgraphNode",
+    "NodeSubgraphRelationship",
+    "NodeUsed",
     "QueryResponse",
     "RelationClassification",
     "RelationLabel",

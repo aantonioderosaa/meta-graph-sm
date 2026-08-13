@@ -22,11 +22,18 @@ MATCH (n) WHERE (n:Node AND n.merged_into IS NULL) OR n:Concept
 RETURN id(n) AS id
 """
 
+# Undirected for PPR: participates is event→entity, HAS_CONCEPT is node→concept.
+# Without the reverse UNION, a seed on an entity cannot reach co-participants.
 REL_QUERY = """
 MATCH (a)-[r:Relation|HAS_CONCEPT]->(b)
 WHERE (a:Node AND a.merged_into IS NULL OR a:Concept)
   AND (b:Node AND b.merged_into IS NULL OR b:Concept)
 RETURN id(a) AS source, id(b) AS target
+UNION
+MATCH (a)-[r:Relation|HAS_CONCEPT]->(b)
+WHERE (a:Node AND a.merged_into IS NULL OR a:Concept)
+  AND (b:Node AND b.merged_into IS NULL OR b:Concept)
+RETURN id(b) AS source, id(a) AS target
 """
 
 DROP_CYPHER = """

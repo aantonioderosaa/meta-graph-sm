@@ -37,6 +37,7 @@ jobs:
           --ignore=tests/test_embeddings.py
           --ignore=tests/test_nodes_integration.py
           --ignore=tests/test_ppr_projection_integration.py
+          --ignore=tests/test_node_query_engine_integration.py
 
   backend-integration:
     runs-on: ubuntu-latest
@@ -65,6 +66,7 @@ jobs:
           tests/test_acceptance_milestone1.py
           tests/test_nodes_integration.py
           tests/test_ppr_projection_integration.py
+          tests/test_node_query_engine_integration.py
           --tb=short
 
   frontend:
