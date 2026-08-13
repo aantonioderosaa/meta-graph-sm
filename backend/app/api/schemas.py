@@ -6,9 +6,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.extraction import FactType
-from app.models.query import QueryResponse
-
 
 class JobResponse(BaseModel):
     job_id: str
@@ -63,40 +60,6 @@ class GraphResetResponse(BaseModel):
     deleted: bool
 
 
-class ChunkProvenance(BaseModel):
-    chunk_id: str
-    snippet: str
-    doc_id: str
-
-
-class FactDetailResponse(BaseModel):
-    id: str
-    text: str
-    type: FactType
-    confidence: float
-    is_latest: bool
-    created_at: str
-    source_doc_id: str
-    provenance: list[ChunkProvenance]
-
-
-class FactHistoryEntry(BaseModel):
-    id: str
-    text: str
-    type: FactType
-    is_latest: bool
-    path_length: int
-
-
-class FactHistoryResponse(BaseModel):
-    facts: list[FactHistoryEntry]
-
-
-class QueryRequest(BaseModel):
-    text: str
-    type_filter: FactType | None = None
-
-
 class NodeQueryRequest(BaseModel):
     text: str
 
@@ -111,25 +74,16 @@ class QueryHistoryResponse(BaseModel):
     items: list[QueryHistoryEntry]
 
 
-class ReconcileResponse(BaseModel):
-    drift_count: int
-
-
 class HealthResponse(BaseModel):
     neo4j: str
     gds: str
 
 
-# Re-export QueryResponse for OpenAPI consistency
 __all__ = [
-    "ChunkProvenance",
     "DocumentListResponse",
     "DocumentRequest",
     "DocumentSummary",
     "DreamingRunRequest",
-    "FactDetailResponse",
-    "FactHistoryEntry",
-    "FactHistoryResponse",
     "GraphNode",
     "GraphRelationship",
     "GraphResponse",
@@ -139,7 +93,4 @@ __all__ = [
     "NodeQueryRequest",
     "QueryHistoryEntry",
     "QueryHistoryResponse",
-    "QueryRequest",
-    "QueryResponse",
-    "ReconcileResponse",
 ]

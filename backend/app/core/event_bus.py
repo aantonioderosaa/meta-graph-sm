@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
 
@@ -46,6 +50,24 @@ async def publish(
     }
     for queue in _subscribers.get(job_id, []):
         await queue.put(message)
+
+
+async def run_tracked_job(job_id: str, coro: Awaitable[Any]) -> None:
+    """Run a background job coroutine (``asyncio.create_task`` target) with a
+    safety net: any unhandled exception is logged and published as a ``failed``
+    stage event instead of vanishing silently.
+
+    Without this, a fire-and-forget ``asyncio.create_task(run_x_pipeline(...))``
+    that raises anywhere before its own final ``done`` publish leaves the SSE
+    stream (and therefore the frontend Pipeline Monitor) waiting forever with no
+    signal that anything went wrong — indistinguishable from a job that is still
+    legitimately running.
+    """
+    try:
+        await coro
+    except Exception as exc:
+        logger.exception("job_id=%s failed with an unhandled exception", job_id)
+        await publish(job_id, "failed", "pipeline_failed", {"error": str(exc)})
 
 
 def subscriber_count(job_id: str | None = None) -> int:

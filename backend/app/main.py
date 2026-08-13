@@ -9,19 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import (
-    documents,
-    dreaming,
-    events,
-    facts,
-    graph,
-    health,
-    node_graph,
-    node_query,
-    query,
-    query_history,
-    reconcile,
-)
+from app.api import documents, dreaming, events, health, node_graph, node_query
 from app.core.config import settings
 from app.core.neo4j_client import close_neo4j_driver, init_neo4j_driver
 from app.db.schema import apply_schema
@@ -51,7 +39,7 @@ async def lifespan(app: FastAPI):
     await close_neo4j_driver()
 
 
-app = FastAPI(title="Meta-Graph Facts Engine", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Meta-Graph", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,10 +53,5 @@ app.include_router(health.router)
 app.include_router(events.router)
 app.include_router(documents.router)
 app.include_router(dreaming.router)
-app.include_router(graph.router)
 app.include_router(node_graph.router)
 app.include_router(node_query.router)
-app.include_router(facts.router)
-app.include_router(query.router)
-app.include_router(query_history.router)
-app.include_router(reconcile.router)

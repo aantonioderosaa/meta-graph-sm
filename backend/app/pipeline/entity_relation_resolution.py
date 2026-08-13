@@ -1,7 +1,7 @@
 """Incremental entity↔entity :Relation resolution (Macrotask 4.1).
 
-Reuses relations.classify_relation / build_relation_prompt; candidates are
-same-endpoint edges identified by elementId(r). Never a full-graph Relation scan.
+Candidates are same-endpoint edges identified by elementId(r). Never a
+full-graph Relation scan.
 """
 
 from __future__ import annotations
@@ -12,10 +12,94 @@ from dataclasses import dataclass
 
 from neo4j import AsyncSession
 
-from app.models.relations import RelationLabel
-from app.pipeline.relations import classify_relation
+from app.core.llm_client import call_structured
+from app.models.relations import RelationClassification, RelationLabel
 
 logger = logging.getLogger(__name__)
+
+_REPLACES_SECTION = (
+    '- `"replaces"` se il fatto nuovo contraddice o sostituisce il fatto esistente sullo stesso '
+    "soggetto/attributo: un'informazione più recente annulla o rimpiazza la precedente. "
+    "Per stabilire quale dei due descrive lo stato più recente, cerca marcatori temporali nel "
+    'testo di entrambi i fatti (date assolute, espressioni relative come "ora", "da allora", '
+    '"fino al", "ho appena iniziato", "il mese scorso") — questi sono la base primaria della '
+    "decisione, non l'ordine di presentazione. Le etichette FATTO NUOVO/FATTO ESISTENTE "
+    "indicano solo quale dei due stai valutando ora — non implicano da sole che uno sia "
+    "temporalmente precedente all'altro.\n"
+)
+
+SYSTEM_PROMPT = (
+    "Confronta il FATTO NUOVO con il FATTO ESISTENTE e classifica la relazione tra i due:\n"
+    f"{_REPLACES_SECTION}"
+    '- `"extends"` se il fatto nuovo aggiunge dettagli complementari sullo stesso soggetto '
+    "o sulla stessa situazione/episodio complessivo (non necessariamente lo stesso attributo "
+    "specifico), senza contraddire né rendere superfluo il fatto esistente: entrambi possono "
+    "restare veri contemporaneamente. Vale anche quando i due fatti descrivono attributi "
+    "diversi dello stesso oggetto concreto (es. luogo e attrezzatura dello stesso ufficio).\n"
+    "  Esempio extends: \"Il vento soffiava forte sulla strada\" e \"Il sole uscì e scaldò il "
+    "viandante\" — momenti diversi dello stesso episodio narrativo.\n"
+    "  Esempio extends: \"L'ufficio è a Milano\" e \"L'ufficio ha una palestra sul tetto\" — "
+    "dettagli complementari sullo stesso soggetto.\n"
+    "  Esempio none: \"Il vento soffiava forte\" e \"Alice lavora ad Acme\" — argomenti "
+    "scorrelati, anche se nello stesso documento.\n"
+    '- `"none"` se non c\'è relazione significativa tra i due.\n\n'
+    "Se nessuno dei due fatti contiene un marcatore temporale esplicito che stabilisca quale "
+    "dei due descrive lo stato più recente, non scegliere `replaces` sulla sola base "
+    "dell'ordine di presentazione — valuta invece se i due fatti possono coesistere "
+    "(`extends`) o se non c'è relazione significativa (`none`). Dichiarare erroneamente "
+    "`replaces` nasconde un fatto vero: è un errore peggiore di non dichiarare nulla.\n\n"
+    "Rispondi solo secondo lo schema fornito, senza aggiungere testo libero."
+)
+
+
+def build_relation_prompt(
+    n_text: str,
+    v_text: str,
+    *,
+    same_chunk: bool = False,
+    same_doc: bool = False,
+) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) for relation classification."""
+    locality_note = ""
+    if same_chunk:
+        locality_note = (
+            "Nota: i due fatti provengono dallo stesso passaggio di testo.\n"
+        )
+    elif same_doc:
+        locality_note = "Nota: i due fatti provengono dallo stesso documento.\n"
+
+    user_prompt = (
+        f'FATTO NUOVO: "{n_text}"\n'
+        f'FATTO ESISTENTE: "{v_text}"\n'
+        f"{locality_note}"
+        f"\nClassifica la relazione."
+    )
+    return SYSTEM_PROMPT, user_prompt
+
+
+async def classify_relation(
+    n_text: str,
+    v_text: str,
+    job_id: str | None = None,
+    *,
+    same_chunk: bool = False,
+    same_doc: bool = False,
+) -> RelationClassification:
+    """Classify the relationship between a new fact N and candidate V."""
+    system_prompt, user_prompt = build_relation_prompt(
+        n_text,
+        v_text,
+        same_chunk=same_chunk,
+        same_doc=same_doc,
+    )
+    return await call_structured(
+        system_prompt,
+        user_prompt,
+        RelationClassification,
+        temperature=0,
+        job_id=job_id,
+    )
+
 
 OnClassified = Callable[[str, str, str], Awaitable[None]]
 OnClassifyError = Callable[[str, str, str], Awaitable[None]]

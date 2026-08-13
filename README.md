@@ -1,6 +1,6 @@
-# Meta-Graph — Motore del Grafo dei Fatti (Milestone 1)
+# Meta-Graph — Grafo di entità, eventi e concetti
 
-Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query su un grafo di fatti versionato.
+Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query su un grafo `:Node` / `:Relation` / `:Concept` (chunk condivisi). Il layer `:Fact` è stato rimosso dal backend (piano `piano-implementativo-solo-entita-eventi.md`).
 
 ## Documentazione
 
@@ -36,9 +36,9 @@ Ciclo tipico in UI (con `NEXT_PUBLIC_USE_MOCK_EVENTS=false`):
 
 1. Vai su **Documenti** (`/documents`), ingerisci un documento (doc_id + testo → **Ingest**)
 2. Osserva il **Pipeline Monitor** sulla dashboard principale (`/`) — resta aggiornato anche se hai lanciato l'azione da un'altra pagina (SSE globale)
-3. **Dream** per consolidamento/relazioni (sempre da `/documents`)
-4. Esplora il grafo (si aggiorna da solo a fine pipeline); sul tab **Fatti** interroga dal **Query Panel** (`POST /query`); sul tab **Entità/Eventi** il pannello Query parla con `POST /graph/query`. Richiama query precedenti dalla cronologia a tendina
-5. Per azzerare la knowledge base: su `/documents` → **Elimina tutto** → conferma nel dialog
+3. **Dream** per risoluzione entità/eventi e classificazione relazioni (sempre da `/documents`)
+4. Esplora il grafo (si aggiorna da solo a fine pipeline). Interroga con `POST /graph/query` (cronologia `GET /graph/queries`). Gli endpoint Fact (`POST /query`, `GET /graph`, `GET /facts/{id}`, `POST /reconcile`) non esistono più.
+5. Per azzerare la knowledge base: su `/documents` → **Elimina tutto** → conferma nel dialog (`DELETE /graph`)
 
 ## Avvio locale (dev, meno di 15 min)
 
@@ -70,8 +70,7 @@ cd backend && pytest -q --ignore=tests/test_schema.py --ignore=tests/test_health
   --ignore=tests/test_ppr_projection_integration.py \
   --ignore=tests/test_node_query_engine_integration.py
 
-# Backend — accettazione §8 + integrazione (richiede Docker)
-cd backend && pytest -q tests/test_acceptance_milestone1.py --tb=short
+# Backend — accettazione §8 Fact (suite in rimozione; non più allineata al codice)
 
 # Layer entità/eventi — accettazione M8 unit (no Docker) e integrazione (Docker)
 cd backend && pytest -q tests/test_acceptance_nodes.py --tb=short
@@ -106,8 +105,8 @@ Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 - **CORS**: `CORS_ORIGINS` (default `http://localhost:3000`) elenca le origini browser autorizzate a chiamare l'API — va estesa (valori separati da virgola) se il frontend gira su un host/porta diversa.
 - **Schema Neo4j**: `AUTO_MIGRATE=true` (default) applica constraint/indici all'avvio del backend; in test/CI di solito è `false` e lo schema è applicato esplicitamente.
 - **GDS 2.12.0 pinnato**: il jar è in `neo4j-plugins/` e montato su `/plugins` (Compose e Testcontainers). Non si usa `NEO4J_PLUGINS` per GDS — quella env var scarica sempre l'ultima versione compatibile da `graphdatascience.ninja`, non un pin. `CALL gds.version()` deve restituire `2.12.0`. Checksum: `neo4j-plugins/SHA256SUMS`.
-- **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline; `NEXT_PUBLIC_USE_QUERY_FIXTURE=true` per Query Panel senza backend. `NEXT_PUBLIC_API_URL` punta al backend (default Compose: `http://localhost:8000`).
-- **`derives` temporaneamente disattivata**: `ENABLE_DERIVES=false` (default) — la semantica dell'astrazione va rivista (vedi discussione in chat/tech-spec) prima di riabilitarla. Con il flag off, i gruppi di fatti simili non vengono più collassati in un'astrazione: ogni fatto è valutato singolarmente per `updates`/`extends`. `ENABLE_DERIVES=true` riattiva il meccanismo com'era.
+- **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline. `NEXT_PUBLIC_API_URL` punta al backend (default Compose: `http://localhost:8000`).
+- **Layer Fact rimosso**: niente più `:Fact`, `POST /query`, `GET /facts/{id}` né indici `fact_*`. Dreaming pubblica `reconciliation` poi `done`. Ingestione estrae solo nodi (`process_chunk_node_extraction`).
 
 ## Limiti della knowledge base
 
@@ -168,9 +167,22 @@ Stato verificato contro il codice (non solo le checkbox del piano).
 |------|-----------|--------|
 | T1 Marcatori temporali + limiti KB | prompt `replaces` guidato da marker nel testo + prudenza senza segnale; sezione README limiti | completata |
 
+### Rimozione layer Fact (piano `piano-implementativo-solo-entita-eventi.md`)
+
+| Macrotask | Contenuto | Stato |
+|-----------|-----------|--------|
+| M1 Backend: rimozione pipeline Fact | file/API/schema Fact eliminati; `DELETE /graph` in `node_graph`; dreaming solo Node | completata |
+| M2 Backend: riferimenti condivisi | `DocumentSummary.node_count`; ingestione solo `node_extraction` | da fare |
+| M3 Frontend: rimozione Fact-only | GraphExplorer / QueryPanel / GraphSlice | da fare |
+| M4 Grafo unico + fix WebGL | un solo mount, `onInitializationError` | da fare |
+| M5 Toggle ponte concetti | `include_concepts` su entità/eventi | da fare |
+| M6 Naming eventi/Fact | stage pipeline, colonna Nodi, mock SSE | da fare |
+| M7 Test suite | rimuovi/aggiorna test Fact | da fare |
+| M8 Accettazione e-e | scenari ingest/dream/dashboard/reset | da fare |
+
 ### Layer Entità / Eventi / Concetti
 
-Schema `:Node` / `:Concept` / `:Relation` accanto al layer `Fact`/`Chunk` esistente (piano `piano-implementativo-entita-eventi-concetti.md`).
+Schema `:Node` / `:Concept` / `:Relation` (piano `piano-implementativo-entita-eventi-concetti.md`). Il layer `Fact` non è più nel backend.
 
 | Macrotask | Contenuto | Stato |
 |-----------|-----------|--------|
@@ -183,11 +195,11 @@ Schema `:Node` / `:Concept` / `:Relation` accanto al layer `Fact`/`Chunk` esiste
 | M7 Frontend | quattro pannelli sullo stesso piano (dashboard: tab Fatti vs Entità/Eventi) | completata |
 | M8 Test e-e / acceptance | criteri complessivi end-to-end | completata |
 
-La dashboard espone due tab nell'area grafo: **Fatti** (Graph Explorer esistente) e **Entità/Eventi** (quattro pannelli visibili insieme: entità, concetti, eventi, partecipazione). Accettazione M8: `pytest tests/test_acceptance_nodes.py` (unit, no Docker) e `pytest tests/test_nodes_integration.py` (Neo4j via testcontainers).
+La dashboard espone ancora (fino a M3/M4) due tab nell'area grafo lato frontend; il backend serve solo le viste Node (`GET /graph/entities|events|participation|concepts`). Accettazione M8 storica: `pytest tests/test_acceptance_nodes.py` (unit, no Docker) e `pytest tests/test_nodes_integration.py` (Neo4j via testcontainers).
 
 ### Query NL sul layer Node / Concept
 
-Endpoint gemello di `POST /query` (che resta sul grafo `:Fact`): `POST /graph/query` interroga `:Node` / `:Relation` / `:Concept` con seeding ibrido, Personalized PageRank (GDS) e reranking. `POST /query` non viene toccato.
+Endpoint: `POST /graph/query` interroga `:Node` / `:Relation` / `:Concept` con seeding ibrido, Personalized PageRank (GDS) e reranking. `POST /query` (Fact) è stato rimosso.
 
 | Macrotask | Contenuto | Stato |
 |-----------|-----------|--------|
@@ -199,7 +211,7 @@ Endpoint gemello di `POST /query` (che resta sul grafo `:Fact`): `POST /graph/qu
 | Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | completata |
 | Q7 Accettazione e-e | scenari PPR / relazione / isolamento Fact | completata |
 
-Tab **Entità/Eventi** monta `NodeQueryPanel` (`POST /graph/query`); tab **Fatti** resta `QueryPanel` (`POST /query`); highlight locale non-filtrante sui pannelli entità/eventi.
+`NodeQueryPanel` parla con `POST /graph/query`. Il Query Panel Fact (`POST /query`) non ha più backend.
 
 Accettazione Q7: `pytest tests/test_acceptance_node_query.py` (unit, no Docker) + scenari integrazione in `tests/test_node_query_engine_integration.py`.
 

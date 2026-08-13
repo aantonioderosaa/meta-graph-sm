@@ -7,36 +7,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-class FactUsed(BaseModel):
-    id: str
-    text: str
-    source_doc_id: str
-
-
-class SubgraphNode(BaseModel):
-    id: str
-    label: Literal["Fact"]
-    properties: dict[str, Any]
-
-
-class SubgraphRelationship(BaseModel):
-    source: str
-    target: str
-    type: Literal["updates", "extends", "derives"]
-
-
-class Subgraph(BaseModel):
-    nodes: list[SubgraphNode]
-    relationships: list[SubgraphRelationship]
-
-
-class QueryResponse(BaseModel):
-    answer: str
-    facts_used: list[FactUsed]
-    cited_fact_ids: list[str] = Field(default_factory=list)
-    subgraph: Subgraph
-
-
 class NodeUsed(BaseModel):
     id: str
     name: str
