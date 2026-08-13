@@ -4,23 +4,17 @@ from __future__ import annotations
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from testcontainers.community.neo4j import Neo4jContainer
 
 from app.core import neo4j_client
 from app.db.schema import apply_schema_with_driver
 from app.main import app
 from app.pipeline import documents_engine
-
-NEO4J_IMAGE = "neo4j:5.24-community"
+from tests.neo4j_gds import neo4j_gds_container
 
 
 @pytest.fixture(scope="module")
 def neo4j_container():
-    container = (
-        Neo4jContainer(NEO4J_IMAGE)
-        .with_env("NEO4J_PLUGINS", '["graph-data-science"]')
-        .with_env("NEO4J_dbms_security_procedures_unrestricted", "gds.*")
-    )
+    container = neo4j_gds_container()
     container.start()
     try:
         yield container

@@ -99,6 +99,7 @@ Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 - **Cambio modello embedding**: gli indici vettoriali sono fissati a 768 dim (`EMBEDDING_MODEL` = `BAAI/bge-base-en-v1.5`); un cambio modello richiede ricreare indici e ricalcolare embedding — tech-spec §15.
 - **CORS**: `CORS_ORIGINS` (default `http://localhost:3000`) elenca le origini browser autorizzate a chiamare l'API — va estesa (valori separati da virgola) se il frontend gira su un host/porta diversa.
 - **Schema Neo4j**: `AUTO_MIGRATE=true` (default) applica constraint/indici all'avvio del backend; in test/CI di solito è `false` e lo schema è applicato esplicitamente.
+- **GDS 2.12.0 pinnato**: il jar è in `neo4j-plugins/` e montato su `/plugins` (Compose e Testcontainers). Non si usa `NEO4J_PLUGINS` per GDS — quella env var scarica sempre l'ultima versione compatibile da `graphdatascience.ninja`, non un pin. `CALL gds.version()` deve restituire `2.12.0`. Checksum: `neo4j-plugins/SHA256SUMS`.
 - **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline; `NEXT_PUBLIC_USE_QUERY_FIXTURE=true` per Query Panel senza backend. `NEXT_PUBLIC_API_URL` punta al backend (default Compose: `http://localhost:8000`).
 - **`derives` temporaneamente disattivata**: `ENABLE_DERIVES=false` (default) — la semantica dell'astrazione va rivista (vedi discussione in chat/tech-spec) prima di riabilitarla. Con il flag off, i gruppi di fatti simili non vengono più collassati in un'astrazione: ogni fatto è valutato singolarmente per `updates`/`extends`. `ENABLE_DERIVES=true` riattiva il meccanismo com'era.
 
@@ -177,6 +178,20 @@ Schema `:Node` / `:Concept` / `:Relation` accanto al layer `Fact`/`Chunk` esiste
 | M8 Test e-e / acceptance | criteri complessivi end-to-end | completata |
 
 La dashboard espone due tab nell'area grafo: **Fatti** (Graph Explorer esistente) e **Entità/Eventi** (quattro pannelli visibili insieme: entità, concetti, eventi, partecipazione). Accettazione M8: `pytest tests/test_acceptance_nodes.py` (unit, no Docker) e `pytest tests/test_nodes_integration.py` (Neo4j via testcontainers).
+
+### Query NL sul layer Node / Concept
+
+Endpoint gemello di `POST /query` (che resta sul grafo `:Fact`): `POST /graph/query` interroga `:Node` / `:Relation` / `:Concept` con seeding ibrido, Personalized PageRank (GDS) e reranking. `POST /query` non viene toccato.
+
+| Macrotask | Contenuto | Stato |
+|-----------|-----------|--------|
+| Q1 Schema + pin GDS | embedding/indici su Concept e Relation; fulltext; GDS 2.12.0 jar locale | completata |
+| Q2 Proiezione GDS | `nodeQueryGraph` refresh a fine dreaming + lazy ensure | da fare |
+| Q3 Query engine | seeding ibrido → PPR → cross-encoder → contesto | da fare |
+| Q4 NodeQueryLog | cronologia `:NodeQueryLog` distinta da `:QueryLog` | da fare |
+| Q5 API | `POST /graph/query`, `GET /graph/queries[/{id}]` | da fare |
+| Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | da fare |
+| Q7 Accettazione e-e | scenari PPR / relazione / isolamento Fact | da fare |
 
 ## Note Epic 10
 

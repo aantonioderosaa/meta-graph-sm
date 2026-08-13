@@ -41,3 +41,23 @@ OPTIONS { indexConfig: {
   `vector.dimensions`: 768,
   `vector.similarity_function`: 'cosine'
 }};
+
+CREATE VECTOR INDEX concept_embedding IF NOT EXISTS
+FOR (c:Concept) ON (c.embedding)
+OPTIONS { indexConfig: {
+  `vector.dimensions`: 768,
+  `vector.similarity_function`: 'cosine'
+}};
+
+CREATE VECTOR INDEX relation_embedding IF NOT EXISTS
+FOR ()-[r:Relation]-() ON (r.embedding)
+OPTIONS { indexConfig: {
+  `vector.dimensions`: 768,
+  `vector.similarity_function`: 'cosine'
+}};
+
+CREATE FULLTEXT INDEX node_concept_fulltext IF NOT EXISTS
+FOR (n:Node|Concept) ON EACH [n.name];
+
+CREATE FULLTEXT INDEX relation_fulltext IF NOT EXISTS
+FOR ()-[r:Relation]-() ON EACH [r.relation];

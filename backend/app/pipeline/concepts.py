@@ -6,10 +6,12 @@ import hashlib
 
 from neo4j import AsyncSession
 
+from app.pipeline import embeddings
+
 MERGE_CONCEPT_LINK_CYPHER = """
 MATCH (n:Node {id: $node_id})
 MERGE (c:Concept {id: $concept_id})
-ON CREATE SET c.name = $name
+ON CREATE SET c.name = $name, c.embedding = $embedding
 MERGE (n)-[:HAS_CONCEPT]->(c)
 """
 
@@ -22,9 +24,11 @@ def compute_hash_id(text: str) -> str:
 
 async def merge_concept_and_link(session: AsyncSession, node_id: str, concept_name: str) -> None:
     concept_id = compute_hash_id(concept_name)
+    embedding = embeddings.embed(concept_name)
     await session.run(
         MERGE_CONCEPT_LINK_CYPHER,
         node_id=node_id,
         concept_id=concept_id,
         name=concept_name,
+        embedding=embedding,
     )

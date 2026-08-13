@@ -3,13 +3,13 @@ services:
     image: neo4j:5.24-community
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
-      NEO4J_PLUGINS: '["graph-data-science"]'
       NEO4J_dbms_security_procedures_unrestricted: gds.*
     ports:
       - "7474:7474"
       - "7687:7687"
     volumes:
       - neo4j_data:/data
+      - ./neo4j-plugins:/plugins
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
       interval: 10s

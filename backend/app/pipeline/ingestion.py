@@ -67,6 +67,7 @@ MATCH (h:Node {id: $head_id}), (t:Node {id: $tail_id})
 CREATE (h)-[:Relation {
   relation: $relation,
   normalized_relation: $normalized_relation,
+  embedding: $embedding,
   is_latest: true,
   created_at: datetime()
 }]->(t)
@@ -159,13 +160,19 @@ async def write_node_relation(
     tail_id: str,
     relation: str,
     normalized_relation: str | None,
+    head_name: str = "",
+    tail_name: str = "",
 ) -> None:
+    embedding = None
+    if normalized_relation != "participates":
+        embedding = embeddings.embed(f"{head_name} {relation} {tail_name}")
     await session.run(
         CREATE_NODE_RELATION_CYPHER,
         head_id=head_id,
         tail_id=tail_id,
         relation=relation,
         normalized_relation=normalized_relation,
+        embedding=embedding,
     )
 
 
@@ -335,6 +342,8 @@ async def process_chunk_node_extraction(
             tail_id=tail_id,
             relation=triple.relation,
             normalized_relation=None,
+            head_name=head,
+            tail_name=tail,
         )
 
     for triple in event_rel.triples:
@@ -350,6 +359,8 @@ async def process_chunk_node_extraction(
             tail_id=tail_id,
             relation=triple.relation,
             normalized_relation=None,
+            head_name=head,
+            tail_name=tail,
         )
 
     for participation in event_entity.participations:

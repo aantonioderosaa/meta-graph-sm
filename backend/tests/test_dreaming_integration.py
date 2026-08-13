@@ -7,8 +7,6 @@ import math
 from unittest.mock import AsyncMock
 
 import pytest
-from testcontainers.community.neo4j import Neo4jContainer
-from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
 from app.core import event_bus, neo4j_client
 from app.core.llm_client import LLMValidationError
@@ -20,24 +18,15 @@ from app.pipeline import grouping
 from app.pipeline.dreaming import run_dreaming_pipeline
 from app.pipeline.reconcile import reconcile
 from app.pipeline.relations import find_candidates
+from tests.neo4j_gds import neo4j_gds_container
 
-NEO4J_IMAGE = "neo4j:5.24-community"
 EMBEDDING_DIM = 768
 
 
 @pytest.fixture(scope="module")
 def neo4j_container():
-    # GDS plugin download on first start often exceeds the default 120s wait.
-    container = (
-        Neo4jContainer(NEO4J_IMAGE)
-        .with_env("NEO4J_PLUGINS", '["graph-data-science"]')
-        .with_env("NEO4J_dbms_security_procedures_unrestricted", "gds.*")
-        .waiting_for(
-            LogMessageWaitStrategy("Remote interface available at").with_startup_timeout(
-                600
-            )
-        )
-    )
+    # First start often exceeds the default 120s wait.
+    container = neo4j_gds_container(startup_timeout=600)
     container.start()
     try:
         yield container

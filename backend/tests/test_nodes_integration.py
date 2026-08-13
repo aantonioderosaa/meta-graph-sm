@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 
 import pytest
-from testcontainers.community.neo4j import Neo4jContainer
 
 from app.core import event_bus, neo4j_client
 from app.db.schema import apply_schema_with_driver
@@ -30,8 +29,8 @@ from app.pipeline.node_graph_engine import (
     get_event_graph,
     get_participation_graph,
 )
+from tests.neo4j_gds import neo4j_gds_container
 
-NEO4J_IMAGE = "neo4j:5.24-community"
 EMBEDDING_DIM = 768
 DOC_TEXT = "Alice and Acme attended the product launch."
 EVENT_NAME = "product launch"
@@ -41,11 +40,7 @@ ENTITY_B = "Acme"
 
 @pytest.fixture(scope="module")
 def neo4j_container():
-    container = (
-        Neo4jContainer(NEO4J_IMAGE)
-        .with_env("NEO4J_PLUGINS", '["graph-data-science"]')
-        .with_env("NEO4J_dbms_security_procedures_unrestricted", "gds.*")
-    )
+    container = neo4j_gds_container()
     container.start()
     try:
         yield container

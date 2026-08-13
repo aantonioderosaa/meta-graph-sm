@@ -22,7 +22,14 @@ REQUIRED_BTREE_INDEXES = {
     "relation_is_latest",
     "relation_normalized",
 }
-REQUIRED_VECTOR_INDEXES = {"fact_embedding", "chunk_embedding", "node_embedding"}
+REQUIRED_VECTOR_INDEXES = {
+    "fact_embedding",
+    "chunk_embedding",
+    "node_embedding",
+    "concept_embedding",
+    "relation_embedding",
+}
+REQUIRED_FULLTEXT_INDEXES = {"node_concept_fulltext", "relation_fulltext"}
 
 
 def load_schema_statements(path: Path = SCHEMA_PATH) -> list[str]:
