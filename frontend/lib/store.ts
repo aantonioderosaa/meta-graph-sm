@@ -1,6 +1,6 @@
 /**
  * Shared Zustand store for Pipeline Monitor + knowledge-base reset.
- * Graph and query slices lived here for the Fact explorer; they are gone.
+ * Graph and query slices for the old explorer lived here; they are gone.
  */
 
 import { create } from "zustand";

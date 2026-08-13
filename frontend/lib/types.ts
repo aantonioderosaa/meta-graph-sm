@@ -22,7 +22,7 @@ export interface DocumentRequest {
 export interface DocumentSummary {
   doc_id: string;
   chunk_count: number;
-  fact_count: number;
+  node_count: number;
   first_ingested_at: string;
   last_ingested_at: string;
 }
@@ -118,11 +118,7 @@ export interface PipelineEvent {
   job_id: string;
   stage:
     | "chunking"
-    | "extraction"
     | "node_extraction"
-    | "grouping"
-    | "consolidation"
-    | "relation_detection"
     | "entity_resolution"
     | "entity_relation_classification"
     | "event_resolution_and_classification"

@@ -10,21 +10,13 @@ import { useMemo, useState } from "react";
 import { useAppStore } from "@/lib/store";
 import type { PipelineEvent } from "@/lib/types";
 
-// Ordine di esecuzione reale: chunking/extraction/node_extraction (ingestione,
-// Fact e Node in parallelo) → grouping..relation_detection (dreaming, Fact) →
-// entity_resolution → entity_relation_classification/event_resolution_and_classification
-// (dreaming, layer Node — questi due girano in parallelo tra loro, non in sequenza,
-// mostrati come righe adiacenti per semplicità) → reconciliation → done.
-// Prima di questa correzione l'elenco copriva solo il grafo dei fatti: il pannello
-// non aveva nessuna riga per le fasi Node/Event, quindi "done" restava "pending"
-// per tutta la durata di quelle fasi senza alcun segnale visibile di progresso.
+// Ordine di esecuzione: chunking/node_extraction (ingestione) → entity_resolution
+// → entity_relation_classification/event_resolution_and_classification (dreaming;
+// questi due girano in parallelo tra loro, mostrati come righe adiacenti) →
+// reconciliation → done.
 const STAGES: PipelineEvent["stage"][] = [
   "chunking",
-  "extraction",
   "node_extraction",
-  "grouping",
-  "consolidation",
-  "relation_detection",
   "entity_resolution",
   "entity_relation_classification",
   "event_resolution_and_classification",
@@ -34,11 +26,7 @@ const STAGES: PipelineEvent["stage"][] = [
 
 const STAGE_LABELS: Record<PipelineEvent["stage"], string> = {
   chunking: "Chunking",
-  extraction: "Estrazione fatti",
   node_extraction: "Estrazione entità/eventi",
-  grouping: "Grouping",
-  consolidation: "Consolidamento",
-  relation_detection: "Relazioni (fatti)",
   entity_resolution: "Risoluzione entità",
   entity_relation_classification: "Relazioni (entità)",
   event_resolution_and_classification: "Risoluzione eventi",

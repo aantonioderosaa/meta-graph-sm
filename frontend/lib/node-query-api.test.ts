@@ -63,7 +63,7 @@ describe("node query API client paths", () => {
     );
   });
 
-  it("does not hit the Fact /query endpoints", async () => {
+  it("does not hit the unprefixed /query endpoints", async () => {
     fetchMock.mockResolvedValueOnce(okResponse());
     fetchMock.mockResolvedValueOnce(okResponse({ items: [] }));
     fetchMock.mockResolvedValueOnce(okResponse());

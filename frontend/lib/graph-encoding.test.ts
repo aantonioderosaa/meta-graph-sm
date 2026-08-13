@@ -27,7 +27,7 @@ describe("graph visual encoding", () => {
     const fallback = encodeNode({
       id: "unknown",
       caption: "Mystery",
-      properties: { type: "fact" },
+      properties: { type: "unknown" },
     });
     expect(fallback.color).toBe(NODE_TYPE_COLORS.entity);
 

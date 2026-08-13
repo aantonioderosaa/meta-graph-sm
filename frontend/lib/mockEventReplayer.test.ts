@@ -24,10 +24,10 @@ describe("mockEventReplayer", () => {
     expect(stages).toEqual(
       new Set([
         "chunking",
-        "extraction",
-        "grouping",
-        "consolidation",
-        "relation_detection",
+        "node_extraction",
+        "entity_resolution",
+        "entity_relation_classification",
+        "event_resolution_and_classification",
         "reconciliation",
         "done",
       ]),

@@ -24,7 +24,7 @@ export function PipelineEventBridge() {
     <div className="space-y-2 border-b border-border/40 bg-muted/20 px-3 py-2 text-[10px] text-muted-foreground">
       <div className="flex flex-wrap items-center gap-2" data-pipeline-mode={mode}>
         <span>
-          Eventi: <strong className="text-foreground">{mode}</strong>
+          Stream: <strong className="text-foreground">{mode}</strong>
           {useMock ? " (mock offline)" : null}
         </span>
         {!useMock ? (

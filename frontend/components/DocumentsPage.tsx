@@ -272,7 +272,7 @@ export function DocumentsPage() {
                 <tr>
                   <th className="px-3 py-2 font-medium">doc_id</th>
                   <th className="px-3 py-2 font-medium">Chunk</th>
-                  <th className="px-3 py-2 font-medium">Fatti</th>
+                  <th className="px-3 py-2 font-medium">Nodi</th>
                   <th className="px-3 py-2 font-medium">Ultimo aggiornamento</th>
                 </tr>
               </thead>
@@ -281,7 +281,7 @@ export function DocumentsPage() {
                   <tr key={doc.doc_id} className="border-b border-border/60 last:border-0">
                     <td className="px-3 py-2 font-mono text-xs">{doc.doc_id}</td>
                     <td className="px-3 py-2">{doc.chunk_count}</td>
-                    <td className="px-3 py-2">{doc.fact_count}</td>
+                    <td className="px-3 py-2">{doc.node_count}</td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">
                       {doc.last_ingested_at || "—"}
                     </td>

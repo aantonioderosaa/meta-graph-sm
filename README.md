@@ -176,7 +176,7 @@ Stato verificato contro il codice (non solo le checkbox del piano).
 | M3 Frontend: rimozione Fact-only | GraphExplorer / QueryPanel / GraphSlice | completata |
 | M4 Grafo unico + fix WebGL | un solo mount, `onInitializationError` | completata |
 | M5 Toggle ponte concetti | `include_concepts` su entità/eventi | completata |
-| M6 Naming eventi/Fact | stage pipeline, colonna Nodi, mock SSE | da fare |
+| M6 Naming eventi/Fact | stage pipeline, colonna Nodi, mock SSE | completata |
 | M7 Test suite | rimuovi/aggiorna test Fact | da fare |
 | M8 Accettazione e-e | scenari ingest/dream/dashboard/reset | da fare |
 
