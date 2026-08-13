@@ -1,12 +1,11 @@
 "use client";
 
 /**
- * Self-contained NVL graph panel (Macrotask 7).
+ * Self-contained NVL graph panel.
  *
  * Local useState for nodes / relationships / loading / error / reloadToken.
- * Reads lastPipelineEvent and kbResetEpoch for auto-refresh — never calls
- * setGraph. GraphExplorer keeps the global zustand store so Query Panel
- * highlights, selectedFactId, history, and FactDetailPanel stay intact.
+ * Reads lastPipelineEvent and kbResetEpoch for auto-refresh — never writes
+ * graph data into the global store.
  */
 
 import dynamic from "next/dynamic";
@@ -62,6 +61,23 @@ function applyColorForNode(
   });
 }
 
+export function GraphInitErrorOverlay({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/90 p-4 text-center text-sm">
+      <p className="text-destructive">
+        Impossibile inizializzare la visualizzazione.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Il browser potrebbe aver esaurito i contesti grafici disponibili —
+        chiudi altre schede/pannelli e ricarica.
+      </p>
+      <Button size="sm" variant="outline" onClick={onRetry}>
+        Riprova
+      </Button>
+    </div>
+  );
+}
+
 export interface GraphPanelProps {
   title: string;
   fetcher: () => Promise<GraphResponse>;
@@ -92,6 +108,7 @@ export function GraphPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [initError, setInitError] = useState<string | null>(null);
 
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
@@ -134,6 +151,11 @@ export function GraphPanel({
     setError(null);
     setReloadToken((t) => t + 1);
   }, [kbResetEpoch]);
+
+  const retryVisualization = useCallback(() => {
+    setInitError(null);
+    setReloadToken((t) => t + 1);
+  }, []);
 
   const { nodes: nvlNodes, rels: nvlRels } = useMemo(() => {
     const encoded = toNvlGraph(nodes, relationships, {
@@ -183,7 +205,10 @@ export function GraphPanel({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setReloadToken((t) => t + 1)}
+          onClick={() => {
+            setInitError(null);
+            setReloadToken((t) => t + 1);
+          }}
           disabled={loading}
         >
           Ricarica
@@ -206,6 +231,9 @@ export function GraphPanel({
             </Button>
           </div>
         ) : null}
+        {initError ? (
+          <GraphInitErrorOverlay onRetry={retryVisualization} />
+        ) : null}
         {loading && nodes.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             Caricamento grafo…
@@ -216,6 +244,7 @@ export function GraphPanel({
           </div>
         ) : (
           <InteractiveNvlWrapper
+            key={reloadToken}
             nodes={nvlNodes}
             rels={nvlRels}
             mouseEventCallbacks={mouseEventCallbacks}
@@ -223,6 +252,9 @@ export function GraphPanel({
               disableTelemetry: true,
               initialZoom: 1,
             }}
+            onInitializationError={(e) =>
+              setInitError(e instanceof Error ? e.message : String(e))
+            }
             style={{ width: "100%", height: "100%", minHeight: 160 }}
           />
         )}

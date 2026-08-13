@@ -173,8 +173,8 @@ Stato verificato contro il codice (non solo le checkbox del piano).
 |-----------|-----------|--------|
 | M1 Backend: rimozione pipeline Fact | file/API/schema Fact eliminati; `DELETE /graph` in `node_graph`; dreaming solo Node | completata |
 | M2 Backend: riferimenti condivisi | `DocumentSummary.node_count`; ingestione solo `node_extraction` | completata |
-| M3 Frontend: rimozione Fact-only | GraphExplorer / QueryPanel / GraphSlice | da fare |
-| M4 Grafo unico + fix WebGL | un solo mount, `onInitializationError` | da fare |
+| M3 Frontend: rimozione Fact-only | GraphExplorer / QueryPanel / GraphSlice | completata |
+| M4 Grafo unico + fix WebGL | un solo mount, `onInitializationError` | completata |
 | M5 Toggle ponte concetti | `include_concepts` su entità/eventi | da fare |
 | M6 Naming eventi/Fact | stage pipeline, colonna Nodi, mock SSE | da fare |
 | M7 Test suite | rimuovi/aggiorna test Fact | da fare |
@@ -195,7 +195,7 @@ Schema `:Node` / `:Concept` / `:Relation` (piano `piano-implementativo-entita-ev
 | M7 Frontend | quattro pannelli sullo stesso piano (dashboard: tab Fatti vs Entità/Eventi) | completata |
 | M8 Test e-e / acceptance | criteri complessivi end-to-end | completata |
 
-La dashboard espone ancora (fino a M3/M4) due tab nell'area grafo lato frontend; il backend serve solo le viste Node (`GET /graph/entities|events|participation|concepts`). Accettazione M8 storica: `pytest tests/test_acceptance_nodes.py` (unit, no Docker) e `pytest tests/test_nodes_integration.py` (Neo4j via testcontainers).
+La dashboard monta un solo `EntityEventExplorer` (quattro pannelli: entità, concetti, eventi, partecipazione). Non esiste più il tab Fatti. Accettazione M8 storica: `pytest tests/test_acceptance_nodes.py` (unit, no Docker) e `pytest tests/test_nodes_integration.py` (Neo4j via testcontainers).
 
 ### Query NL sul layer Node / Concept
 
@@ -211,7 +211,7 @@ Endpoint: `POST /graph/query` interroga `:Node` / `:Relation` / `:Concept` con s
 | Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | completata |
 | Q7 Accettazione e-e | scenari PPR / relazione / isolamento Fact | completata |
 
-`NodeQueryPanel` parla con `POST /graph/query`. Il Query Panel Fact (`POST /query`) non ha più backend.
+`NodeQueryPanel` è l'unico pannello query (`POST /graph/query`).
 
 Accettazione Q7: `pytest tests/test_acceptance_node_query.py` (unit, no Docker) + scenari integrazione in `tests/test_node_query_engine_integration.py`.
 

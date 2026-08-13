@@ -73,7 +73,7 @@ export function useEventStream(options: UseEventStreamOptions = {}): {
         const parsed: unknown = JSON.parse(msg.data);
         if (isPipelineEvent(parsed)) {
           pushPipelineEvent(parsed);
-          if (parsed.stage === "done") {
+          if (parsed.stage === "done" || parsed.stage === "failed") {
             source.close();
           }
         }

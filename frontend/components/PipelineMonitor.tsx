@@ -10,25 +10,50 @@ import { useMemo, useState } from "react";
 import { useAppStore } from "@/lib/store";
 import type { PipelineEvent } from "@/lib/types";
 
+// Ordine di esecuzione reale: chunking/extraction/node_extraction (ingestione,
+// Fact e Node in parallelo) → grouping..relation_detection (dreaming, Fact) →
+// entity_resolution → entity_relation_classification/event_resolution_and_classification
+// (dreaming, layer Node — questi due girano in parallelo tra loro, non in sequenza,
+// mostrati come righe adiacenti per semplicità) → reconciliation → done.
+// Prima di questa correzione l'elenco copriva solo il grafo dei fatti: il pannello
+// non aveva nessuna riga per le fasi Node/Event, quindi "done" restava "pending"
+// per tutta la durata di quelle fasi senza alcun segnale visibile di progresso.
 const STAGES: PipelineEvent["stage"][] = [
   "chunking",
   "extraction",
+  "node_extraction",
   "grouping",
   "consolidation",
   "relation_detection",
+  "entity_resolution",
+  "entity_relation_classification",
+  "event_resolution_and_classification",
   "reconciliation",
   "done",
 ];
 
 const STAGE_LABELS: Record<PipelineEvent["stage"], string> = {
   chunking: "Chunking",
-  extraction: "Estrazione",
+  extraction: "Estrazione fatti",
+  node_extraction: "Estrazione entità/eventi",
   grouping: "Grouping",
   consolidation: "Consolidamento",
-  relation_detection: "Relazioni",
+  relation_detection: "Relazioni (fatti)",
+  entity_resolution: "Risoluzione entità",
+  entity_relation_classification: "Relazioni (entità)",
+  event_resolution_and_classification: "Risoluzione eventi",
   reconciliation: "Riconciliazione",
   done: "Done",
+  failed: "Fallito",
 };
+
+/** Ultimo evento "failed" nello stream, se presente (esito alternativo a "done"). */
+function findFailure(events: PipelineEvent[]): PipelineEvent | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i].stage === "failed") return events[i];
+  }
+  return null;
+}
 
 function stageStatus(
   stage: PipelineEvent["stage"],
@@ -36,8 +61,13 @@ function stageStatus(
 ): "pending" | "active" | "done" {
   const counts = events.filter((e) => e.stage === stage).length;
   const hasDone = events.some((e) => e.stage === "done");
+  const hasFailed = events.some((e) => e.stage === "failed");
   if (counts === 0) {
     if (hasDone) return stage === "done" ? "done" : "pending";
+    // Un job fallito non deve mostrare l'ultimo stage raggiunto come "active"
+    // per sempre — congela tutto ciò che non è già confermato "done" a "pending",
+    // il banner d'errore comunica lo stato reale.
+    if (hasFailed) return "pending";
     const lastStage = events[events.length - 1]?.stage;
     if (lastStage && STAGES.indexOf(stage) === STAGES.indexOf(lastStage) + 1) {
       return "active";
@@ -55,6 +85,8 @@ function stageStatus(
 export function PipelineMonitor() {
   const events = useAppStore((s) => s.pipelineEvents);
   const [logOpen, setLogOpen] = useState(false);
+
+  const failure = useMemo(() => findFailure(events), [events]);
 
   const counts = useMemo(() => {
     const map = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<
@@ -76,6 +108,17 @@ export function PipelineMonitor() {
         <h2 className="text-sm font-medium tracking-wide">Pipeline Monitor</h2>
         <span className="text-xs text-muted-foreground">{events.length} eventi</span>
       </header>
+
+      {failure ? (
+        <div className="border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <p className="font-medium">Pipeline fallita</p>
+          <p className="mt-0.5 break-words text-destructive/90">
+            {typeof failure.payload.error === "string"
+              ? failure.payload.error
+              : "Errore non specificato — vedi il log eventi grezzi qui sotto."}
+          </p>
+        </div>
+      ) : null}
 
       <ol className="space-y-1.5 overflow-auto px-3 py-3">
         {STAGES.map((stage) => {

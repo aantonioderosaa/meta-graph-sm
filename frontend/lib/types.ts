@@ -8,8 +8,6 @@
  * mismatches or TS errors in call sites that consume these types.
  */
 
-export type FactType = "fact" | "preference" | "episode";
-
 export type RelationType = "updates" | "extends" | "derives";
 
 export interface JobResponse {
@@ -57,70 +55,6 @@ export interface GraphRelationship {
 export interface GraphResponse {
   nodes: GraphNode[];
   relationships: GraphRelationship[];
-}
-
-export interface ChunkProvenance {
-  chunk_id: string;
-  snippet: string;
-  doc_id: string;
-}
-
-export interface FactDetailResponse {
-  id: string;
-  text: string;
-  type: FactType;
-  confidence: number;
-  is_latest: boolean;
-  created_at: string;
-  source_doc_id: string;
-  provenance: ChunkProvenance[];
-}
-
-export interface FactHistoryEntry {
-  id: string;
-  text: string;
-  type: FactType;
-  is_latest: boolean;
-  path_length: number;
-}
-
-export interface FactHistoryResponse {
-  facts: FactHistoryEntry[];
-}
-
-export interface QueryRequest {
-  text: string;
-  type_filter?: FactType | null;
-}
-
-export interface FactUsed {
-  id: string;
-  text: string;
-  source_doc_id: string;
-}
-
-export interface SubgraphNode {
-  id: string;
-  label: "Fact";
-  properties: Record<string, unknown>;
-}
-
-export interface SubgraphRelationship {
-  source: string;
-  target: string;
-  type: RelationType;
-}
-
-export interface Subgraph {
-  nodes: SubgraphNode[];
-  relationships: SubgraphRelationship[];
-}
-
-export interface QueryResponse {
-  answer: string;
-  facts_used: FactUsed[];
-  cited_fact_ids: string[];
-  subgraph: Subgraph;
 }
 
 export interface QueryHistoryEntry {
@@ -185,20 +119,18 @@ export interface PipelineEvent {
   stage:
     | "chunking"
     | "extraction"
+    | "node_extraction"
     | "grouping"
     | "consolidation"
     | "relation_detection"
+    | "entity_resolution"
+    | "entity_relation_classification"
+    | "event_resolution_and_classification"
     | "reconciliation"
-    | "done";
+    | "done"
+    | "failed";
   event: string;
   payload: Record<string, unknown>;
-}
-
-export interface GetGraphParams {
-  is_latest?: boolean;
-  type?: FactType;
-  doc_id?: string;
-  limit?: number;
 }
 
 /** Entity or event graph views (`GET /graph/entities`, `/graph/events`). */

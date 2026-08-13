@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadNodeQueryFromHistory } from "./node-query-history";
+import {
+  formatQueryHistoryLabel,
+  loadNodeQueryFromHistory,
+} from "./node-query-history";
+import type { QueryHistoryEntry } from "./types";
 
 const getNodeQueryLogDetail = vi.fn();
 const postQuery = vi.fn();
@@ -17,6 +21,17 @@ describe("node query history helpers", () => {
     getNodeQueryLogDetail.mockReset();
     postQuery.mockReset();
     postNodeQuery.mockReset();
+  });
+
+  it("formats history options with truncated text", () => {
+    const entry: QueryHistoryEntry = {
+      id: "q1",
+      text: "A".repeat(50),
+      created_at: "2026-01-02T03:04:05Z",
+    };
+    const label = formatQueryHistoryLabel(entry, 40);
+    expect(label.startsWith(`${"A".repeat(39)}…`)).toBe(true);
+    expect(label).toContain("·");
   });
 
   it("loads history detail via getNodeQueryLogDetail, never postQuery or postNodeQuery", async () => {

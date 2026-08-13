@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Four-panel entity / concept / event / participation explorer (Macrotask 7, D6).
- * Each GraphPanel owns local graph state — none of them write the Fact store.
- * Highlight is parent-owned when DashboardShell passes props (Macrotask 6).
+ * Four-panel entity / concept / event / participation explorer.
+ * Each GraphPanel owns local graph state. Highlight is parent-owned when
+ * DashboardShell passes props.
  */
 
 import { useCallback, useState } from "react";

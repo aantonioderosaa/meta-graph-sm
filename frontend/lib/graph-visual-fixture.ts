@@ -1,85 +1,86 @@
 /**
- * Fixture covering every visual-encoding case from tech-spec §11.1 (E7.2)
- * plus V1.2/V1.3 has_history badge cases.
- * Used by unit tests / checklist — NOT imported by GraphExplorer (E7.6 swap).
+ * Fixture covering entity / event / concept encoding plus Node relation types.
+ * Used by unit tests — not imported by live graph panels.
  */
 
 import type { GraphNode, GraphRelationship } from "./types";
 
-/** 3 types × 2 is_latest states, plus has_history crossings for V1.3 */
 export const FIXTURE_NODES: GraphNode[] = [
   {
-    id: "fact-latest",
-    caption: "Alice works at Acme",
-    properties: { type: "fact", is_latest: true, confidence: 1, has_history: true },
+    id: "entity-alice",
+    caption: "Alice",
+    properties: { type: "entity" },
   },
   {
-    id: "fact-historical",
-    caption: "Alice worked at Beta",
-    properties: { type: "fact", is_latest: false, confidence: 1, has_history: false },
+    id: "entity-acme",
+    caption: "Acme",
+    properties: { type: "entity" },
   },
   {
-    id: "pref-latest",
-    caption: "Alice prefers remote",
-    properties: { type: "preference", is_latest: true, confidence: 1, has_history: false },
+    id: "event-summit",
+    caption: "Summit 2024",
+    properties: { type: "event" },
   },
   {
-    id: "pref-historical",
-    caption: "Alice preferred office",
-    properties: { type: "preference", is_latest: false, confidence: 1, has_history: false },
+    id: "event-kickoff",
+    caption: "Kickoff",
+    properties: { type: "event" },
   },
   {
-    id: "ep-latest",
-    caption: "Kickoff meeting 2024",
-    properties: { type: "episode", is_latest: true, confidence: 1, has_history: false },
-  },
-  {
-    id: "ep-historical",
-    caption: "Kickoff meeting 2023",
-    properties: { type: "episode", is_latest: false, confidence: 1, has_history: false },
-  },
-  // V1.3: has_history × preference (current) — badge without altering type color
-  {
-    id: "pref-with-history",
-    caption: "Alice prefers hybrid",
-    properties: { type: "preference", is_latest: true, confidence: 1, has_history: true },
-  },
-  // V1.3: has_history × historical episode — badge coexists with (storico) opacity
-  {
-    id: "ep-historical-with-history",
-    caption: "Prior kickoff",
-    properties: { type: "episode", is_latest: false, confidence: 1, has_history: true },
+    id: "concept-remote",
+    caption: "Remote work",
+    properties: { type: "concept" },
   },
 ];
 
-/** One relationship of each type connecting latest facts (complementary EXTENDS visible together). */
 export const FIXTURE_RELATIONSHIPS: GraphRelationship[] = [
   {
     id: "rel-updates",
-    from: "fact-latest",
-    to: "fact-historical",
+    from: "entity-alice",
+    to: "entity-acme",
     type: "UPDATES",
     caption: "updates",
   },
   {
     id: "rel-extends",
-    from: "pref-latest",
-    to: "fact-latest",
+    from: "entity-alice",
+    to: "entity-acme",
     type: "EXTENDS",
     caption: "extends",
   },
   {
-    id: "rel-derives",
-    from: "ep-latest",
-    to: "fact-latest",
-    type: "DERIVES",
-    caption: "derives",
+    id: "rel-precedes",
+    from: "event-kickoff",
+    to: "event-summit",
+    type: "PRECEDES",
+    caption: "precedes",
   },
   {
-    id: "rel-updates-pref",
-    from: "pref-with-history",
-    to: "pref-historical",
-    type: "UPDATES",
-    caption: "updates",
+    id: "rel-causes",
+    from: "event-kickoff",
+    to: "event-summit",
+    type: "CAUSES",
+    caption: "causes",
+  },
+  {
+    id: "rel-cooccurs",
+    from: "event-kickoff",
+    to: "event-summit",
+    type: "COOCCURS",
+    caption: "cooccurs",
+  },
+  {
+    id: "rel-participates",
+    from: "entity-alice",
+    to: "event-summit",
+    type: "PARTICIPATES",
+    caption: "participates",
+  },
+  {
+    id: "rel-has-concept",
+    from: "entity-alice",
+    to: "concept-remote",
+    type: "HAS_CONCEPT",
+    caption: "has_concept",
   },
 ];

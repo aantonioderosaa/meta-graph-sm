@@ -7,18 +7,13 @@ import type {
   DocumentListResponse,
   DocumentRequest,
   DreamingRunRequest,
-  FactDetailResponse,
-  FactHistoryResponse,
   GetEntityEventGraphParams,
   GetGraphLimitParams,
-  GetGraphParams,
   GraphResponse,
   JobResponse,
   NodeQueryRequest,
   NodeQueryResponse,
   QueryHistoryResponse,
-  QueryRequest,
-  QueryResponse,
   ReconcileResponse,
 } from "./types";
 
@@ -90,24 +85,6 @@ export function postDreamingRun(
   });
 }
 
-export function getGraph(params: GetGraphParams = {}): Promise<GraphResponse> {
-  const search = new URLSearchParams();
-  if (params.is_latest !== undefined) {
-    search.set("is_latest", String(params.is_latest));
-  }
-  if (params.type !== undefined) {
-    search.set("type", params.type);
-  }
-  if (params.doc_id !== undefined) {
-    search.set("doc_id", params.doc_id);
-  }
-  if (params.limit !== undefined) {
-    search.set("limit", String(params.limit));
-  }
-  const qs = search.toString();
-  return request<GraphResponse>(`/graph${qs ? `?${qs}` : ""}`);
-}
-
 export function getEntityGraph(
   params: GetEntityEventGraphParams = {},
 ): Promise<GraphResponse> {
@@ -166,32 +143,6 @@ export function getConceptNeighbors(conceptId: string): Promise<GraphResponse> {
 
 export async function resetKnowledgeBase(): Promise<void> {
   await request<{ deleted: boolean }>("/graph", { method: "DELETE" });
-}
-
-export function getFact(id: string): Promise<FactDetailResponse> {
-  return request<FactDetailResponse>(`/facts/${encodeURIComponent(id)}`);
-}
-
-export function getFactHistory(id: string): Promise<FactHistoryResponse> {
-  return request<FactHistoryResponse>(
-    `/facts/${encodeURIComponent(id)}/history`,
-  );
-}
-
-export function postQuery(body: QueryRequest): Promise<QueryResponse> {
-  return request<QueryResponse>("/query", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-export function getQueryHistory(limit = 20): Promise<QueryHistoryResponse> {
-  const qs = new URLSearchParams({ limit: String(limit) });
-  return request<QueryHistoryResponse>(`/queries?${qs.toString()}`);
-}
-
-export function getQueryLogDetail(id: string): Promise<QueryResponse> {
-  return request<QueryResponse>(`/queries/${encodeURIComponent(id)}`);
 }
 
 export function postNodeQuery(body: NodeQueryRequest): Promise<NodeQueryResponse> {
