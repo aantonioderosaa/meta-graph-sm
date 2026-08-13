@@ -172,7 +172,7 @@ Stato verificato contro il codice (non solo le checkbox del piano).
 | Macrotask | Contenuto | Stato |
 |-----------|-----------|--------|
 | M1 Backend: rimozione pipeline Fact | file/API/schema Fact eliminati; `DELETE /graph` in `node_graph`; dreaming solo Node | completata |
-| M2 Backend: riferimenti condivisi | `DocumentSummary.node_count`; ingestione solo `node_extraction` | da fare |
+| M2 Backend: riferimenti condivisi | `DocumentSummary.node_count`; ingestione solo `node_extraction` | completata |
 | M3 Frontend: rimozione Fact-only | GraphExplorer / QueryPanel / GraphSlice | da fare |
 | M4 Grafo unico + fix WebGL | un solo mount, `onInitializationError` | da fare |
 | M5 Toggle ponte concetti | `include_concepts` su entità/eventi | da fare |

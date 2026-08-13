@@ -19,7 +19,7 @@ class DocumentRequest(BaseModel):
 class DocumentSummary(BaseModel):
     doc_id: str
     chunk_count: int
-    fact_count: int
+    node_count: int
     first_ingested_at: str
     last_ingested_at: str
 
