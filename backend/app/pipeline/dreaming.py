@@ -20,6 +20,7 @@ from app.pipeline import (
     entity_relation_resolution,
     event_relation_resolution,
     grouping,
+    node_ppr_projection,
     node_resolution,
     reconcile,
     relations,
@@ -615,6 +616,9 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
     node_touched = await _run_node_phases(driver, job_id)
     node_drift = await reconcile.reconcile_scoped_relations(list(node_touched))
     stats.node_drift_count = node_drift
+
+    async with driver.session() as session:
+        await node_ppr_projection.refresh_ppr_projection(session)
 
     tokens = get_token_usage(job_id)
     payload_stats: dict[str, int] = {

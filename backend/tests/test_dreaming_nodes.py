@@ -33,6 +33,9 @@ class FakeResult:
     async def single(self):
         return self._records[0] if self._records else None
 
+    async def consume(self):
+        return None
+
 
 class FakeSession:
     def __init__(self):
@@ -330,6 +333,9 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
         assert node_ids == []
         return 0
 
+    async def fake_refresh(_session) -> None:
+        log.append("ppr")
+
     async def spy_publish(job_id, stage, event, payload):
         published.append({"stage": stage, "event": event, "payload": payload})
 
@@ -341,6 +347,10 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
         fake_rel_reconcile,
     )
     monkeypatch.setattr("app.pipeline.dreaming._run_node_phases", fake_nodes)
+    monkeypatch.setattr(
+        "app.pipeline.dreaming.node_ppr_projection.refresh_ppr_projection",
+        fake_refresh,
+    )
     monkeypatch.setattr("app.pipeline.dreaming.event_bus.publish", spy_publish)
     monkeypatch.setattr("app.pipeline.dreaming.get_token_usage", lambda _job: 0)
 
@@ -349,8 +359,10 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
     assert "nodes" in log
     assert log.index("fact_reconcile") < log.index("nodes")
     assert log.index("nodes") < log.index("rel_reconcile")
+    assert log.index("rel_reconcile") < log.index("ppr")
     complete = [m for m in published if m["event"] == "pipeline_complete"]
     assert len(complete) == 1
+    assert complete[0]["event"] == "pipeline_complete"
     payload_stats = complete[0]["payload"]["stats"]
     assert payload_stats["groups"] == 0
     assert payload_stats["edges_created"] == 0
@@ -386,6 +398,7 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
             entity_session,  # phase 1
             FakeSession(),  # relations
             event_session,  # events
+            FakeSession(),  # ppr projection refresh
         ]
     )
 
