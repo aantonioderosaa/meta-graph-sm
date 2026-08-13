@@ -166,7 +166,7 @@ Schema `:Node` / `:Concept` / `:Relation` accanto al layer `Fact`/`Chunk` esiste
 | M1 Schema Neo4j | constraint/indici `:Node`/`:Concept`/`:Relation` (tutti `IF NOT EXISTS`) | completata |
 | M2 Estrazione | entità/eventi/concetti da chunk (porting prompt autoschema) | completata |
 | M3 Risoluzione entità | dedup incrementale `Node{type:'entity'}` (pattern graphiti) | completata |
-| M4 Risoluzione archi | normalizzazione `:Relation` + merge eventi | in attesa |
+| M4 Risoluzione archi | normalizzazione `:Relation` + merge eventi | completata |
 | M5 Dreaming esteso | nuovi stage nella pipeline di dreaming esistente | in attesa |
 | M6 API quattro viste | endpoint grafo entità / concetti / eventi / partecipazione | in attesa |
 | M7 Frontend | quattro pannelli sullo stesso piano | in attesa |

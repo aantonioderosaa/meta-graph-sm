@@ -3,6 +3,8 @@ atlas_rag/llm_generator/prompt/triple_extraction_prompt.py — MIT)."""
 
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import BaseModel
 
 
@@ -41,3 +43,20 @@ class ConceptResult(BaseModel):
 
 class NodeDedupResult(BaseModel):
     duplicate_of: str | None  # candidate id, or null if this is a new node
+
+
+class EventRelationLabel(str, Enum):
+    same_event = "same_event"
+    sequenced = "sequenced"
+    none = "none"
+
+
+class SequenceType(str, Enum):
+    precedes = "precedes"
+    causes = "causes"
+    cooccurs = "cooccurs"
+
+
+class EventRelationClassification(BaseModel):
+    label: EventRelationLabel
+    sequence_type: SequenceType | None = None  # required only if label=sequenced
