@@ -8,6 +8,7 @@ import pytest
 
 from app.core import neo4j_client
 from app.db.schema import apply_schema_with_driver
+from app.pipeline import node_ppr_projection as npp
 from app.pipeline import node_query_engine as nqe
 from app.pipeline.node_ppr_projection import PPR_GRAPH_NAME, ensure_ppr_projection
 from app.pipeline.node_query_engine import NodeQueryAnswer, run_node_query
@@ -21,6 +22,7 @@ MERGED = "alice-dup"
 MARIO = "mario"
 ACME = "acme"
 FACT_ID = "fact-should-never-appear"
+TECH = "tech"
 
 
 @pytest.fixture(scope="module")
@@ -89,6 +91,7 @@ ALICE_VEC = _unit_vector(0)
 BOB_VEC = _unit_vector(1)
 MEETING_VEC = _unit_vector(2)
 FOUND_VEC = _unit_vector(5)
+TECH_VEC = _unit_vector(7)
 FAR_VEC = _unit_vector(20)
 
 
@@ -148,6 +151,11 @@ async def _seed_graph(session) -> None:
           embedding: $foundVec,
           is_latest: true
         }]->(acme)
+        CREATE (tech:Concept {
+          id: $tech, name: 'technology', embedding: $techVec
+        })
+        CREATE (alice)-[:HAS_CONCEPT]->(tech)
+        CREATE (meeting)-[:HAS_CONCEPT]->(tech)
         CREATE (fact:Fact {
           id: $fact, text: 'A fact that must not leak',
           type: 'fact', is_latest: true, embedding: $aliceVec
@@ -159,11 +167,13 @@ async def _seed_graph(session) -> None:
         dup=MERGED,
         mario=MARIO,
         acme=ACME,
+        tech=TECH,
         fact=FACT_ID,
         aliceVec=ALICE_VEC,
         bobVec=BOB_VEC,
         meetingVec=MEETING_VEC,
         foundVec=FOUND_VEC,
+        techVec=TECH_VEC,
     )
 
 
@@ -183,6 +193,8 @@ async def seeded(neo4j_ready, monkeypatch):
             cited.append(BOB)
         if "Mario" in user:
             cited.append(MARIO)
+        if "technology" in user.lower() or "Technology" in user:
+            cited.append(TECH)
         return NodeQueryAnswer(
             answer="Risposta di test sul grafo Node.",
             cited_node_ids=cited,
@@ -246,3 +258,113 @@ async def test_below_threshold_does_not_seed(seeded, monkeypatch):
         response = await run_node_query(session, "zzzz-unrelated-xyz")
     assert response.nodes_used == []
     assert "nessuna informazione trovata" in response.answer.lower()
+
+
+@pytest.mark.asyncio
+async def test_scenario2_subgraph_has_participates(seeded, monkeypatch):
+    monkeypatch.setattr(nqe.embeddings, "embed", lambda text: _similar_vector(ALICE_VEC))
+    monkeypatch.setattr(
+        nqe,
+        "_predict_rerank",
+        lambda question, descriptions: [0.9] * len(descriptions),
+    )
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        await ensure_ppr_projection(session)
+        response = await run_node_query(session, "chi è Alice?")
+    rel_types = {rel.type for rel in response.subgraph.relationships}
+    assert "participates" in rel_types
+    used = {n.id for n in response.nodes_used}
+    assert ALICE in used
+    assert BOB in used
+    types = {n.type for n in response.nodes_used}
+    assert "entity" in types
+
+
+@pytest.mark.asyncio
+async def test_scenario3_concept_question(seeded, monkeypatch):
+    monkeypatch.setattr(nqe.embeddings, "embed", lambda text: _similar_vector(TECH_VEC))
+    monkeypatch.setattr(
+        nqe,
+        "_predict_rerank",
+        lambda question, descriptions: [0.9] * len(descriptions),
+    )
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        await ensure_ppr_projection(session)
+        response = await run_node_query(session, "parlami di technology")
+    assert response.concepts_used
+    types = {n.type for n in response.nodes_used}
+    assert "entity" in types
+    assert "event" in types
+    used = {n.id for n in response.nodes_used}
+    assert ALICE in used
+    assert MEETING in used
+
+
+@pytest.mark.asyncio
+async def test_scenario5_fact_only_graph(neo4j_ready, monkeypatch):
+    monkeypatch.setattr(nqe.embeddings, "embed", lambda text: _similar_vector(ALICE_VEC))
+    monkeypatch.setattr(nqe, "ENABLE_NODE_CONCEPT_FULLTEXT", False)
+    monkeypatch.setattr(nqe, "ENABLE_RELATION_FULLTEXT", False)
+    monkeypatch.setattr(
+        nqe,
+        "_predict_rerank",
+        lambda question, descriptions: [0.5] * len(descriptions),
+    )
+
+    async def fake_llm(system, user, model, temperature=0, job_id=None):
+        return NodeQueryAnswer(answer="should not be used", cited_node_ids=[])
+
+    monkeypatch.setattr(nqe, "call_structured", fake_llm)
+
+    driver = neo4j_client.get_driver()
+    async with driver.session() as session:
+        await session.run(
+            """
+            CREATE (fact:Fact {
+              id: $fact, text: 'Alice works at Acme',
+              type: 'fact', is_latest: true, embedding: $aliceVec
+            })
+            """,
+            fact=FACT_ID,
+            aliceVec=ALICE_VEC,
+        )
+    await _await_indexes()
+    async with driver.session() as session:
+        response = await run_node_query(session, "chi è Alice?")
+    assert response.nodes_used == []
+    assert response.concepts_used == []
+    assert "nessuna informazione trovata" in response.answer.lower()
+
+
+@pytest.mark.asyncio
+async def test_scenario8_consecutive_queries_do_not_reproject(seeded, monkeypatch):
+    monkeypatch.setattr(nqe.embeddings, "embed", lambda text: _similar_vector(ALICE_VEC))
+    refresh_calls: list[str] = []
+    original_refresh = npp.refresh_ppr_projection
+
+    async def spy_refresh(session):
+        refresh_calls.append("refresh")
+        await original_refresh(session)
+
+    monkeypatch.setattr(npp, "refresh_ppr_projection", spy_refresh)
+
+    driver = neo4j_client.get_driver()
+    project_cyphers: list[str] = []
+    async with driver.session() as session:
+        await ensure_ppr_projection(session)
+        refresh_after_ensure = list(refresh_calls)
+        original_run = session.run
+
+        async def spy_run(cypher, *args, **kwargs):
+            if "project.cypher" in cypher or "gds.graph.drop" in cypher:
+                project_cyphers.append(cypher)
+            return await original_run(cypher, *args, **kwargs)
+
+        monkeypatch.setattr(session, "run", spy_run)
+        await run_node_query(session, "chi è Alice?")
+        await run_node_query(session, "chi è Alice?")
+
+    assert refresh_calls == refresh_after_ensure
+    assert project_cyphers == []

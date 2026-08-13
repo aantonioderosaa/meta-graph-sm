@@ -59,9 +59,9 @@ async def refresh_ppr_projection(session: AsyncSession) -> None:
     Node/Concept store cannot be projected by GDS; that case is a no-op so a
     virgin deploy does not fail dreaming.
     """
-    drop = await session.run(DROP_CYPHER, name=PPR_GRAPH_NAME)
-    await drop.consume()
     try:
+        drop = await session.run(DROP_CYPHER, name=PPR_GRAPH_NAME)
+        await drop.consume()
         result = await session.run(
             PROJECT_CYPHER,
             name=PPR_GRAPH_NAME,
@@ -71,7 +71,7 @@ async def refresh_ppr_projection(session: AsyncSession) -> None:
         await result.consume()
     except ClientError:
         logger.warning(
-            "PPR projection skipped: no Node/Concept nodes to project",
+            "PPR projection skipped: GDS unavailable or no Node/Concept nodes to project",
             exc_info=True,
         )
 

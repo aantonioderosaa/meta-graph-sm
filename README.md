@@ -77,6 +77,10 @@ cd backend && pytest -q tests/test_acceptance_milestone1.py --tb=short
 cd backend && pytest -q tests/test_acceptance_nodes.py --tb=short
 cd backend && pytest -q tests/test_nodes_integration.py --tb=short
 
+# Query NL Node/Concept — accettazione Q7 unit (no Docker) e integrazione (Docker)
+cd backend && pytest -q tests/test_acceptance_node_query.py --tb=short
+cd backend && pytest -q tests/test_node_query_engine_integration.py --tb=short
+
 # Frontend
 cd frontend && npm test && npm run lint && npm run build
 ```
@@ -193,9 +197,11 @@ Endpoint gemello di `POST /query` (che resta sul grafo `:Fact`): `POST /graph/qu
 | Q4 NodeQueryLog | cronologia `:NodeQueryLog` distinta da `:QueryLog` | completata |
 | Q5 API | `POST /graph/query`, `GET /graph/queries[/{id}]` | completata |
 | Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | completata |
-| Q7 Accettazione e-e | scenari PPR / relazione / isolamento Fact | da fare |
+| Q7 Accettazione e-e | scenari PPR / relazione / isolamento Fact | completata |
 
 Tab **Entità/Eventi** monta `NodeQueryPanel` (`POST /graph/query`); tab **Fatti** resta `QueryPanel` (`POST /query`); highlight locale non-filtrante sui pannelli entità/eventi.
+
+Accettazione Q7: `pytest tests/test_acceptance_node_query.py` (unit, no Docker) + scenari integrazione in `tests/test_node_query_engine_integration.py`.
 
 ## Note Epic 10
 

@@ -80,6 +80,20 @@ async def test_ensure_skips_rebuild_when_graph_exists():
 
 
 @pytest.mark.asyncio
+async def test_refresh_swallows_missing_gds_procedure():
+    from neo4j.exceptions import ClientError
+
+    class BoomSession(FakeSession):
+        async def run(self, cypher, **kwargs):
+            self.calls.append((cypher, kwargs))
+            raise ClientError("There is no procedure with the name `gds.graph.drop`")
+
+    session = BoomSession()
+    await refresh_ppr_projection(session)
+    assert any("gds.graph.drop" in cy for cy, _kw in session.calls)
+
+
+@pytest.mark.asyncio
 async def test_ensure_rebuilds_when_missing():
     session = FakeSession()
     session.enqueue([{"exists": False}])
