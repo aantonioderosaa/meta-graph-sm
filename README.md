@@ -157,6 +157,21 @@ Stato verificato contro il codice (non solo le checkbox del piano).
 |------|-----------|--------|
 | T1 Marcatori temporali + limiti KB | prompt `replaces` guidato da marker nel testo + prudenza senza segnale; sezione README limiti | completata |
 
+### Layer Entità / Eventi / Concetti
+
+Schema `:Node` / `:Concept` / `:Relation` accanto al layer `Fact`/`Chunk` esistente (piano `piano-implementativo-entita-eventi-concetti.md`).
+
+| Macrotask | Contenuto | Stato |
+|-----------|-----------|--------|
+| M1 Schema Neo4j | constraint/indici `:Node`/`:Concept`/`:Relation` (tutti `IF NOT EXISTS`) | completata |
+| M2 Estrazione | entità/eventi/concetti da chunk (porting prompt autoschema) | in attesa |
+| M3 Risoluzione entità | dedup incrementale `Node{type:'entity'}` (pattern graphiti) | in attesa |
+| M4 Risoluzione archi | normalizzazione `:Relation` + merge eventi | in attesa |
+| M5 Dreaming esteso | nuovi stage nella pipeline di dreaming esistente | in attesa |
+| M6 API quattro viste | endpoint grafo entità / concetti / eventi / partecipazione | in attesa |
+| M7 Frontend | quattro pannelli sullo stesso piano | in attesa |
+| M8 Test e-e / acceptance | criteri complessivi end-to-end | in attesa |
+
 ## Note Epic 10
 
 Suite accettazione `tests/test_acceptance_milestone1.py` (8/8 criteri §8). `docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: `milestone1/e10-manual-ui-checklist.md`. CI con job `backend-integration` come gate.

@@ -24,3 +24,20 @@ OPTIONS { indexConfig: {
   `vector.dimensions`: 768,
   `vector.similarity_function`: 'cosine'
 }};
+
+// Entità/Eventi/Concetti
+CREATE CONSTRAINT node_id IF NOT EXISTS FOR (n:Node) REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT concept_id IF NOT EXISTS FOR (c:Concept) REQUIRE c.id IS UNIQUE;
+
+CREATE INDEX node_type IF NOT EXISTS FOR (n:Node) ON (n.type);
+CREATE INDEX node_dreamed IF NOT EXISTS FOR (n:Node) ON (n.dreamed);
+CREATE INDEX node_merged_into IF NOT EXISTS FOR (n:Node) ON (n.merged_into);
+CREATE INDEX relation_is_latest IF NOT EXISTS FOR ()-[r:Relation]-() ON (r.is_latest);
+CREATE INDEX relation_normalized IF NOT EXISTS FOR ()-[r:Relation]-() ON (r.normalized_relation);
+
+CREATE VECTOR INDEX node_embedding IF NOT EXISTS
+FOR (n:Node) ON (n.embedding)
+OPTIONS { indexConfig: {
+  `vector.dimensions`: 768,
+  `vector.similarity_function`: 'cosine'
+}};

@@ -38,22 +38,31 @@ def neo4j_driver():
 def test_schema_file_has_expected_statements():
     statements = load_schema_statements()
     joined = "\n".join(statements)
-    assert len(statements) == 10
+    assert len(statements) == 18
     assert "fact_id" in joined
     assert "chunk_id" in joined
     assert "query_log_id" in joined
     assert "query_log_created_at" in joined
     assert "fact_embedding" in joined
     assert "chunk_embedding" in joined
+    assert "node_id" in joined
+    assert "concept_id" in joined
+    assert "node_type" in joined
+    assert "node_dreamed" in joined
+    assert "node_merged_into" in joined
+    assert "relation_is_latest" in joined
+    assert "relation_normalized" in joined
+    assert "node_embedding" in joined
     assert "768" in joined
     assert "cosine" in joined
 
 
 def test_apply_schema_idempotent_and_indexes(neo4j_driver):
-    # First application
-    assert apply_schema_with_driver(neo4j_driver) == 10
-    # Second application must not error (IF NOT EXISTS)
-    assert apply_schema_with_driver(neo4j_driver) == 10
+    # First application (clean Neo4j)
+    assert apply_schema_with_driver(neo4j_driver) == 18
+    # Second application must not error (IF NOT EXISTS) — covers the
+    # already-populated schema case (idempotency).
+    assert apply_schema_with_driver(neo4j_driver) == 18
 
     constraints = fetch_constraint_names(neo4j_driver)
     assert REQUIRED_CONSTRAINTS.issubset(constraints)
