@@ -66,10 +66,14 @@ npm run dev
 cd backend && pytest -q --ignore=tests/test_schema.py --ignore=tests/test_health.py \
   --ignore=tests/test_ingestion_integration.py --ignore=tests/test_dreaming_integration.py \
   --ignore=tests/test_query_integration.py --ignore=tests/test_acceptance_milestone1.py \
-  --ignore=tests/test_embeddings.py
+  --ignore=tests/test_embeddings.py --ignore=tests/test_nodes_integration.py
 
 # Backend — accettazione §8 + integrazione (richiede Docker)
 cd backend && pytest -q tests/test_acceptance_milestone1.py --tb=short
+
+# Layer entità/eventi — accettazione M8 unit (no Docker) e integrazione (Docker)
+cd backend && pytest -q tests/test_acceptance_nodes.py --tb=short
+cd backend && pytest -q tests/test_nodes_integration.py --tb=short
 
 # Frontend
 cd frontend && npm test && npm run lint && npm run build
@@ -170,9 +174,9 @@ Schema `:Node` / `:Concept` / `:Relation` accanto al layer `Fact`/`Chunk` esiste
 | M5 Dreaming esteso | nuovi stage nella pipeline di dreaming esistente | completata |
 | M6 API quattro viste | endpoint grafo entità / concetti / eventi / partecipazione | completata |
 | M7 Frontend | quattro pannelli sullo stesso piano (dashboard: tab Fatti vs Entità/Eventi) | completata |
-| M8 Test e-e / acceptance | criteri complessivi end-to-end | in attesa |
+| M8 Test e-e / acceptance | criteri complessivi end-to-end | completata |
 
-La dashboard espone due tab nell'area grafo: **Fatti** (Graph Explorer esistente) e **Entità/Eventi** (quattro pannelli visibili insieme: entità, concetti, eventi, partecipazione).
+La dashboard espone due tab nell'area grafo: **Fatti** (Graph Explorer esistente) e **Entità/Eventi** (quattro pannelli visibili insieme: entità, concetti, eventi, partecipazione). Accettazione M8: `pytest tests/test_acceptance_nodes.py` (unit, no Docker) e `pytest tests/test_nodes_integration.py` (Neo4j via testcontainers).
 
 ## Note Epic 10
 
