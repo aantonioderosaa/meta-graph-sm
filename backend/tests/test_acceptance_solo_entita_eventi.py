@@ -23,16 +23,24 @@ FRONTEND_COMPONENTS = SM_ROOT / "frontend" / "components"
 FRONTEND_LIB = SM_ROOT / "frontend" / "lib"
 
 
+def _openapi_paths() -> dict[str, dict[str, object]]:
+    """Source of truth for registered routes.
+
+    ``app.routes`` does not work here: with included routers, FastAPI/Starlette
+    wrap them so top-level entries have no usable ``.path`` (verified against
+    fastapi==0.141.1 — every route showed up as path ``""``). The OpenAPI schema
+    is always the fully-resolved view, independent of how routers are nested.
+    """
+    return app.openapi()["paths"]
+
+
 def _route_paths() -> set[str]:
-    return {getattr(route, "path", "") for route in app.routes}
+    return set(_openapi_paths())
 
 
 def _methods_for(path: str) -> set[str]:
-    methods: set[str] = set()
-    for route in app.routes:
-        if getattr(route, "path", None) == path:
-            methods |= set(getattr(route, "methods", None) or [])
-    return methods
+    operations = _openapi_paths().get(path, {})
+    return {method.upper() for method in operations}
 
 
 def test_scenario_2_fact_routes_are_gone_delete_graph_remains():
