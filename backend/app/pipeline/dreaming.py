@@ -226,7 +226,7 @@ async def _run_node_phases(driver, job_id: str) -> set[str]:
 
 async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> DreamingStats:
     """Run entity resolution → entity-relation/event resolution → GDS refresh."""
-    _ = doc_id  # no longer used for Fact scoping
+    _ = doc_id  # unused; Node phases still scan all undreamed nodes
     stats = DreamingStats()
     driver = get_driver()
 

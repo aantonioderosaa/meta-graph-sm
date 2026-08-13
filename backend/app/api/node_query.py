@@ -16,7 +16,7 @@ router = APIRouter(prefix="/graph", tags=["node-query"])
 async def post_node_query(
     body: NodeQueryRequest, session: Neo4jSessionDep
 ) -> NodeQueryResponse:
-    """NL query over :Node / :Relation / :Concept — never reads :Fact."""
+    """NL query over :Node / :Relation / :Concept."""
     return await node_query_engine.run_node_query(session, body.text)
 
 

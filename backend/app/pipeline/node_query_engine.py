@@ -1,6 +1,6 @@
 """NL query on the Node/Concept layer: hybrid seed → PPR → rerank → context.
 
-Does not read Fact or Chunk nodes, and does not import query_engine.
+Does not read Chunk nodes. The GDS in-memory graph is Node/Concept/Relation only.
 The GDS in-memory graph is ensured lazily (Macrotask 2); projection rebuild
 lives only in node_ppr_projection.py, never in the synchronous question path.
 """

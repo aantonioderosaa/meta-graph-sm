@@ -52,11 +52,9 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         NEXT_PUBLIC_USE_MOCK_EVENTS: ${NEXT_PUBLIC_USE_MOCK_EVENTS:-false}
-        NEXT_PUBLIC_USE_QUERY_FIXTURE: ${NEXT_PUBLIC_USE_QUERY_FIXTURE:-false}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       NEXT_PUBLIC_USE_MOCK_EVENTS: ${NEXT_PUBLIC_USE_MOCK_EVENTS:-false}
-      NEXT_PUBLIC_USE_QUERY_FIXTURE: ${NEXT_PUBLIC_USE_QUERY_FIXTURE:-false}
     depends_on:
       backend:
         condition: service_healthy

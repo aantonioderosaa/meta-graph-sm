@@ -10,7 +10,7 @@ from neo4j import AsyncSession
 from app.core.llm_client import call_structured
 from app.models.node_extraction import NodeDedupResult
 
-HIGH_CONFIDENCE_SCORE = 0.90  # identity, not mere similarity (Fact grouping uses 0.80)
+HIGH_CONFIDENCE_SCORE = 0.90  # identity, not mere similarity
 
 NodeCandidateVia = Literal["exact_name", "embedding", "high_confidence"]
 

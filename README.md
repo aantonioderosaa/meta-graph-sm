@@ -70,6 +70,9 @@ cd backend && pytest -q --ignore=tests/test_schema.py --ignore=tests/test_health
   --ignore=tests/test_node_query_engine_integration.py \
   --ignore=tests/test_documents_list.py --ignore=tests/test_graph_reset.py
 
+# Rimozione layer Fact — accettazione e-e (no Docker)
+cd backend && pytest -q tests/test_acceptance_solo_entita_eventi.py --tb=short
+
 # Layer entità/eventi — accettazione M8 unit (no Docker) e integrazione (Docker)
 cd backend && pytest -q tests/test_acceptance_nodes.py --tb=short
 cd backend && pytest -q tests/test_nodes_integration.py --tb=short
@@ -176,7 +179,7 @@ Stato verificato contro il codice (non solo le checkbox del piano).
 | M5 Toggle ponte concetti | `include_concepts` su entità/eventi | completata |
 | M6 Naming eventi/Fact | stage pipeline, colonna Nodi, mock SSE | completata |
 | M7 Test suite | rimuovi/aggiorna test Fact | completata |
-| M8 Accettazione e-e | scenari ingest/dream/dashboard/reset | da fare |
+| M8 Accettazione e-e | scenari ingest/dream/dashboard/reset | completata |
 
 ### Layer Entità / Eventi / Concetti
 
