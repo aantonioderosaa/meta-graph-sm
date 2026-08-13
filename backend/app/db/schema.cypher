@@ -61,3 +61,7 @@ FOR (n:Node|Concept) ON EACH [n.name];
 
 CREATE FULLTEXT INDEX relation_fulltext IF NOT EXISTS
 FOR ()-[r:Relation]-() ON EACH [r.relation];
+
+// Cronologia query Node/Concept
+CREATE CONSTRAINT node_query_log_id IF NOT EXISTS FOR (q:NodeQueryLog) REQUIRE q.id IS UNIQUE;
+CREATE INDEX node_query_log_created_at IF NOT EXISTS FOR (q:NodeQueryLog) ON (q.created_at);

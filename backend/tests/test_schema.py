@@ -16,7 +16,7 @@ from app.db.schema import (
 )
 from tests.neo4j_gds import GDS_PINNED_VERSION, neo4j_gds_container, wait_for_gds
 
-EXPECTED_SCHEMA_STATEMENTS = 22
+EXPECTED_SCHEMA_STATEMENTS = 24
 
 
 @pytest.fixture(scope="module")
@@ -41,6 +41,8 @@ def test_schema_file_has_expected_statements():
     assert "chunk_id" in joined
     assert "query_log_id" in joined
     assert "query_log_created_at" in joined
+    assert "node_query_log_id" in joined
+    assert "node_query_log_created_at" in joined
     assert "fact_embedding" in joined
     assert "chunk_embedding" in joined
     assert "node_id" in joined
