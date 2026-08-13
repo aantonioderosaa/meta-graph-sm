@@ -3,11 +3,13 @@
 /**
  * Dashboard shell: Graph Explorer (center) + Pipeline Monitor + Query Panel.
  * Desktop: side/bottom panels with Sheet toggles. Mobile: Tabs (E6.1).
+ * Graph area toggles Fatti (existing GraphExplorer) vs Entità/Eventi (M7).
  */
 
 import { useState } from "react";
 import { Activity, MessageSquareText, Network } from "lucide-react";
 
+import { EntityEventExplorer } from "@/components/EntityEventExplorer";
 import { GraphExplorerPanel } from "@/components/GraphExplorerPanel";
 import { PipelineEventBridge } from "@/components/PipelineEventBridge";
 import { PipelineMonitorPanel } from "@/components/PipelineMonitorPanel";
@@ -21,18 +23,53 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+
+function GraphViewTabs({ className }: { className?: string }) {
+  return (
+    <Tabs
+      defaultValue="facts"
+      className={cn("flex h-full min-h-0 flex-col overflow-hidden", className)}
+    >
+      <TabsList className="mb-2 h-8 w-fit shrink-0">
+        <TabsTrigger value="facts" className="px-3 text-xs">
+          Fatti
+        </TabsTrigger>
+        <TabsTrigger value="entities" className="px-3 text-xs">
+          Entità/Eventi
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent
+        value="facts"
+        className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
+      >
+        <div className="h-full min-h-0">
+          <GraphExplorerPanel />
+        </div>
+      </TabsContent>
+      <TabsContent
+        value="entities"
+        className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
+      >
+        <div className="h-full min-h-0">
+          <EntityEventExplorer />
+        </div>
+      </TabsContent>
+    </Tabs>
+  );
+}
 
 export function DashboardShell() {
   const [pipelineOpen, setPipelineOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <header className="flex items-center justify-between border-b border-border px-4 py-3">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-background md:h-[calc(100dvh-2.75rem)] md:min-h-0">
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <div>
           <p className="text-lg font-semibold tracking-tight">Meta-Graph</p>
           <p className="text-xs text-muted-foreground">
-            Motore del grafo dei fatti — Milestone 1
+            Grafo dei fatti, entità ed eventi
           </p>
         </div>
         <div className="hidden gap-2 md:flex">
@@ -75,11 +112,11 @@ export function DashboardShell() {
       <PipelineEventBridge />
 
       {/* Desktop / tablet: graph dominates; side panels visible below */}
-      <div className="hidden flex-1 flex-col gap-3 p-3 md:flex lg:flex-row">
-        <div className="min-h-[420px] flex-1 lg:min-h-0">
-          <GraphExplorerPanel />
+      <div className="hidden min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 md:flex lg:flex-row">
+        <div className="min-h-[420px] min-w-0 flex-1 overflow-hidden lg:min-h-0">
+          <GraphViewTabs />
         </div>
-        <aside className="flex w-full flex-col gap-3 lg:w-80 lg:shrink-0">
+        <aside className="flex w-full shrink-0 flex-col gap-3 lg:w-80">
           <div className="min-h-[180px] flex-1">
             <PipelineMonitorPanel />
           </div>
@@ -90,9 +127,9 @@ export function DashboardShell() {
       </div>
 
       {/* Mobile: collapse into tabs */}
-      <div className="flex flex-1 flex-col p-3 md:hidden">
-        <Tabs defaultValue="graph" className="flex flex-1 flex-col">
-          <TabsList className="grid w-full grid-cols-3">
+      <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden p-3 md:hidden">
+        <Tabs defaultValue="graph" className="flex min-h-0 flex-1 flex-col">
+          <TabsList className="grid w-full shrink-0 grid-cols-3">
             <TabsTrigger value="graph">
               <Network className="mr-1 h-3.5 w-3.5" />
               Grafo
@@ -106,8 +143,11 @@ export function DashboardShell() {
               Query
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="graph" className="mt-3 flex-1">
-            <GraphExplorerPanel />
+          <TabsContent
+            value="graph"
+            className="mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+          >
+            <GraphViewTabs className="min-h-[420px]" />
           </TabsContent>
           <TabsContent value="pipeline" className="mt-3 flex-1">
             <PipelineMonitorPanel />

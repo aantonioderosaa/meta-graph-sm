@@ -169,8 +169,10 @@ Schema `:Node` / `:Concept` / `:Relation` accanto al layer `Fact`/`Chunk` esiste
 | M4 Risoluzione archi | normalizzazione `:Relation` + merge eventi | completata |
 | M5 Dreaming esteso | nuovi stage nella pipeline di dreaming esistente | completata |
 | M6 API quattro viste | endpoint grafo entità / concetti / eventi / partecipazione | completata |
-| M7 Frontend | quattro pannelli sullo stesso piano | in attesa |
+| M7 Frontend | quattro pannelli sullo stesso piano (dashboard: tab Fatti vs Entità/Eventi) | completata |
 | M8 Test e-e / acceptance | criteri complessivi end-to-end | in attesa |
+
+La dashboard espone due tab nell'area grafo: **Fatti** (Graph Explorer esistente) e **Entità/Eventi** (quattro pannelli visibili insieme: entità, concetti, eventi, partecipazione).
 
 ## Note Epic 10
 

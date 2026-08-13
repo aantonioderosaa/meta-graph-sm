@@ -26,12 +26,17 @@ export const FACT_TYPE_COLORS = {
   fact: "#0F766E", // teal-700
   preference: "#B45309", // amber-700
   episode: "#475569", // slate-600
+  entity: "#0369A1", // sky-700 — distinct from fact teal
+  event: "#BE123C", // rose-700 — distinct from preference amber
+  concept: "#6D28D9", // violet-700 — unused in the Fact palette
 } as const;
 
 export const RELATION_COLORS = {
   UPDATES: "#D97706", // warning / amber-600
   EXTENDS: "#2563EB", // info / blue-600
   DERIVES: "#16A34A", // success / green-600
+  PARTICIPATES: "#94A3B8", // slate-400 — muted participation edges
+  HAS_CONCEPT: "#A8A29E", // stone-400
 } as const;
 
 export const NODE_SIZE = 28;
@@ -74,8 +79,8 @@ function hexToRgba(hex: string, alpha: number): string {
 
 function factTypeOf(node: GraphNode): keyof typeof FACT_TYPE_COLORS {
   const raw = String(node.properties?.type ?? "fact");
-  if (raw === "preference" || raw === "episode" || raw === "fact") {
-    return raw;
+  if (raw in FACT_TYPE_COLORS) {
+    return raw as keyof typeof FACT_TYPE_COLORS;
   }
   return "fact";
 }

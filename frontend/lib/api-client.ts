@@ -9,6 +9,8 @@ import type {
   DreamingRunRequest,
   FactDetailResponse,
   FactHistoryResponse,
+  GetEntityEventGraphParams,
+  GetGraphLimitParams,
   GetGraphParams,
   GraphResponse,
   JobResponse,
@@ -102,6 +104,62 @@ export function getGraph(params: GetGraphParams = {}): Promise<GraphResponse> {
   }
   const qs = search.toString();
   return request<GraphResponse>(`/graph${qs ? `?${qs}` : ""}`);
+}
+
+export function getEntityGraph(
+  params: GetEntityEventGraphParams = {},
+): Promise<GraphResponse> {
+  const search = new URLSearchParams();
+  if (params.is_latest !== undefined) {
+    search.set("is_latest", String(params.is_latest));
+  }
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+  const qs = search.toString();
+  return request<GraphResponse>(`/graph/entities${qs ? `?${qs}` : ""}`);
+}
+
+export function getEventGraph(
+  params: GetEntityEventGraphParams = {},
+): Promise<GraphResponse> {
+  const search = new URLSearchParams();
+  if (params.is_latest !== undefined) {
+    search.set("is_latest", String(params.is_latest));
+  }
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+  const qs = search.toString();
+  return request<GraphResponse>(`/graph/events${qs ? `?${qs}` : ""}`);
+}
+
+export function getParticipationGraph(
+  params: GetGraphLimitParams = {},
+): Promise<GraphResponse> {
+  const search = new URLSearchParams();
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+  const qs = search.toString();
+  return request<GraphResponse>(`/graph/participation${qs ? `?${qs}` : ""}`);
+}
+
+export function getConceptOverview(
+  params: GetGraphLimitParams = {},
+): Promise<GraphResponse> {
+  const search = new URLSearchParams();
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+  const qs = search.toString();
+  return request<GraphResponse>(`/graph/concepts${qs ? `?${qs}` : ""}`);
+}
+
+export function getConceptNeighbors(conceptId: string): Promise<GraphResponse> {
+  return request<GraphResponse>(
+    `/graph/concepts/${encodeURIComponent(conceptId)}`,
+  );
 }
 
 export async function resetKnowledgeBase(): Promise<void> {

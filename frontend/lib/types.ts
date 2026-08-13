@@ -159,3 +159,14 @@ export interface GetGraphParams {
   doc_id?: string;
   limit?: number;
 }
+
+/** Entity or event graph views (`GET /graph/entities`, `/graph/events`). */
+export interface GetEntityEventGraphParams {
+  is_latest?: boolean;
+  limit?: number;
+}
+
+/** Limit-only graph views (`GET /graph/participation`, `/graph/concepts`). */
+export interface GetGraphLimitParams {
+  limit?: number;
+}
