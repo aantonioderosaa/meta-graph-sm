@@ -14,6 +14,8 @@ import type {
   GetGraphParams,
   GraphResponse,
   JobResponse,
+  NodeQueryRequest,
+  NodeQueryResponse,
   QueryHistoryResponse,
   QueryRequest,
   QueryResponse,
@@ -190,6 +192,24 @@ export function getQueryHistory(limit = 20): Promise<QueryHistoryResponse> {
 
 export function getQueryLogDetail(id: string): Promise<QueryResponse> {
   return request<QueryResponse>(`/queries/${encodeURIComponent(id)}`);
+}
+
+export function postNodeQuery(body: NodeQueryRequest): Promise<NodeQueryResponse> {
+  return request<NodeQueryResponse>("/graph/query", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function getNodeQueryHistory(limit = 20): Promise<QueryHistoryResponse> {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  return request<QueryHistoryResponse>(`/graph/queries?${qs.toString()}`);
+}
+
+export function getNodeQueryLogDetail(id: string): Promise<NodeQueryResponse> {
+  return request<NodeQueryResponse>(
+    `/graph/queries/${encodeURIComponent(id)}`,
+  );
 }
 
 export function postReconcile(): Promise<ReconcileResponse> {

@@ -37,7 +37,7 @@ Ciclo tipico in UI (con `NEXT_PUBLIC_USE_MOCK_EVENTS=false`):
 1. Vai su **Documenti** (`/documents`), ingerisci un documento (doc_id + testo → **Ingest**)
 2. Osserva il **Pipeline Monitor** sulla dashboard principale (`/`) — resta aggiornato anche se hai lanciato l'azione da un'altra pagina (SSE globale)
 3. **Dream** per consolidamento/relazioni (sempre da `/documents`)
-4. Esplora il grafo (si aggiorna da solo a fine pipeline); interroga dal **Query Panel**; richiama query precedenti dalla cronologia a tendina
+4. Esplora il grafo (si aggiorna da solo a fine pipeline); sul tab **Fatti** interroga dal **Query Panel** (`POST /query`); sul tab **Entità/Eventi** il pannello Query parla con `POST /graph/query`. Richiama query precedenti dalla cronologia a tendina
 5. Per azzerare la knowledge base: su `/documents` → **Elimina tutto** → conferma nel dialog
 
 ## Avvio locale (dev, meno di 15 min)
@@ -192,8 +192,10 @@ Endpoint gemello di `POST /query` (che resta sul grafo `:Fact`): `POST /graph/qu
 | Q3 Query engine | seeding ibrido → PPR → cross-encoder → contesto | completata |
 | Q4 NodeQueryLog | cronologia `:NodeQueryLog` distinta da `:QueryLog` | completata |
 | Q5 API | `POST /graph/query`, `GET /graph/queries[/{id}]` | completata |
-| Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | da fare |
+| Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | completata |
 | Q7 Accettazione e-e | scenari PPR / relazione / isolamento Fact | da fare |
+
+Tab **Entità/Eventi** monta `NodeQueryPanel` (`POST /graph/query`); tab **Fatti** resta `QueryPanel` (`POST /query`); highlight locale non-filtrante sui pannelli entità/eventi.
 
 ## Note Epic 10
 

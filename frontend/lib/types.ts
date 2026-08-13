@@ -133,6 +133,47 @@ export interface QueryHistoryResponse {
   items: QueryHistoryEntry[];
 }
 
+export interface NodeQueryRequest {
+  text: string;
+}
+
+export interface NodeUsed {
+  id: string;
+  name: string;
+  type: "entity" | "event";
+  source_doc_ids: string[];
+}
+
+export interface ConceptUsed {
+  id: string;
+  name: string;
+}
+
+export interface NodeSubgraphNode {
+  id: string;
+  label: "Node" | "Concept";
+  properties: Record<string, unknown>;
+}
+
+export interface NodeSubgraphRelationship {
+  source: string;
+  target: string;
+  type: string;
+}
+
+export interface NodeSubgraph {
+  nodes: NodeSubgraphNode[];
+  relationships: NodeSubgraphRelationship[];
+}
+
+export interface NodeQueryResponse {
+  answer: string;
+  nodes_used: NodeUsed[];
+  concepts_used: ConceptUsed[];
+  cited_node_ids: string[];
+  subgraph: NodeSubgraph;
+}
+
 export interface ReconcileResponse {
   drift_count: number;
 }
