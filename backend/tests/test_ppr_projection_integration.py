@@ -130,18 +130,12 @@ async def test_ensure_is_lazy_when_missing(neo4j_ready):
         assert await _graph_exists(session) is True
 
 
-async def _empty_groups(doc_id=None):
-    _ = doc_id
-    return []
-
-
 @pytest.mark.asyncio
-async def test_dreaming_pipeline_refreshes_projection(neo4j_ready, monkeypatch):
+async def test_dreaming_pipeline_refreshes_projection(neo4j_ready):
     event_bus.reset_event_bus()
     driver = neo4j_client.get_driver()
     async with driver.session() as session:
         await _seed_nodes(session)
-    monkeypatch.setattr("app.pipeline.dreaming.grouping.group_fresh_facts", _empty_groups)
     await run_dreaming_pipeline("job-ppr-hook")
     async with driver.session() as session:
         assert await _graph_exists(session) is True

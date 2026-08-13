@@ -31,13 +31,12 @@ jobs:
           --ignore=tests/test_schema.py
           --ignore=tests/test_health.py
           --ignore=tests/test_ingestion_integration.py
-          --ignore=tests/test_dreaming_integration.py
-          --ignore=tests/test_query_integration.py
-          --ignore=tests/test_acceptance_milestone1.py
           --ignore=tests/test_embeddings.py
           --ignore=tests/test_nodes_integration.py
           --ignore=tests/test_ppr_projection_integration.py
           --ignore=tests/test_node_query_engine_integration.py
+          --ignore=tests/test_documents_list.py
+          --ignore=tests/test_graph_reset.py
 
   backend-integration:
     runs-on: ubuntu-latest
@@ -61,12 +60,11 @@ jobs:
           tests/test_schema.py
           tests/test_health.py
           tests/test_ingestion_integration.py
-          tests/test_dreaming_integration.py
-          tests/test_query_integration.py
-          tests/test_acceptance_milestone1.py
           tests/test_nodes_integration.py
           tests/test_ppr_projection_integration.py
           tests/test_node_query_engine_integration.py
+          tests/test_documents_list.py
+          tests/test_graph_reset.py
           --tb=short
 
   frontend:

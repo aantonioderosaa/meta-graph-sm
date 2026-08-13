@@ -8,7 +8,6 @@ import pytest
 
 from app.core import event_bus, neo4j_client
 from app.db.schema import apply_schema_with_driver
-from app.models.extraction import FactExtractionResult
 from app.models.node_extraction import (
     ConceptResult,
     EntityRelationExtractionResult,
@@ -130,10 +129,6 @@ def _patch_no_openai(monkeypatch) -> list:
 def _patch_extractors(monkeypatch, *, concepts: list[str] | None = None) -> None:
     concept_names = concepts if concepts is not None else []
 
-    async def empty_facts(chunk_text: str, job_id: str | None = None):
-        _ = chunk_text, job_id
-        return FactExtractionResult(facts=[])
-
     async def mock_entity(chunk_text: str, job_id: str | None = None):
         _ = chunk_text, job_id
         return EntityRelationExtractionResult(triples=[])
@@ -153,7 +148,6 @@ def _patch_extractors(monkeypatch, *, concepts: list[str] | None = None) -> None
     async def mock_concepts(*_args, **_kwargs):
         return ConceptResult(concepts=list(concept_names))
 
-    monkeypatch.setattr("app.pipeline.ingestion.extraction.extract_facts", empty_facts)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_relations", mock_entity)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_entities", mock_event_entity)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_relations", mock_event_rel)

@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
-from app.models.relations import RelationLabel
-from app.pipeline.relations import SYSTEM_PROMPT, build_relation_prompt, relation_edge_event_type
+from app.pipeline.entity_relation_resolution import (
+    _REPLACES_SECTION,
+    SYSTEM_PROMPT,
+    build_relation_prompt,
+)
 
 
 def test_user_prompt_substitutes_fact_texts():
@@ -64,8 +67,6 @@ def test_system_prompt_extends_section_present():
 
 def test_system_prompt_replaces_temporal_markers_and_label_disambiguation():
     """T1.1: replaces prioritizes temporal markers; labels are not chronological."""
-    from app.pipeline.relations import _REPLACES_SECTION
-
     assert _REPLACES_SECTION in SYSTEM_PROMPT
     assert "cerca marcatori temporali" in _REPLACES_SECTION
     assert "date assolute" in _REPLACES_SECTION
@@ -116,9 +117,3 @@ def test_system_prompt_t1_blocks_present_for_ci():
     assert "Le etichette FATTO NUOVO/FATTO ESISTENTE indicano solo" in SYSTEM_PROMPT
     assert "marcatore temporale esplicito" in SYSTEM_PROMPT
     assert "errore peggiore di non dichiarare nulla" in SYSTEM_PROMPT
-
-
-def test_relation_edge_event_type_mapping():
-    assert relation_edge_event_type(RelationLabel.replaces) == "updates"
-    assert relation_edge_event_type(RelationLabel.extends) == "extends"
-    assert relation_edge_event_type(RelationLabel.none) is None

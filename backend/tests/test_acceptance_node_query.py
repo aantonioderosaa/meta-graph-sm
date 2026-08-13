@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models.query import NodeQueryResponse, QueryResponse
+from app.models.query import NodeQueryResponse
 from app.pipeline import dreaming
 from app.pipeline import node_query_engine as nqe
 from app.pipeline.dreaming import run_dreaming_pipeline
@@ -20,10 +20,6 @@ from app.pipeline.node_query_engine import NodeQueryAnswer, run_node_query
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 ENGINE_SOURCE = Path(nqe.__file__).read_text(encoding="utf-8")
 DREAMING_SOURCE = Path(dreaming.__file__).read_text(encoding="utf-8")
-QUERY_ENGINE_SOURCE = (BACKEND_ROOT / "app" / "pipeline" / "query_engine.py").read_text(
-    encoding="utf-8"
-)
-QUERY_API_SOURCE = (BACKEND_ROOT / "app" / "api" / "query.py").read_text(encoding="utf-8")
 
 
 class FakeResult:
@@ -369,11 +365,9 @@ async def test_scenario3_concept_bridge_returns_entity_and_event():
     assert "launch" in used_ids
 
 
-def test_scenario4_fact_and_node_namespaces_isolated():
+def test_scenario4_node_query_response_has_no_fact_fields():
     assert "nodes_used" in NodeQueryResponse.model_fields
     assert "facts_used" not in NodeQueryResponse.model_fields
-    assert "facts_used" in QueryResponse.model_fields
-    assert "nodes_used" not in QueryResponse.model_fields
     assert ":Fact" not in ENGINE_SOURCE
     assert ":Chunk" not in ENGINE_SOURCE
     import_lines = [
@@ -382,7 +376,6 @@ def test_scenario4_fact_and_node_namespaces_isolated():
         if line.strip().startswith(("import ", "from "))
     ]
     assert not any("query_engine" in line for line in import_lines)
-    assert "node_query_engine" not in QUERY_ENGINE_SOURCE
 
 
 @pytest.mark.asyncio
@@ -398,11 +391,9 @@ async def test_scenario5_empty_node_graph_ignores_facts():
     assert not any("gds.pageRank.stream" in cy for cy, _kw in session.calls)
 
 
-def test_scenario6_non_regression_query_engine_untouched():
-    for source in (QUERY_ENGINE_SOURCE, QUERY_API_SOURCE):
-        assert "node_query_engine" not in source
-        assert "POST /graph/query" not in source
-        assert "NodeQueryPanel" not in source
+def test_scenario6_fact_query_modules_removed():
+    assert not (BACKEND_ROOT / "app" / "pipeline" / "query_engine.py").exists()
+    assert not (BACKEND_ROOT / "app" / "api" / "query.py").exists()
 
 
 @pytest.mark.asyncio
@@ -456,16 +447,9 @@ async def test_scenario8_projection_refresh_once_per_dreaming_not_per_query(monk
 
     refresh_calls: list[str] = []
 
-    async def empty_groups(_doc_id=None):
-        return []
-
     async def fake_nodes(driver, job_id: str) -> set[str]:
         _ = driver, job_id
         return set()
-
-    async def fake_fact_reconcile(fact_ids: list[str]) -> int:
-        _ = fact_ids
-        return 0
 
     async def fake_rel_reconcile(node_ids: list[str]) -> int:
         _ = node_ids
@@ -477,9 +461,7 @@ async def test_scenario8_projection_refresh_once_per_dreaming_not_per_query(monk
     async def spy_publish(*_args, **_kwargs) -> None:
         return None
 
-    monkeypatch.setattr("app.pipeline.dreaming.grouping.group_fresh_facts", empty_groups)
     monkeypatch.setattr("app.pipeline.dreaming.get_driver", lambda: FakeDriver())
-    monkeypatch.setattr("app.pipeline.dreaming.reconcile.reconcile_scoped", fake_fact_reconcile)
     monkeypatch.setattr(
         "app.pipeline.dreaming.reconcile.reconcile_scoped_relations",
         fake_rel_reconcile,

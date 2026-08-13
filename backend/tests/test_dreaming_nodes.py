@@ -316,17 +316,10 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
     log: list[str] = []
     published: list[dict] = []
 
-    async def empty_groups(_doc_id=None):
-        return []
-
     async def fake_nodes(driver, job_id: str) -> set[str]:
         log.append("nodes")
         assert job_id == JOB_ID
         return set()
-
-    async def fake_fact_reconcile(fact_ids: list[str]) -> int:
-        log.append("fact_reconcile")
-        return 0
 
     async def fake_rel_reconcile(node_ids: list[str]) -> int:
         log.append("rel_reconcile")
@@ -339,9 +332,7 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
     async def spy_publish(job_id, stage, event, payload):
         published.append({"stage": stage, "event": event, "payload": payload})
 
-    monkeypatch.setattr("app.pipeline.dreaming.grouping.group_fresh_facts", empty_groups)
     monkeypatch.setattr("app.pipeline.dreaming.get_driver", lambda: FakeDriver())
-    monkeypatch.setattr("app.pipeline.dreaming.reconcile.reconcile_scoped", fake_fact_reconcile)
     monkeypatch.setattr(
         "app.pipeline.dreaming.reconcile.reconcile_scoped_relations",
         fake_rel_reconcile,
@@ -356,19 +347,17 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
 
     stats = await run_dreaming_pipeline(JOB_ID)
 
-    assert "nodes" in log
-    assert log.index("fact_reconcile") < log.index("nodes")
-    assert log.index("nodes") < log.index("rel_reconcile")
-    assert log.index("rel_reconcile") < log.index("ppr")
+    assert log == ["nodes", "rel_reconcile", "ppr"]
     complete = [m for m in published if m["event"] == "pipeline_complete"]
     assert len(complete) == 1
-    assert complete[0]["event"] == "pipeline_complete"
+    assert complete[0]["stage"] == "done"
     payload_stats = complete[0]["payload"]["stats"]
-    assert payload_stats["groups"] == 0
-    assert payload_stats["edges_created"] == 0
-    assert payload_stats["drift_count"] == 0
-    assert payload_stats["facts_processed"] == 0
     assert payload_stats["node_drift_count"] == 0
+    assert "facts_processed" not in payload_stats
+    assert "groups" not in payload_stats
+    drift = [m for m in published if m["event"] == "drift_check"]
+    assert len(drift) == 1
+    assert drift[0]["stage"] == "reconciliation"
     assert stats.node_drift_count == 0
 
 
@@ -382,9 +371,6 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
         resolve_calls.append("resolve_node")
         raise AssertionError("resolve_node must not run")
 
-    async def empty_groups(_doc_id=None):
-        return []
-
     async def spy_publish(job_id, stage, event, payload):
         published.append({"event": event, "payload": payload})
 
@@ -394,7 +380,6 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
     event_session.enqueue([])
     driver = FakeDriver(
         [
-            FakeSession(),  # facts
             entity_session,  # phase 1
             FakeSession(),  # relations
             event_session,  # events
@@ -402,13 +387,8 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr("app.pipeline.dreaming.grouping.group_fresh_facts", empty_groups)
     monkeypatch.setattr("app.pipeline.dreaming.get_driver", lambda: driver)
     monkeypatch.setattr("app.pipeline.dreaming.node_resolution.resolve_node", boom_resolve)
-    monkeypatch.setattr(
-        "app.pipeline.dreaming.reconcile.reconcile_scoped",
-        _async_zero,
-    )
     monkeypatch.setattr(
         "app.pipeline.dreaming.reconcile.reconcile_scoped_relations",
         _async_zero,

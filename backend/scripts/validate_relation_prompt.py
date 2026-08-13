@@ -19,7 +19,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.core.config import settings  # noqa: E402
 from app.models.relations import RelationLabel  # noqa: E402
-from app.pipeline.relations import classify_relation  # noqa: E402
+from app.pipeline.entity_relation_resolution import classify_relation  # noqa: E402
 
 
 @dataclass(frozen=True)

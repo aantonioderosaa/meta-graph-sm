@@ -64,13 +64,11 @@ npm run dev
 ```bash
 # Backend — unit (veloci, no Docker)
 cd backend && pytest -q --ignore=tests/test_schema.py --ignore=tests/test_health.py \
-  --ignore=tests/test_ingestion_integration.py --ignore=tests/test_dreaming_integration.py \
-  --ignore=tests/test_query_integration.py --ignore=tests/test_acceptance_milestone1.py \
+  --ignore=tests/test_ingestion_integration.py \
   --ignore=tests/test_embeddings.py --ignore=tests/test_nodes_integration.py \
   --ignore=tests/test_ppr_projection_integration.py \
-  --ignore=tests/test_node_query_engine_integration.py
-
-# Backend — accettazione §8 Fact (suite in rimozione; non più allineata al codice)
+  --ignore=tests/test_node_query_engine_integration.py \
+  --ignore=tests/test_documents_list.py --ignore=tests/test_graph_reset.py
 
 # Layer entità/eventi — accettazione M8 unit (no Docker) e integrazione (Docker)
 cd backend && pytest -q tests/test_acceptance_nodes.py --tb=short
@@ -177,7 +175,7 @@ Stato verificato contro il codice (non solo le checkbox del piano).
 | M4 Grafo unico + fix WebGL | un solo mount, `onInitializationError` | completata |
 | M5 Toggle ponte concetti | `include_concepts` su entità/eventi | completata |
 | M6 Naming eventi/Fact | stage pipeline, colonna Nodi, mock SSE | completata |
-| M7 Test suite | rimuovi/aggiorna test Fact | da fare |
+| M7 Test suite | rimuovi/aggiorna test Fact | completata |
 | M8 Accettazione e-e | scenari ingest/dream/dashboard/reset | da fare |
 
 ### Layer Entità / Eventi / Concetti
@@ -217,4 +215,4 @@ Accettazione Q7: `pytest tests/test_acceptance_node_query.py` (unit, no Docker) 
 
 ## Note Epic 10
 
-Suite accettazione `tests/test_acceptance_milestone1.py` (8/8 criteri §8). `docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: `milestone1/e10-manual-ui-checklist.md`. CI con job `backend-integration` come gate.
+`docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: `milestone1/e10-manual-ui-checklist.md`. CI con job `backend-integration` come gate.

@@ -1,8 +1,9 @@
-"""Ingestion pipeline integration tests (E3.3–E3.6)."""
+"""Ingestion pipeline integration tests (E3.3–E3.6) — Node-only."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import httpx
 import pytest
@@ -11,9 +12,17 @@ from httpx import ASGITransport
 from app.core import event_bus, neo4j_client
 from app.db.schema import apply_schema_with_driver
 from app.main import app
-from app.models.extraction import ExtractedFact, FactExtractionResult, FactType
+from app.models.node_extraction import (
+    ConceptResult,
+    EntityRelationExtractionResult,
+    EntityRelationTriple,
+    EventEntityExtractionResult,
+    EventRelationExtractionResult,
+)
 from app.pipeline.ingestion import run_ingestion_pipeline
 from tests.neo4j_gds import neo4j_gds_container
+
+EMBEDDING_DIM = 768
 
 
 @pytest.fixture(scope="module")
@@ -57,25 +66,56 @@ def clean_event_bus():
     event_bus.reset_event_bus()
 
 
-def _fact_result(text: str, fact_type: FactType = FactType.fact) -> FactExtractionResult:
-    return FactExtractionResult(facts=[ExtractedFact(text=text, type=fact_type)])
+def _unit_vector(name: str) -> list[float]:
+    vec = [0.0] * EMBEDDING_DIM
+    idx = int(hashlib.md5(name.encode("utf-8")).hexdigest(), 16) % EMBEDDING_DIM
+    vec[idx] = 1.0
+    return vec
 
 
-def _noise_result() -> FactExtractionResult:
-    return FactExtractionResult(facts=[])
+def _patch_embeddings(monkeypatch) -> None:
+    monkeypatch.setattr("app.pipeline.ingestion.embeddings.embed", _unit_vector)
+    monkeypatch.setattr(
+        "app.pipeline.ingestion.embeddings.embed_batch",
+        lambda texts: [_unit_vector(text) for text in texts],
+    )
 
 
-@pytest.mark.asyncio
-async def test_ingestion_writes_chunks_facts_and_derived_from(neo4j_ready, monkeypatch):
-    calls: list[str] = []
-
-    async def mock_extract(chunk_text: str, job_id: str | None = None) -> FactExtractionResult:
-        calls.append(chunk_text)
+def _patch_extractors(monkeypatch) -> None:
+    async def mock_entity(chunk_text: str, job_id: str | None = None):
+        _ = job_id
         if "noise" in chunk_text.lower():
-            return _noise_result()
-        return _fact_result(f"Fact from: {chunk_text[:40]}")
+            return EntityRelationExtractionResult(triples=[])
+        words = chunk_text.split()
+        head = words[0] if words else "Someone"
+        tail = words[-1].rstrip(".") if len(words) > 1 else "Somewhere"
+        return EntityRelationExtractionResult(
+            triples=[EntityRelationTriple(head=head, relation="related_to", tail=tail)]
+        )
 
-    monkeypatch.setattr("app.pipeline.ingestion.extraction.extract_facts", mock_extract)
+    async def mock_event_entity(chunk_text: str, job_id: str | None = None):
+        _ = chunk_text, job_id
+        return EventEntityExtractionResult(participations=[])
+
+    async def mock_event_rel(chunk_text: str, job_id: str | None = None):
+        _ = chunk_text, job_id
+        return EventRelationExtractionResult(triples=[])
+
+    async def mock_concepts(*_args, **_kwargs):
+        return ConceptResult(concepts=[])
+
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_relations", mock_entity)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_event_entities", mock_event_entity)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_event_relations", mock_event_rel)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_concepts", mock_concepts)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_event_concepts", mock_concepts)
+
+
+@pytest.mark.enable_node_extraction
+@pytest.mark.asyncio
+async def test_ingestion_writes_chunks_nodes_and_derived_from(neo4j_ready, monkeypatch):
+    _patch_embeddings(monkeypatch)
+    _patch_extractors(monkeypatch)
 
     doc_text = (
         "Alice works at Acme Corp.\n"
@@ -90,46 +130,47 @@ async def test_ingestion_writes_chunks_facts_and_derived_from(neo4j_ready, monke
         chunk_count = await session.run("MATCH (c:Chunk) RETURN count(c) AS n")
         chunk_record = await chunk_count.single()
         assert chunk_record is not None
-        assert chunk_record["n"] == len(calls)
+        assert chunk_record["n"] == 3
+
+        node_count = await session.run("MATCH (n:Node) RETURN count(n) AS n")
+        node_record = await node_count.single()
+        assert node_record is not None
+        assert node_record["n"] == 4
 
         fact_count = await session.run("MATCH (f:Fact) RETURN count(f) AS n")
         fact_record = await fact_count.single()
         assert fact_record is not None
-        assert fact_record["n"] == 2
+        assert fact_record["n"] == 0
 
         derived = await session.run(
             """
-            MATCH (f:Fact)-[:DERIVED_FROM]->(c:Chunk)
-            RETURN count(f) AS n
+            MATCH (n:Node)-[:DERIVED_FROM]->(c:Chunk)
+            RETURN count(n) AS n
             """
         )
         derived_record = await derived.single()
         assert derived_record is not None
-        assert derived_record["n"] == 2
+        assert derived_record["n"] == 4
 
         dreamed = await session.run(
-            "MATCH (f:Fact) WHERE f.dreamed = false RETURN count(f) AS n"
+            "MATCH (n:Node) WHERE n.dreamed = false RETURN count(n) AS n"
         )
         dreamed_record = await dreamed.single()
         assert dreamed_record is not None
-        assert dreamed_record["n"] == 2
+        assert dreamed_record["n"] == 4
 
 
+@pytest.mark.enable_node_extraction
 @pytest.mark.asyncio
 async def test_ingestion_sse_events_and_pipeline_complete(neo4j_ready, monkeypatch):
-    async def mock_extract(chunk_text: str, job_id: str | None = None) -> FactExtractionResult:
-        if "noise" in chunk_text.lower():
-            return _noise_result()
-        return _fact_result("Structured fact.")
-
-    monkeypatch.setattr("app.pipeline.ingestion.extraction.extract_facts", mock_extract)
+    _patch_embeddings(monkeypatch)
+    _patch_extractors(monkeypatch)
 
     job_id = "job-sse-ingest"
     queue = await event_bus.subscribe(job_id)
 
     doc_text = "Line one about Paris.\nLine two about London.\nok capito noise filler."
-    pipeline_task = asyncio.create_task(run_ingestion_pipeline("doc-sse", doc_text, job_id))
-    await pipeline_task
+    await run_ingestion_pipeline("doc-sse", doc_text, job_id)
 
     events = []
     while True:
@@ -141,16 +182,17 @@ async def test_ingestion_sse_events_and_pipeline_complete(neo4j_ready, monkeypat
     chunk_events = [event for event in events if event["event"] == "chunk_created"]
     assert len(chunk_events) == 3
 
-    noise_events = [event for event in events if event["event"] == "chunk_discarded_noise"]
-    assert len(noise_events) == 1
+    entity_events = [event for event in events if event["event"] == "entity_extracted"]
+    assert len(entity_events) == 4
 
-    fact_events = [event for event in events if event["event"] == "fact_extracted"]
-    assert len(fact_events) == 2
+    assert not [event for event in events if event["event"] == "fact_extracted"]
+    assert not [event for event in events if event["event"] == "chunk_discarded_noise"]
 
     complete = events[-1]
     assert complete["event"] == "pipeline_complete"
     assert complete["payload"]["stats"]["chunks"] == 3
-    assert complete["payload"]["stats"]["facts"] == 2
+    assert complete["payload"]["stats"]["nodes"] == 4
+    assert "facts" not in complete["payload"]["stats"]
 
 
 @pytest.mark.asyncio

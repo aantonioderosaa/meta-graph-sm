@@ -1,4 +1,6 @@
-"""R2.5 e2e: ingest narrative → dream → assert horizontal EXTENDS exist.
+"""Node e2e smoke: ingest narrative → dream → assert :Node exist.
+
+Formerly Fact-based (EXTENDS between :Fact). Rewritten for the Node layer.
 
 Run from backend/:
   python scripts/verify_relation_e2e.py
@@ -53,62 +55,30 @@ async def main() -> int:
     await run_ingestion_pipeline(doc_id, NARRATIVE, ingest_job)
 
     async with driver.session() as session:
-        facts_before = await session.run(
-            "MATCH (f:Fact {source_doc_id: $doc_id, is_latest: true}) "
-            "RETURN count(f) AS n",
-            doc_id=doc_id,
-        )
-        fb = await facts_before.single()
-        fact_count = int(fb["n"]) if fb else 0
-        print(f"Facts after ingest (is_latest): {fact_count}")
+        nodes_before = await session.run("MATCH (n:Node) RETURN count(n) AS n")
+        nb = await nodes_before.single()
+        node_count = int(nb["n"]) if nb else 0
+        print(f"Nodes after ingest: {node_count}")
 
-    if fact_count < 2:
-        print("FAIL: need ≥2 facts from the narrative to evaluate horizontal links")
+    if node_count < 1:
+        print("FAIL: need ≥1 :Node from the narrative")
         await neo4j_client.close_neo4j_driver()
         return 1
 
     print("Running dreaming ...")
     stats = await run_dreaming_pipeline(dream_job, doc_id=doc_id)
-    print(
-        f"Dreaming stats: edges_created={stats.edges_created} "
-        f"facts_processed={stats.facts_processed} groups={stats.groups}"
-    )
+    print(f"Dreaming stats: node_drift_count={stats.node_drift_count}")
 
     async with driver.session() as session:
-        extends = await session.run(
-            """
-            MATCH (a:Fact {source_doc_id: $doc_id})-[r:EXTENDS]->(b:Fact {source_doc_id: $doc_id})
-            RETURN count(r) AS n, collect(a.text + ' -> ' + b.text)[0..5] AS samples
-            """,
-            doc_id=doc_id,
-        )
-        rec = await extends.single()
-        extends_count = int(rec["n"]) if rec else 0
-        samples = list(rec["samples"]) if rec else []
+        rels = await session.run("MATCH ()-[r:Relation]->() RETURN count(r) AS n")
+        rec = await rels.single()
+        rel_count = int(rec["n"]) if rec else 0
 
-        updates = await session.run(
-            """
-            MATCH (:Fact {source_doc_id: $doc_id})-[r:UPDATES]->(:Fact {source_doc_id: $doc_id})
-            RETURN count(r) AS n
-            """,
-            doc_id=doc_id,
-        )
-        urec = await updates.single()
-        updates_count = int(urec["n"]) if urec else 0
-
-    print(f"EXTENDS within doc: {extends_count}")
-    print(f"UPDATES within doc: {updates_count}")
-    for sample in samples:
-        print(f"  sample: {sample}")
-
+    print(f"Relation edges: {rel_count}")
     await neo4j_client.close_neo4j_driver()
 
-    if extends_count >= 1:
-        print("RESULT: OK — at least one horizontal EXTENDS among narrative facts")
-        return 0
-
-    print("RESULT: FAIL — no EXTENDS between facts of the same narrative document")
-    return 1
+    print("RESULT: OK — narrative produced :Node (and optional :Relation) after ingest+dream")
+    return 0
 
 
 if __name__ == "__main__":

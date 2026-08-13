@@ -53,7 +53,7 @@ async def _seed_doc(
     *,
     doc_id: str,
     chunks: int,
-    facts: int,
+    nodes: int,
     last_offset_hours: int = 0,
 ) -> None:
     driver = neo4j_client.get_driver()
@@ -73,23 +73,22 @@ async def _seed_doc(
                 doc_id=doc_id,
                 hours=last_offset_hours + (chunks - 1 - i),
             )
-        for i in range(facts):
+        for i in range(nodes):
             await session.run(
                 """
-                CREATE (f:Fact {
-                  id: $fid,
-                  text: $text,
-                  type: 'fact',
-                  confidence: 1.0,
-                  is_latest: true,
+                MATCH (c:Chunk {id: $cid})
+                CREATE (n:Node {
+                  id: $nid,
+                  name: $name,
+                  type: 'entity',
                   dreamed: true,
-                  source_doc_id: $doc_id,
+                  merged_into: null,
                   created_at: datetime()
-                })
+                })-[:DERIVED_FROM]->(c)
                 """,
-                fid=f"{doc_id}-f{i}",
-                text=f"fact {i} of {doc_id}",
-                doc_id=doc_id,
+                cid=f"{doc_id}-c0",
+                nid=f"{doc_id}-n{i}",
+                name=f"node {i} of {doc_id}",
             )
 
 
@@ -110,8 +109,8 @@ async def test_list_documents_empty(neo4j_ready):
 @pytest.mark.asyncio
 async def test_list_documents_counts_and_order(neo4j_ready):
     # older last_at (more hours offset on newest chunk)
-    await _seed_doc(doc_id="doc-old", chunks=2, facts=1, last_offset_hours=10)
-    await _seed_doc(doc_id="doc-new", chunks=3, facts=2, last_offset_hours=0)
+    await _seed_doc(doc_id="doc-old", chunks=2, nodes=1, last_offset_hours=10)
+    await _seed_doc(doc_id="doc-new", chunks=3, nodes=2, last_offset_hours=0)
 
     driver = neo4j_client.get_driver()
     async with driver.session() as session:
@@ -120,9 +119,9 @@ async def test_list_documents_counts_and_order(neo4j_ready):
     assert [d.doc_id for d in docs] == ["doc-new", "doc-old"]
     by_id = {d.doc_id: d for d in docs}
     assert by_id["doc-new"].chunk_count == 3
-    assert by_id["doc-new"].fact_count == 2
+    assert by_id["doc-new"].node_count == 2
     assert by_id["doc-old"].chunk_count == 2
-    assert by_id["doc-old"].fact_count == 1
+    assert by_id["doc-old"].node_count == 1
     assert by_id["doc-new"].last_ingested_at
     assert by_id["doc-old"].first_ingested_at
 
@@ -133,4 +132,5 @@ async def test_list_documents_counts_and_order(neo4j_ready):
     body = response.json()["documents"]
     assert [d["doc_id"] for d in body] == ["doc-new", "doc-old"]
     assert body[0]["chunk_count"] == 3
-    assert body[0]["fact_count"] == 2
+    assert body[0]["node_count"] == 2
+    assert "fact_count" not in body[0]

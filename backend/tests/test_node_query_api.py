@@ -66,16 +66,16 @@ async def test_post_graph_query_empty_graph_returns_200(
 
 
 @pytest.mark.asyncio
-async def test_get_graph_and_post_graph_query_do_not_collide(
+async def test_get_graph_entities_and_post_graph_query_do_not_collide(
     client: AsyncClient, monkeypatch
 ):
-    async def mock_fact_graph(session, **kwargs):
+    async def mock_entity_graph(session, **kwargs):
         _ = session, kwargs
         return GraphResponse(
-            nodes=[GraphNode(id="f1", caption="A fact", properties={"type": "fact"})],
+            nodes=[GraphNode(id="alice", caption="Alice", properties={"type": "entity"})],
             relationships=[
                 GraphRelationship(
-                    id="r1", **{"from": "f1", "to": "f2"}, type="extends"
+                    id="r1", **{"from": "alice", "to": "acme"}, type="works_at"
                 )
             ],
         )
@@ -84,22 +84,24 @@ async def test_get_graph_and_post_graph_query_do_not_collide(
         _ = session, text, job_id
         return _alice_response()
 
-    monkeypatch.setattr("app.api.graph.query_engine.get_graph", mock_fact_graph)
+    monkeypatch.setattr(
+        "app.api.node_graph.node_graph_engine.get_entity_graph", mock_entity_graph
+    )
     monkeypatch.setattr(
         "app.api.node_query.node_query_engine.run_node_query", mock_run
     )
 
     listed = await client.get("/openapi.json")
     paths = listed.json()["paths"]
-    assert "/graph" in paths
-    assert "get" in paths["/graph"]
+    assert "/graph/entities" in paths
+    assert "get" in paths["/graph/entities"]
     assert "/graph/query" in paths
     assert "post" in paths["/graph/query"]
-    assert "/query" in paths
+    assert "/query" not in paths
 
-    graph = await client.get("/graph")
+    graph = await client.get("/graph/entities")
     assert graph.status_code == 200
-    assert graph.json()["nodes"][0]["id"] == "f1"
+    assert graph.json()["nodes"][0]["id"] == "alice"
 
     queried = await client.post("/graph/query", json={"text": "chi è Alice?"})
     assert queried.status_code == 200

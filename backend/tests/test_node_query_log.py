@@ -6,7 +6,7 @@ import pytest
 
 from app.models.query import NodeQueryResponse
 from app.pipeline import node_query_engine as nqe
-from app.pipeline import node_query_log, query_log
+from app.pipeline import node_query_log
 from app.pipeline.node_query_engine import NodeQueryAnswer, run_node_query
 from app.pipeline.node_query_log import (
     GET_LOG_CYPHER,
@@ -111,8 +111,6 @@ def test_list_cypher_matches_only_node_query_log():
     assert ":USED" in LINK_USED_NODES_CYPHER
     assert ":Node" in LINK_USED_NODES_CYPHER
     assert ":Concept" in LINK_USED_CONCEPTS_CYPHER
-    assert "MATCH (q:QueryLog)" in query_log.LIST_LOGS_CYPHER
-    assert "NodeQueryLog" not in query_log.LIST_LOGS_CYPHER
 
 
 @pytest.mark.asyncio
@@ -127,24 +125,14 @@ async def test_listing_never_crosses_query_log_labels():
         node_ids=["alice"],
         concept_ids=[],
     )
-    await query_log.write_query_log(
-        session,
-        query_id="ql-1",
-        text="Where does Alice work?",
-        answer="Acme.",
-        cited_fact_ids=["f1"],
-        all_fact_ids=["f1"],
-    )
 
     node_items = await list_node_query_logs(session, limit=20)
-    fact_items = await query_log.list_query_logs(session, limit=20)
 
     assert [item.id for item in node_items] == ["nql-1"]
     assert [item.text for item in node_items] == ["chi è Alice?"]
-    assert [item.id for item in fact_items] == ["ql-1"]
-    assert [item.text for item in fact_items] == ["Where does Alice work?"]
-    assert all(item.id != "ql-1" for item in node_items)
-    assert all(item.id != "nql-1" for item in fact_items)
+    joined = "\n".join(cy for cy, _kw in session.calls)
+    assert "MATCH (q:QueryLog)" not in joined
+    assert "NodeQueryLog" in joined
 
 
 @pytest.mark.asyncio
