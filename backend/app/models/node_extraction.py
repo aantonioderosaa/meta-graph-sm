@@ -37,3 +37,7 @@ class EventRelationExtractionResult(BaseModel):
 
 class ConceptResult(BaseModel):
     concepts: list[str]
+
+
+class NodeDedupResult(BaseModel):
+    duplicate_of: str | None  # candidate id, or null if this is a new node
