@@ -167,7 +167,7 @@ Schema `:Node` / `:Concept` / `:Relation` accanto al layer `Fact`/`Chunk` esiste
 | M2 Estrazione | entità/eventi/concetti da chunk (porting prompt autoschema) | completata |
 | M3 Risoluzione entità | dedup incrementale `Node{type:'entity'}` (pattern graphiti) | completata |
 | M4 Risoluzione archi | normalizzazione `:Relation` + merge eventi | completata |
-| M5 Dreaming esteso | nuovi stage nella pipeline di dreaming esistente | in attesa |
+| M5 Dreaming esteso | nuovi stage nella pipeline di dreaming esistente | completata |
 | M6 API quattro viste | endpoint grafo entità / concetti / eventi / partecipazione | in attesa |
 | M7 Frontend | quattro pannelli sullo stesso piano | in attesa |
 | M8 Test e-e / acceptance | criteri complessivi end-to-end | in attesa |

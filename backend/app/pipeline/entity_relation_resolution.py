@@ -6,12 +6,19 @@ same-endpoint edges identified by elementId(r). Never a full-graph Relation scan
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from neo4j import AsyncSession
 
 from app.models.relations import RelationLabel
 from app.pipeline.relations import classify_relation
+
+logger = logging.getLogger(__name__)
+
+OnClassified = Callable[[str, str, str], Awaitable[None]]
+OnClassifyError = Callable[[str, str, str], Awaitable[None]]
 
 VECTOR_RELATION_CANDIDATE_K = 10
 
@@ -187,6 +194,9 @@ async def resolve_fresh_entity_relations(
     session: AsyncSession,
     job_id: str,
     touched_entity_ids: set[str] | None = None,
+    *,
+    on_classified: OnClassified | None = None,
+    on_error: OnClassifyError | None = None,
 ) -> int:
     """Classify fresh entity-entity Relations. Scoped to touched ids when provided."""
     if touched_entity_ids is None:
@@ -210,14 +220,26 @@ async def resolve_fresh_entity_relations(
 
     processed = 0
     for head_id, tail_id, rel_id, relation in fresh:
-        outcome = await classify_and_apply_entity_relation(
-            session,
-            head_id,
-            tail_id,
-            rel_id,
-            relation,
-            job_id,
-        )
+        try:
+            outcome = await classify_and_apply_entity_relation(
+                session,
+                head_id,
+                tail_id,
+                rel_id,
+                relation,
+                job_id,
+            )
+        except Exception as exc:
+            logger.exception(
+                "entity_relation_classification_failed head=%s tail=%s",
+                head_id,
+                tail_id,
+            )
+            if on_error is not None:
+                await on_error(head_id, tail_id, str(exc))
+            continue
         if outcome is not None:
             processed += 1
+            if on_classified is not None:
+                await on_classified(outcome, head_id, tail_id)
     return processed
