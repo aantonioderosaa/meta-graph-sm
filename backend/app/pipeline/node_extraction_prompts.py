@@ -1,33 +1,93 @@
 """Prompt adattati da autoschemakg atlas_rag/llm_generator/prompt/triple_extraction_prompt.py
 (TRIPLE_INSTRUCTIONS['en'], CONCEPT_INSTRUCTIONS['en'] — MIT). Contenuto semantico ed
-esempi few-shot invariati; adattato solo l'involucro JSON (oggetto con chiave, non
-array nudo) per client.beta.chat.completions.parse (vedi app/core/llm_client.py)."""
+esempi few-shot invariati per concetti; estrazione entità/relazioni in due passaggi
+anti-blur (doc1 §2.4–§2.5, doc4 §6). Involucro JSON (oggetto con chiave, non array nudo)
+per client.beta.chat.completions.parse (vedi app/core/llm_client.py)."""
 
 from __future__ import annotations
 
-ENTITY_RELATION_SYSTEM_PROMPT = (
+from app.models.kernel import EntityKernelType, RelationKernelType
+from app.pipeline.domain_book import GENRE_NOT_TOPIC_PROMPT
+
+JSON_SYSTEM_PROMPT = (
     "Sei un assistente che risponde sempre con un oggetto JSON valido, senza spiegazioni."
 )
 
-EVENT_ENTITY_SYSTEM_PROMPT = ENTITY_RELATION_SYSTEM_PROMPT
-EVENT_RELATION_SYSTEM_PROMPT = ENTITY_RELATION_SYSTEM_PROMPT
-EVENT_CONCEPT_SYSTEM_PROMPT = ENTITY_RELATION_SYSTEM_PROMPT
-ENTITY_CONCEPT_SYSTEM_PROMPT = ENTITY_RELATION_SYSTEM_PROMPT
+ENTITY_LIST_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
+PAIR_RELATION_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
+CORPUS_SUMMARY_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
+EVENT_ENTITY_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
+EVENT_RELATION_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
+EVENT_CONCEPT_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
+ENTITY_CONCEPT_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
 
-ENTITY_RELATION_USER_PROMPT_TEMPLATE = (
-    "Dato un passaggio, riassumi in modo conciso tutte le entità importanti e le "
-    "relazioni tra loro. Le relazioni devono catturare brevemente le connessioni tra "
-    "entità, senza ripetere informazioni già in head/tail. Le entità devono essere il "
-    "più specifiche possibile. Escludi i pronomi come entità.\n"
-    'Restituisci un oggetto JSON: {{"triples": [{{"head": "...", "relation": "...", '
-    '"tail": "..."}}, ...]}}\n\n'
+_ENTITY_KERNEL_LINES = "\n".join(
+    f"- {member.value}" for member in EntityKernelType
+)
+_RELATION_KERNEL_LINES = "\n".join(
+    f"- {member.value}" for member in RelationKernelType
+)
+
+ENTITY_LIST_USER_PROMPT_TEMPLATE = (
+    "{genre_not_topic}\n\n"
+    "Macro-riassunto del corpus (contesto; non elencare sottodomini):\n"
+    '"""{corpus_summary}"""\n\n'
+    "Dal passaggio sotto, estrai SOLO le entità importanti. Non estrarre relazioni. "
+    "Ogni entità ha un nome, un breve summary in linguaggio naturale (chi/che cosa è, "
+    "nel contesto del passaggio), e kernel_category pari a esattamente una delle "
+    "categorie fondazionali E1–E8:\n"
+    "{entity_kernel_list}\n"
+    "Non combinare categorie. Non usare pronomi come entità. I nomi sono stringhe "
+    "singole, mai liste.\n"
+    'Restituisci un oggetto JSON: {{"entities": [{{"name": "...", "summary": "...", '
+    '"kernel_category": "..."}}, ...]}}\n\n'
     'Testo:\n"""{chunk_text}"""'
+)
+
+PAIR_RELATION_USER_PROMPT_TEMPLATE = (
+    "{genre_not_topic}\n\n"
+    "Macro-riassunto del corpus (contesto; non elencare sottodomini):\n"
+    '"""{corpus_summary}"""\n\n'
+    "Decidi se esiste UNA relazione asserita tra le due entità seguenti, letti i loro "
+    "summary insieme al passaggio. Questa è una decisione per coppia: non estrarre "
+    "altre coppie, non raggruppare testimoni.\n\n"
+    "Entità A: {name_a}\n"
+    "Summary A: {summary_a}\n"
+    "Entità B: {name_b}\n"
+    "Summary B: {summary_b}\n\n"
+    "Se i summary, letti insieme e con il passaggio, NON giustificano un legame, "
+    "restituisci related=false.\n"
+    "Se related=true, indica:\n"
+    "- relation: raffinamento libero (es. coached_by, works_at)\n"
+    "- kernel_parent: esattamente una delle 6 primitive R1–R6 (il raffinamento "
+    "pende sotto una di queste, non è una settima primitiva):\n"
+    "{relation_kernel_list}\n"
+    "- witness_source e witness_target: stringhe non vuote (un testimone per lato; "
+    "tipicamente i nomi o gli span che attestano A e B). Un fatto senza entrambi i "
+    "testimoni non è rappresentabile.\n"
+    "head e tail sono impliciti (A e B): non restituire liste di id.\n"
+    'Restituisci un oggetto JSON: {{"related": true/false, "relation": "...", '
+    '"kernel_parent": "...", "witness_source": "...", "witness_target": "..."}}\n\n'
+    'Testo:\n"""{chunk_text}"""'
+)
+
+CORPUS_SUMMARY_USER_PROMPT_TEMPLATE = (
+    "Aggiorna il riassunto macro del corpus in linguaggio naturale: di cosa tratta "
+    "complessivamente il corpus finora, dopo l'aggiunta del nuovo documento.\n"
+    "NON elencare i sottodomini in anticipo. NON inventare una nuova categoria del "
+    "kernel. NON restituire una lista di argomenti. Solo un testo continuo.\n\n"
+    "Riassunto esistente (può essere vuoto):\n"
+    '"""{existing_summary}"""\n\n'
+    "Nuovo documento:\n"
+    '"""{document_text}"""\n\n'
+    'Restituisci un oggetto JSON: {{"summary_text": "..."}}'
 )
 
 EVENT_ENTITY_USER_PROMPT_TEMPLATE = (
     "Analizza e riassumi le relazioni di partecipazione tra gli eventi e le entità "
     "nel passaggio. Ogni evento è una singola frase indipendente. Identifica tutte "
     "le entità che hanno partecipato. Non usare puntini di sospensione.\n"
+    "Non creare relazioni entità–entità per sola co-presenza nella stessa lista.\n"
     'Restituisci un oggetto JSON: {{"participations": [{{"event": "...", '
     '"entities": ["...", "..."]}}, ...]}}\n\n'
     'Testo:\n"""{chunk_text}"""'
@@ -36,11 +96,17 @@ EVENT_ENTITY_USER_PROMPT_TEMPLATE = (
 EVENT_RELATION_USER_PROMPT_TEMPLATE = (
     "Analizza e riassumi le relazioni tra gli eventi nel passaggio. Ogni evento è "
     "una singola frase indipendente. Identifica relazioni temporali e causali tra "
-    "gli eventi usando i seguenti tipi: before, after, at the same time, because, "
+    "gli eventi usando raffinamenti come before, after, at the same time, because, "
     "and as a result. Ogni tripla estratta deve essere specifica, significativa e "
     "autonoma. Non usare puntini di sospensione.\n"
-    'Restituisci un oggetto JSON: {{"triples": [{{"head": "...", "relation": "...", '
-    '"tail": "..."}}, ...]}}\n\n'
+    "head e tail sono stringhe singole (un evento per lato), mai liste. Ogni fatto "
+    "richiede witness_source e witness_target non vuoti, e kernel_parent pari a "
+    "esattamente una delle 6 primitive R1–R6:\n"
+    "{relation_kernel_list}\n"
+    "(before/after/at the same time → Temporale; because/as a result → Causale.)\n"
+    'Restituisci un oggetto JSON: {{"triples": [{{"head": "...", "tail": "...", '
+    '"relation": "...", "kernel_parent": "...", "witness_source": "...", '
+    '"witness_target": "..."}}, ...]}}\n\n'
     'Testo:\n"""{chunk_text}"""'
 )
 
@@ -106,9 +172,43 @@ ENTITY_CONCEPT_USER_PROMPT_TEMPLATE = (
 )
 
 
-def build_entity_relation_prompt(chunk_text: str) -> tuple[str, str]:
-    return ENTITY_RELATION_SYSTEM_PROMPT, ENTITY_RELATION_USER_PROMPT_TEMPLATE.format(
-        chunk_text=chunk_text
+def build_entity_list_prompt(
+    chunk_text: str, corpus_summary: str = ""
+) -> tuple[str, str]:
+    return ENTITY_LIST_SYSTEM_PROMPT, ENTITY_LIST_USER_PROMPT_TEMPLATE.format(
+        genre_not_topic=GENRE_NOT_TOPIC_PROMPT,
+        corpus_summary=corpus_summary or "(vuoto)",
+        entity_kernel_list=_ENTITY_KERNEL_LINES,
+        chunk_text=chunk_text,
+    )
+
+
+def build_pair_relation_prompt(
+    chunk_text: str,
+    name_a: str,
+    summary_a: str,
+    name_b: str,
+    summary_b: str,
+    corpus_summary: str = "",
+) -> tuple[str, str]:
+    return PAIR_RELATION_SYSTEM_PROMPT, PAIR_RELATION_USER_PROMPT_TEMPLATE.format(
+        genre_not_topic=GENRE_NOT_TOPIC_PROMPT,
+        corpus_summary=corpus_summary or "(vuoto)",
+        name_a=name_a,
+        summary_a=summary_a,
+        name_b=name_b,
+        summary_b=summary_b,
+        relation_kernel_list=_RELATION_KERNEL_LINES,
+        chunk_text=chunk_text,
+    )
+
+
+def build_corpus_summary_prompt(
+    existing_summary: str, document_text: str
+) -> tuple[str, str]:
+    return CORPUS_SUMMARY_SYSTEM_PROMPT, CORPUS_SUMMARY_USER_PROMPT_TEMPLATE.format(
+        existing_summary=existing_summary,
+        document_text=document_text,
     )
 
 
@@ -120,7 +220,8 @@ def build_event_entity_prompt(chunk_text: str) -> tuple[str, str]:
 
 def build_event_relation_prompt(chunk_text: str) -> tuple[str, str]:
     return EVENT_RELATION_SYSTEM_PROMPT, EVENT_RELATION_USER_PROMPT_TEMPLATE.format(
-        chunk_text=chunk_text
+        relation_kernel_list=_RELATION_KERNEL_LINES,
+        chunk_text=chunk_text,
     )
 
 

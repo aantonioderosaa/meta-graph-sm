@@ -10,13 +10,14 @@ from app.core import event_bus, neo4j_client
 from app.db.schema import apply_schema_with_driver
 from app.models.node_extraction import (
     ConceptResult,
-    EntityRelationExtractionResult,
+    EntityExtractionResult,
     EventEntityExtractionResult,
     EventEntityParticipation,
     EventRelationClassification,
     EventRelationExtractionResult,
     EventRelationLabel,
     NodeDedupResult,
+    PairRelationDecision,
 )
 from app.models.relations import RelationClassification, RelationLabel
 from app.pipeline.concepts import compute_hash_id
@@ -129,9 +130,14 @@ def _patch_no_openai(monkeypatch) -> list:
 def _patch_extractors(monkeypatch, *, concepts: list[str] | None = None) -> None:
     concept_names = concepts if concepts is not None else []
 
-    async def mock_entity(chunk_text: str, job_id: str | None = None):
-        _ = chunk_text, job_id
-        return EntityRelationExtractionResult(triples=[])
+    async def mock_entities(
+        chunk_text: str, job_id: str | None = None, corpus_summary: str = ""
+    ):
+        _ = chunk_text, job_id, corpus_summary
+        return EntityExtractionResult(entities=[])
+
+    async def mock_pair(*_args, **_kwargs):
+        return PairRelationDecision(related=False)
 
     async def mock_event_entity(chunk_text: str, job_id: str | None = None):
         _ = chunk_text, job_id
@@ -148,11 +154,17 @@ def _patch_extractors(monkeypatch, *, concepts: list[str] | None = None) -> None
     async def mock_concepts(*_args, **_kwargs):
         return ConceptResult(concepts=list(concept_names))
 
-    monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_relations", mock_entity)
+    async def mock_corpus(session, document_text, job_id) -> str:
+        _ = session, document_text, job_id
+        return "Macrotask 8 scenario corpus."
+
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_entities", mock_event_entity)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_relations", mock_event_rel)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_concepts", mock_concepts)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_concepts", mock_concepts)
+    monkeypatch.setattr("app.pipeline.ingestion.update_corpus_context", mock_corpus)
 
 
 async def _dream(job_id: str) -> None:

@@ -12,12 +12,14 @@ from httpx import ASGITransport
 from app.core import event_bus, neo4j_client
 from app.db.schema import apply_schema_with_driver
 from app.main import app
+from app.models.kernel import EntityKernelType, RelationKernelType
 from app.models.node_extraction import (
     ConceptResult,
-    EntityRelationExtractionResult,
-    EntityRelationTriple,
+    EntityExtractionResult,
     EventEntityExtractionResult,
     EventRelationExtractionResult,
+    ExtractedEntity,
+    PairRelationDecision,
 )
 from app.pipeline.ingestion import run_ingestion_pipeline
 from tests.neo4j_gds import neo4j_gds_container
@@ -82,15 +84,43 @@ def _patch_embeddings(monkeypatch) -> None:
 
 
 def _patch_extractors(monkeypatch) -> None:
-    async def mock_entity(chunk_text: str, job_id: str | None = None):
-        _ = job_id
+    async def mock_entities(
+        chunk_text: str, job_id: str | None = None, corpus_summary: str = ""
+    ):
+        _ = job_id, corpus_summary
         if "noise" in chunk_text.lower():
-            return EntityRelationExtractionResult(triples=[])
+            return EntityExtractionResult(entities=[])
         words = chunk_text.split()
         head = words[0] if words else "Someone"
         tail = words[-1].rstrip(".") if len(words) > 1 else "Somewhere"
-        return EntityRelationExtractionResult(
-            triples=[EntityRelationTriple(head=head, relation="related_to", tail=tail)]
+        names = [head]
+        if tail.casefold() != head.casefold():
+            names.append(tail)
+        return EntityExtractionResult(
+            entities=[
+                ExtractedEntity(
+                    name=name,
+                    summary=f"Entity mentioned as {name}.",
+                    kernel_category=(
+                        EntityKernelType.Agente
+                        if i == 0
+                        else EntityKernelType.CostruttoSociale
+                    ),
+                )
+                for i, name in enumerate(names)
+            ]
+        )
+
+    async def mock_pair(*_args, **kwargs):
+        _ = kwargs
+        name_a = _args[1] if len(_args) > 1 else "Someone"
+        name_b = _args[3] if len(_args) > 3 else "Somewhere"
+        return PairRelationDecision(
+            related=True,
+            relation="related_to",
+            kernel_parent=RelationKernelType.SocialeIntenzionale,
+            witness_source=name_a,
+            witness_target=name_b,
         )
 
     async def mock_event_entity(chunk_text: str, job_id: str | None = None):
@@ -104,11 +134,17 @@ def _patch_extractors(monkeypatch) -> None:
     async def mock_concepts(*_args, **_kwargs):
         return ConceptResult(concepts=[])
 
-    monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_relations", mock_entity)
+    async def mock_corpus(session, document_text, job_id) -> str:
+        _ = session, document_text, job_id
+        return "Integration test corpus."
+
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_entities", mock_event_entity)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_relations", mock_event_rel)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_concepts", mock_concepts)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_concepts", mock_concepts)
+    monkeypatch.setattr("app.pipeline.ingestion.update_corpus_context", mock_corpus)
 
 
 @pytest.mark.enable_node_extraction

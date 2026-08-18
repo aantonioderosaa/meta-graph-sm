@@ -1,9 +1,9 @@
 """Domain book as operational rules (Fase 1).
 
 Declarative category cards (doc2 II.2) and pure formation gates (doc1 §7,
-doc4 §1). Testable without Neo4j, LLM, or network. No pipeline stage imports
-this module yet — extraction, classification, dreaming, PROMOTE, and Neo4j
-hook in later phases.
+doc4 §1). Testable without Neo4j, LLM, or network. ``GENRE_NOT_TOPIC_PROMPT``
+is injected into entity/pair extraction prompts from Fase 3; classification,
+dreaming, and PROMOTE hook in later phases.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from app.models.kernel import AttributeKernelType, EntityKernelType, RelationKer
 
 # ---------------------------------------------------------------------------
 # Shared prompt block (doc2 II.6) — single source of truth.
-# Do not import into node_extraction_prompts.py until Fase 3.
+# Injected into entity/pair extraction prompts (Fase 3).
 # ---------------------------------------------------------------------------
 
 GENRE_NOT_TOPIC_PROMPT = (

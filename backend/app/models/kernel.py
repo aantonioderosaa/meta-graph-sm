@@ -1,7 +1,8 @@
 """Closed Metagraph kernel vocabulary (three axes + Famiglia B + backbone).
 
-This module *declares* the closed vocabulary only. No pipeline stage (extraction,
-dreaming, Neo4j writes, prompts) imports or applies these types yet.
+This module *declares* the closed vocabulary. Ingestion (Fase 3) uses
+``EntityKernelType`` / ``RelationKernelType`` for constrained decoding; later
+phases consume the same types for backbone, dreaming, and Neo4j writes.
 
 Source of truth:
 - form/function: ``1.metagraph-formalizzazione-rev.md`` §3

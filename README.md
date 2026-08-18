@@ -5,8 +5,9 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 ## Documentazione
 
 - Kernel a tre assi (vocabolario chiuso in `backend/app/models/kernel.py`; nessun cambiamento di pipeline in Fase 0)
-- Book del dominio / gate genere-vs-filtro e MDL (`backend/app/pipeline/domain_book.py`; ancora inutilizzati dalla pipeline)
+- Book del dominio / gate genere-vs-filtro e MDL (`backend/app/pipeline/domain_book.py`; `GENRE_NOT_TOPIC_PROMPT` iniettato in estrazione da Fase 3)
 - Schema Neo4j esteso additivamente (Fase 2: TBox su `:Concept`, `:IdentityNode`, `:ConnectivityRule`, `:CorpusContext`; tipi Famiglia B / backbone). `AUTO_MIGRATE=true` applica tutti gli statement `IF NOT EXISTS` all'avvio; nessun indice/constraint esistente è rimosso.
+- Ingestione anti-blur (Fase 3): `:CorpusContext` O(1) per documento, estrazione a due passaggi (entità+summary, poi decisione per coppia), testimoni obbligatori, `kernel_parent` R1–R6, nessun arco per sola co-presenza. `pipeline_complete` resta l'evento SSE finale.
 - [Scope e semantica](./milestone1/milestone1.md)
 - [Specifica tecnica](./milestone1/milestone1-tech-spec.md)
 - [Piano implementativo (epic/task)](./milestone1/milestone1-implementation-plan.md)

@@ -42,8 +42,8 @@ def stub_node_extraction_unless_enabled(monkeypatch, request):
     if request.node.get_closest_marker("enable_node_extraction"):
         return
 
-    async def _noop(session, chunk, doc_id, job_id) -> int:
-        _ = session, chunk, doc_id, job_id
+    async def _noop(session, chunk, doc_id, job_id, corpus_summary: str = "") -> int:
+        _ = session, chunk, doc_id, job_id, corpus_summary
         return 0
 
     monkeypatch.setattr(

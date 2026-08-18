@@ -10,12 +10,13 @@ import pytest
 
 from app.models.node_extraction import (
     ConceptResult,
-    EntityRelationExtractionResult,
+    EntityExtractionResult,
     EventEntityExtractionResult,
     EventEntityParticipation,
     EventRelationClassification,
     EventRelationExtractionResult,
     EventRelationLabel,
+    PairRelationDecision,
 )
 from app.pipeline.chunking import Chunk
 from app.pipeline.dreaming import FIND_FRESH_ENTITIES_CYPHER, _resolve_fresh_entities
@@ -99,9 +100,14 @@ async def _boom_llm(*_args, **_kwargs):
 
 
 def _patch_scenario1_extractors(monkeypatch) -> None:
-    async def mock_entity(chunk_text: str, job_id: str | None = None):
-        _ = chunk_text, job_id
-        return EntityRelationExtractionResult(triples=[])
+    async def mock_entities(
+        chunk_text: str, job_id: str | None = None, corpus_summary: str = ""
+    ):
+        _ = chunk_text, job_id, corpus_summary
+        return EntityExtractionResult(entities=[])
+
+    async def mock_pair(*_args, **_kwargs):
+        return PairRelationDecision(related=False)
 
     async def mock_event_entity(chunk_text: str, job_id: str | None = None):
         _ = chunk_text, job_id
@@ -121,7 +127,8 @@ def _patch_scenario1_extractors(monkeypatch) -> None:
     async def mock_concepts(*_args, **_kwargs):
         return ConceptResult(concepts=[])
 
-    monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_relations", mock_entity)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_entities", mock_event_entity)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_relations", mock_event_rel)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_concepts", mock_concepts)

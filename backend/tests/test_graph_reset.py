@@ -11,15 +11,17 @@ from httpx import ASGITransport, AsyncClient
 from app.core import event_bus, neo4j_client
 from app.db.schema import apply_schema_with_driver
 from app.main import app
+from app.models.kernel import EntityKernelType, RelationKernelType
 from app.models.node_extraction import (
     ConceptResult,
-    EntityRelationExtractionResult,
-    EntityRelationTriple,
+    EntityExtractionResult,
     EventEntityExtractionResult,
     EventRelationClassification,
     EventRelationExtractionResult,
     EventRelationLabel,
+    ExtractedEntity,
     NodeDedupResult,
+    PairRelationDecision,
 )
 from app.models.relations import RelationClassification, RelationLabel
 from app.pipeline.node_query_engine import NodeQueryAnswer
@@ -178,12 +180,32 @@ def _patch_node_llm(monkeypatch) -> None:
         lambda texts: [_unit_vector(0) for _ in texts],
     )
 
-    async def mock_entity(chunk_text: str, job_id: str | None = None):
-        _ = chunk_text, job_id
-        return EntityRelationExtractionResult(
-            triples=[
-                EntityRelationTriple(head="Wind", relation="argues_with", tail="Sun"),
+    async def mock_entities(
+        chunk_text: str, job_id: str | None = None, corpus_summary: str = ""
+    ):
+        _ = chunk_text, job_id, corpus_summary
+        return EntityExtractionResult(
+            entities=[
+                ExtractedEntity(
+                    name="Wind",
+                    summary="The wind, arguing about strength.",
+                    kernel_category=EntityKernelType.Agente,
+                ),
+                ExtractedEntity(
+                    name="Sun",
+                    summary="The sun, arguing about strength.",
+                    kernel_category=EntityKernelType.Agente,
+                ),
             ]
+        )
+
+    async def mock_pair(*_args, **_kwargs):
+        return PairRelationDecision(
+            related=True,
+            relation="argues_with",
+            kernel_parent=RelationKernelType.SocialeIntenzionale,
+            witness_source="Wind",
+            witness_target="Sun",
         )
 
     async def empty_event_entity(chunk_text: str, job_id: str | None = None):
@@ -196,6 +218,10 @@ def _patch_node_llm(monkeypatch) -> None:
 
     async def empty_concepts(*_args, **_kwargs):
         return ConceptResult(concepts=[])
+
+    async def mock_corpus(session, document_text, job_id) -> str:
+        _ = session, document_text, job_id
+        return "A fable about the wind and the sun."
 
     async def fake_call_structured(system, user, model, temperature=0, job_id=None):
         _ = system, user, temperature, job_id
@@ -210,7 +236,9 @@ def _patch_node_llm(monkeypatch) -> None:
     async def fake_classify_relation(*_args, **_kwargs):
         return RelationClassification(relation=RelationLabel.none)
 
-    monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_relations", mock_entity)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
+    monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
+    monkeypatch.setattr("app.pipeline.ingestion.update_corpus_context", mock_corpus)
     monkeypatch.setattr(
         "app.pipeline.node_extraction.extract_event_entities", empty_event_entity
     )
