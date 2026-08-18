@@ -447,7 +447,7 @@ async def test_scenario8_projection_refresh_once_per_dreaming_not_per_query(monk
 
     refresh_calls: list[str] = []
 
-    async def fake_nodes(driver, job_id: str) -> set[str]:
+    async def fake_nodes(driver, job_id: str, **_kwargs) -> set[str]:
         _ = driver, job_id
         return set()
 
@@ -457,6 +457,12 @@ async def test_scenario8_projection_refresh_once_per_dreaming_not_per_query(monk
 
     async def fake_refresh(_session) -> None:
         refresh_calls.append("refresh")
+
+    async def fake_judge(_session, job_id: str, **_kwargs):
+        from app.pipeline.judge import JudgeStats
+
+        _ = job_id
+        return JudgeStats()
 
     async def spy_publish(*_args, **_kwargs) -> None:
         return None
@@ -471,6 +477,7 @@ async def test_scenario8_projection_refresh_once_per_dreaming_not_per_query(monk
         "app.pipeline.dreaming.node_ppr_projection.refresh_ppr_projection",
         fake_refresh,
     )
+    monkeypatch.setattr("app.pipeline.dreaming.run_judge", fake_judge)
     monkeypatch.setattr("app.pipeline.dreaming.event_bus.publish", spy_publish)
     monkeypatch.setattr("app.pipeline.dreaming.get_token_usage", lambda _job: 0)
 

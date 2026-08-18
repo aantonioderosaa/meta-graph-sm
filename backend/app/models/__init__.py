@@ -11,11 +11,13 @@ from app.models.kernel import (
 )
 from app.models.query import (
     ConceptUsed,
+    DerivationStep,
     NodeQueryResponse,
     NodeSubgraph,
     NodeSubgraphNode,
     NodeSubgraphRelationship,
     NodeUsed,
+    QueryCitation,
 )
 from app.models.relations import RelationClassification, RelationLabel
 
@@ -25,12 +27,14 @@ __all__ = [
     "MEMBER_OF",
     "AttributeKernelType",
     "ConceptUsed",
+    "DerivationStep",
     "EntityKernelType",
     "NodeQueryResponse",
     "NodeSubgraph",
     "NodeSubgraphNode",
     "NodeSubgraphRelationship",
     "NodeUsed",
+    "QueryCitation",
     "RelationClassification",
     "RelationKernelType",
     "RelationLabel",

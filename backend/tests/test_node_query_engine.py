@@ -414,3 +414,99 @@ def test_prompt_forbids_ids_and_keeps_relations():
     assert "cited_node_ids" in system
     assert "lavora presso" in user
     assert "chi è Alice?" in user
+
+
+def test_prompt_tags_derived_links_as_ipotesi_s2():
+    from app.models.query import DerivationStep
+    from app.pipeline.node_query_engine import DerivedLink
+
+    system, user = nqe.build_node_query_answer_prompt(
+        "Alice è allenata da X?",
+        ['[alice] Alice (entity) — relazioni: "teammate" → Mid'],
+        derived_links=[
+            DerivedLink(
+                source_id="alice",
+                target_id="x",
+                relation_type="coached_by",
+                confidence=1.0,
+                derivation_chain=[
+                    DerivationStep(kind="s0", detail="alice-[teammate]->mid"),
+                    DerivationStep(kind="s1", detail="giocatore -coached_by-> coach"),
+                ],
+            )
+        ],
+    )
+    assert "Ipotesi S2" in user
+    assert "coached_by" in user
+    assert "derivate" in system.lower() or "Ipotesi S2" in system
+
+
+@pytest.mark.asyncio
+async def test_planner_issues_connectivity_rule_before_vector_search():
+    session = _alice_bob_session()
+    await run_node_query(session, "quale Persona collabora con quale Organizzazione?")
+    rule_idx = next(
+        i for i, (cy, _kw) in enumerate(session.calls) if "r.source_category IN $cats" in cy
+    )
+    vector_idx = next(
+        i for i, (cy, _kw) in enumerate(session.calls) if "node_embedding" in cy
+    )
+    assert rule_idx < vector_idx
+    rule_kwargs = next(
+        kw for cy, kw in session.calls if "r.source_category IN $cats" in cy
+    )
+    assert "Agente" in rule_kwargs["cats"]
+    assert "CostruttoSociale" in rule_kwargs["cats"]
+
+
+@pytest.mark.asyncio
+async def test_generic_question_does_not_query_connectivity_rules():
+    session = _alice_bob_session()
+    response = await run_node_query(session, "chi è Alice?")
+    assert response.nodes_used
+    assert not any("r.source_category IN $cats" in cy for cy, _kw in session.calls)
+    assert all(c.epistemic_status == "asserted" for c in response.citations)
+
+
+@pytest.mark.asyncio
+async def test_relation_name_channel_seeds_endpoints(monkeypatch):
+    monkeypatch.setattr(nqe, "ENABLE_NODE_VECTOR", False)
+    monkeypatch.setattr(nqe, "ENABLE_CONCEPT_VECTOR", False)
+    monkeypatch.setattr(nqe, "ENABLE_RELATION_VECTOR", False)
+    monkeypatch.setattr(nqe, "ENABLE_NODE_CONCEPT_FULLTEXT", False)
+    monkeypatch.setattr(nqe, "ENABLE_RELATION_FULLTEXT", False)
+    session = DispatchSession()
+    session.on(
+        "r.normalized_relation IN $names",
+        [{"start_id": "mario", "end_id": "acme", "score": 1.0}],
+    )
+    seeds = await hybrid_seed(session, text="chi ha fondato", embedding=[0.2] * 768)
+    assert "mario" in seeds
+    assert "acme" in seeds
+    assert any("normalized_relation" in cy for cy, _kw in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_concept_embedding_hit_seeds_member_of_neighbors(monkeypatch):
+    monkeypatch.setattr(nqe, "ENABLE_NODE_VECTOR", False)
+    monkeypatch.setattr(nqe, "ENABLE_RELATION_VECTOR", False)
+    monkeypatch.setattr(nqe, "ENABLE_NODE_CONCEPT_FULLTEXT", False)
+    monkeypatch.setattr(nqe, "ENABLE_RELATION_FULLTEXT", False)
+    session = DispatchSession()
+    session.on("concept_embedding", [{"id": "tech", "score": 0.93}])
+    session.on("c.id IN $concept_ids", [{"id": "alice"}])
+    seeds = await hybrid_seed(
+        session, text="parlami di technology", embedding=[0.2] * 768
+    )
+    assert "tech" in seeds
+    assert "alice" in seeds
+
+
+def test_relation_name_and_concept_member_cypher_use_existing_indexes():
+    assert "relation_embedding" in nqe.RELATION_VECTOR_CYPHER
+    assert "relation_fulltext" in nqe.RELATION_FULLTEXT_CYPHER
+    assert "normalized_relation" in nqe.RELATION_NAME_CYPHER
+    assert "concept_embedding" in nqe.CONCEPT_VECTOR_CYPHER
+    assert "MEMBER_OF" in nqe.CONCEPT_MEMBERS_CYPHER
+    assert "CREATE VECTOR INDEX" not in ENGINE_SOURCE
+    assert "CREATE FULLTEXT INDEX" not in ENGINE_SOURCE

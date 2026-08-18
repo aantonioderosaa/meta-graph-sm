@@ -100,12 +100,24 @@ export interface NodeSubgraph {
   relationships: NodeSubgraphRelationship[];
 }
 
+export interface DerivationStep {
+  kind: "s0" | "s1";
+  detail: string;
+}
+
+export interface QueryCitation {
+  id: string;
+  epistemic_status: "asserted" | "derived";
+  derivation_chain?: DerivationStep[] | null;
+}
+
 export interface NodeQueryResponse {
   answer: string;
   nodes_used: NodeUsed[];
   concepts_used: ConceptUsed[];
   cited_node_ids: string[];
   subgraph: NodeSubgraph;
+  citations?: QueryCitation[];
 }
 
 export interface ReconcileResponse {

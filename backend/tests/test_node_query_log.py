@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.models.query import NodeQueryResponse
@@ -194,6 +196,7 @@ async def test_get_node_query_log_detail_rebuilds_response():
     assert detail.concepts_used[0].name == "Leadership"
     assert {n.id for n in detail.subgraph.nodes} == {"alice", "leadership"}
     assert detail.subgraph.relationships[0].type == "HAS_CONCEPT"
+    assert detail.citations == []
 
 
 @pytest.mark.asyncio
@@ -253,3 +256,50 @@ async def test_failed_log_write_does_not_fail_run_node_query(monkeypatch):
     assert isinstance(response, NodeQueryResponse)
     assert response.nodes_used
     assert {n.id for n in response.nodes_used} >= {"alice"}
+
+
+@pytest.mark.asyncio
+async def test_get_detail_reconstructs_persisted_citations():
+    from app.models.query import DerivationStep, QueryCitation
+
+    citations = [
+        QueryCitation(id="alice", epistemic_status="asserted"),
+        QueryCitation(
+            id="alice|coached_by|x",
+            epistemic_status="derived",
+            derivation_chain=[
+                DerivationStep(kind="s0", detail="alice-[teammate]->mid"),
+                DerivationStep(kind="s1", detail="giocatore -coached_by-> coach"),
+            ],
+        ),
+    ]
+    session = DispatchSession()
+    session.on(
+        "OPTIONAL MATCH (q)-[:USED]->(n:Node)",
+        [
+            {
+                "q": {
+                    "answer": "ipotesi.",
+                    "cited_node_ids": ["alice"],
+                    "citations_json": json.dumps(
+                        [c.model_dump() for c in citations], ensure_ascii=False
+                    ),
+                },
+                "node_ids": ["alice"],
+                "concept_ids": [],
+            }
+        ],
+    )
+    session.on(
+        "labels(n) AS labels",
+        [{"id": "alice", "name": "Alice", "type": "entity", "labels": ["Node"]}],
+    )
+    session.on("Relation|HAS_CONCEPT", [])
+
+    detail = await get_node_query_log_detail(session, "nql-cite")
+    assert detail is not None
+    assert len(detail.citations) == 2
+    assert detail.citations[0].epistemic_status == "asserted"
+    assert detail.citations[1].epistemic_status == "derived"
+    assert detail.citations[1].derivation_chain
+    assert detail.citations[1].derivation_chain[0].kind == "s0"

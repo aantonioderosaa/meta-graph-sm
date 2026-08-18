@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from neo4j import AsyncSession
@@ -14,6 +15,7 @@ from app.models.query import (
     NodeSubgraphNode,
     NodeSubgraphRelationship,
     NodeUsed,
+    QueryCitation,
 )
 from app.pipeline.node_query_engine import SUBGRAPH_RELS_CYPHER
 
@@ -23,6 +25,7 @@ CREATE (q:NodeQueryLog {
   text: $text,
   answer: $answer,
   cited_node_ids: $cited,
+  citations_json: $citations_json,
   created_at: datetime()
 })
 """
@@ -80,6 +83,20 @@ def _is_concept(labels: list[str] | None) -> bool:
     return bool(labels) and "Concept" in labels
 
 
+def _citations_from_log(q: Any) -> list[QueryCitation]:
+    """Old logs without citations_json reconstruct as []."""
+    raw = q.get("citations_json") if hasattr(q, "get") else None
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(payload, list):
+            return []
+        return [QueryCitation.model_validate(item) for item in payload]
+    except Exception:
+        return []
+
+
 async def write_node_query_log(
     session: AsyncSession,
     *,
@@ -89,14 +106,17 @@ async def write_node_query_log(
     cited_node_ids: list[str],
     node_ids: list[str],
     concept_ids: list[str],
+    citations: list[QueryCitation] | None = None,
 ) -> None:
     """Persist an immutable NodeQueryLog snapshot linked via USED."""
+    payload = [c.model_dump() for c in (citations or [])]
     await session.run(
         WRITE_LOG_CYPHER,
         id=query_id,
         text=text,
         answer=answer,
         cited=cited_node_ids,
+        citations_json=json.dumps(payload, ensure_ascii=False),
     )
     if node_ids:
         await session.run(
@@ -227,4 +247,5 @@ async def get_node_query_log_detail(
         concepts_used=concepts_used,
         cited_node_ids=cited,
         subgraph=NodeSubgraph(nodes=subgraph_nodes, relationships=rels),
+        citations=_citations_from_log(q),
     )

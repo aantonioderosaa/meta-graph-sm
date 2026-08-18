@@ -12,7 +12,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 from neo4j import AsyncSession
 from neo4j.exceptions import ClientError
@@ -20,14 +20,16 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.llm_client import call_structured
-from app.models.kernel import IS_A, MEMBER_OF
+from app.models.kernel import IS_A, MEMBER_OF, EntityKernelType
 from app.models.query import (
     ConceptUsed,
+    DerivationStep,
     NodeQueryResponse,
     NodeSubgraph,
     NodeSubgraphNode,
     NodeSubgraphRelationship,
     NodeUsed,
+    QueryCitation,
 )
 from app.pipeline import embeddings
 from app.pipeline.connectivity_rules import kernel_catch_all_ids
@@ -65,10 +67,48 @@ NODE_ANSWER_SYSTEM_PROMPT = (
     "relazioni e concetti forniti. Non scrivere mai ID o UUID dentro il testo di "
     "`answer` — scrivi prosa naturale. Elenca in `cited_node_ids` gli ID (tra "
     "quelli forniti sotto) dei nodi usati per costruire la risposta. Se le "
-    "informazioni non bastano, dillo esplicitamente senza inventare."
+    "informazioni non bastano, dillo esplicitamente senza inventare. "
+    "Le sezioni etichettate 'Ipotesi S2' sono salti derivati, non fatti asseriti: "
+    "non presentarle come certe."
 )
 
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
+_CAMEL_RE = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)")
+
+# Surface forms → EntityKernelType.value. Token/substring match, no LLM required.
+_KERNEL_SYNONYMS: dict[str, str] = {
+    "agente": EntityKernelType.Agente.value,
+    "agent": EntityKernelType.Agente.value,
+    "persona": EntityKernelType.Agente.value,
+    "persone": EntityKernelType.Agente.value,
+    "person": EntityKernelType.Agente.value,
+    "people": EntityKernelType.Agente.value,
+    "organizzazione": EntityKernelType.CostruttoSociale.value,
+    "organizzazioni": EntityKernelType.CostruttoSociale.value,
+    "organization": EntityKernelType.CostruttoSociale.value,
+    "company": EntityKernelType.CostruttoSociale.value,
+    "azienda": EntityKernelType.CostruttoSociale.value,
+    "luogo": EntityKernelType.Luogo.value,
+    "luoghi": EntityKernelType.Luogo.value,
+    "place": EntityKernelType.Luogo.value,
+    "location": EntityKernelType.Luogo.value,
+    "citta": EntityKernelType.Luogo.value,
+    "città": EntityKernelType.Luogo.value,
+    "city": EntityKernelType.Luogo.value,
+    "evento": EntityKernelType.Evento.value,
+    "eventi": EntityKernelType.Evento.value,
+    "event": EntityKernelType.Evento.value,
+    "riunione": EntityKernelType.Evento.value,
+    "meeting": EntityKernelType.Evento.value,
+    "oggetto": EntityKernelType.OggettoFisico.value,
+    "oggetti": EntityKernelType.OggettoFisico.value,
+    "object": EntityKernelType.OggettoFisico.value,
+    "documento": EntityKernelType.EntitaInformativa.value,
+    "document": EntityKernelType.EntitaInformativa.value,
+    "informazione": EntityKernelType.EntitaInformativa.value,
+}
+
+_KERNEL_VALUES = {member.value for member in EntityKernelType}
 
 _reranker = None
 
@@ -116,6 +156,49 @@ WHERE (a:Concept OR (a:Node AND a.merged_into IS NULL))
 RETURN a.id AS start_id, b.id AS end_id, score
 ORDER BY score DESC
 LIMIT $k
+"""
+
+# Cheap name match: relation_fulltext indexes r.relation only; this also hits
+# r.normalized_relation (btree relation_normalized). No new vector/fulltext index.
+RELATION_NAME_CYPHER = """
+MATCH (a)-[r:Relation]->(b)
+WHERE (r.normalized_relation IN $names OR toLower(coalesce(r.relation, '')) IN $names)
+  AND (a:Concept OR (a:Node AND a.merged_into IS NULL))
+  AND (b:Concept OR (b:Node AND b.merged_into IS NULL))
+RETURN a.id AS start_id, b.id AS end_id, 1.0 AS score
+LIMIT $k
+"""
+
+CONCEPT_MEMBERS_CYPHER = """
+MATCH (n:Node)-[:MEMBER_OF]->(c:Concept)
+WHERE c.id IN $concept_ids AND n.merged_into IS NULL
+RETURN n.id AS id
+LIMIT $k
+"""
+
+PLAN_CONNECTIVITY_RULES_CYPHER = """
+MATCH (r:ConnectivityRule)
+WHERE r.source_category IN $cats OR r.target_category IN $cats
+   OR toLower(r.source_category) IN $catsLower
+   OR toLower(r.target_category) IN $catsLower
+RETURN r.source_category AS source_category,
+       r.relation_type AS relation_type,
+       r.target_category AS target_category
+"""
+
+SCOPE_FILTER_CYPHER = """
+MATCH (n)
+WHERE n.id IN $ids
+  AND (
+    n.kernel_category IN $scopeCats
+    OR n.id IN $scopeConceptIds
+    OR EXISTS {
+      MATCH (n)-[:MEMBER_OF]->(c:Concept)
+      WHERE c.id IN $scopeConceptIds OR c.kernel_category IN $scopeCats
+    }
+  )
+  AND ((n:Node AND n.merged_into IS NULL) OR n:Concept)
+RETURN n.id AS id
 """
 
 PPR_STREAM_CYPHER = """
@@ -166,7 +249,7 @@ RETURN n.id AS id,
 """
 
 SUBGRAPH_RELS_CYPHER = """
-MATCH (a)-[r:Relation|HAS_CONCEPT]->(b)
+MATCH (a)-[r:Relation|HAS_CONCEPT|MEMBER_OF]->(b)
 WHERE a.id IN $ids AND b.id IN $ids
   AND ((a:Node AND a.merged_into IS NULL) OR a:Concept)
   AND ((b:Node AND b.merged_into IS NULL) OR b:Concept)
@@ -174,6 +257,7 @@ RETURN a.id AS source,
        b.id AS target,
        CASE type(r)
          WHEN 'HAS_CONCEPT' THEN 'HAS_CONCEPT'
+         WHEN 'MEMBER_OF' THEN 'MEMBER_OF'
          ELSE coalesce(r.normalized_relation, r.relation, type(r))
        END AS rel_type
 """
@@ -218,6 +302,120 @@ def _lucene_query(text: str) -> str | None:
     if not tokens:
         return None
     return " OR ".join(tokens)
+
+
+def _relation_name_needles(text: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for tok in _WORD_RE.findall(text):
+        if len(tok) < 3:
+            continue
+        for variant in (tok, tok.lower()):
+            if variant not in seen:
+                seen.add(variant)
+                names.append(variant)
+    return names
+
+
+def _camel_to_words(value: str) -> str:
+    parts = _CAMEL_RE.findall(value)
+    return " ".join(parts).casefold() if parts else value.casefold()
+
+
+def _contains_word(haystack: str, needle: str) -> bool:
+    if not needle:
+        return False
+    if " " in needle:
+        return needle in haystack
+    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack, re.UNICODE) is not None
+
+
+def infer_kernel_categories(text: str) -> list[str]:
+    """Token/substring match against EntityKernelType plus cheap synonyms."""
+    lowered = text.casefold()
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def _add(category: str) -> None:
+        if category and category not in seen:
+            seen.add(category)
+            found.append(category)
+
+    for member in EntityKernelType:
+        value = member.value
+        if _contains_word(lowered, value.casefold()) or _contains_word(
+            lowered, _camel_to_words(value)
+        ):
+            _add(value)
+    for syn, category in _KERNEL_SYNONYMS.items():
+        if _contains_word(lowered, syn):
+            _add(category)
+    return found
+
+
+def infer_scope_tokens(text: str) -> list[str]:
+    """Kernel values plus matched surface forms (for ConnectivityRule lookup)."""
+    tokens: list[str] = []
+    seen: set[str] = set()
+
+    def _add(token: str) -> None:
+        if token and token not in seen:
+            seen.add(token)
+            tokens.append(token)
+
+    for category in infer_kernel_categories(text):
+        _add(category)
+    lowered = text.casefold()
+    for syn in _KERNEL_SYNONYMS:
+        if _contains_word(lowered, syn):
+            _add(syn)
+            _add(syn.capitalize())
+    return tokens
+
+
+@dataclass(frozen=True)
+class ConnectivityScope:
+    kernel_categories: tuple[str, ...] = ()
+    concept_ids: tuple[str, ...] = ()
+
+    @property
+    def restricted(self) -> bool:
+        return bool(self.kernel_categories or self.concept_ids)
+
+
+async def plan_connectivity_scope(
+    session: AsyncSession, text: str
+) -> ConnectivityScope:
+    """Coarse planner: kernel types in the question → ConnectivityRule → search scope.
+
+    Runs before hybrid_seed. Empty inference means no restriction (full hybrid).
+    """
+    cats = infer_scope_tokens(text)
+    if not cats:
+        return ConnectivityScope()
+    cats_lower = [c.casefold() for c in cats]
+    rows = await _run_cypher(
+        session,
+        PLAN_CONNECTIVITY_RULES_CYPHER,
+        cats=cats,
+        catsLower=cats_lower,
+    )
+    kernel_cats = set(infer_kernel_categories(text))
+    concept_ids: set[str] = set()
+    for row in rows:
+        for key in ("source_category", "target_category"):
+            raw = row[key] if hasattr(row, "__getitem__") else None
+            value = "" if raw is None else str(raw)
+            if not value:
+                continue
+            if value in _KERNEL_VALUES:
+                kernel_cats.add(value)
+            else:
+                concept_ids.add(value)
+    return ConnectivityScope(
+        kernel_categories=tuple(sorted(kernel_cats)),
+        concept_ids=tuple(sorted(concept_ids)),
+    )
 
 
 def _is_concept(labels: list[str] | None) -> bool:
@@ -330,7 +528,11 @@ def _clean_named(items: list[Any] | None) -> list[tuple[str, str]]:
     return cleaned
 
 
-def build_node_query_answer_prompt(question: str, descriptions: list[str]) -> tuple[str, str]:
+def build_node_query_answer_prompt(
+    question: str,
+    descriptions: list[str],
+    derived_links: list[DerivedLink] | None = None,
+) -> tuple[str, str]:
     if not descriptions:
         body = "(nessuna entità, evento o concetto rilevante trovato)"
     else:
@@ -340,6 +542,16 @@ def build_node_query_answer_prompt(question: str, descriptions: list[str]) -> tu
         f"CONTESTO:\n{body}\n\n"
         "Rispondi basandoti solo sul contesto sopra. Le relazioni sono parte del contesto."
     )
+    if derived_links:
+        lines = [
+            f"- {link.source_id} -[{link.relation_type}]-> {link.target_id} "
+            f"(catena: {'; '.join(step.detail for step in link.derivation_chain)})"
+            for link in derived_links
+        ]
+        user += (
+            "\n\nIpotesi S2 (derivate, non fatti asseriti — non presentarle come certe):\n"
+            + "\n".join(lines)
+        )
     return NODE_ANSWER_SYSTEM_PROMPT, user
 
 
@@ -414,12 +626,15 @@ async def hybrid_seed(
     text: str,
     embedding: list[float],
     threshold: float | None = None,
+    scope_kernel_categories: list[str] | None = None,
+    scope_concept_ids: list[str] | None = None,
 ) -> list[str]:
     """Vector + fulltext over Node/Concept/Relation, fused with RRF, capped."""
     if threshold is None:
         threshold = SIMILARITY_THRESHOLD
     driver = _driver_or_none()
     lucene = _lucene_query(text)
+    name_needles = _relation_name_needles(text)
 
     async def node_vec() -> list[Any]:
         if not ENABLE_NODE_VECTOR:
@@ -482,12 +697,24 @@ async def hybrid_seed(
             k=FULLTEXT_K,
         )
 
+    async def relation_name() -> list[Any]:
+        if not name_needles:
+            return []
+        return await _run_search(
+            session,
+            driver,
+            RELATION_NAME_CYPHER,
+            names=name_needles,
+            k=FULLTEXT_K,
+        )
+
     gathered = await asyncio.gather(
         node_vec(),
         concept_vec(),
         relation_vec(),
         node_ft(),
         relation_ft(),
+        relation_name(),
         return_exceptions=True,
     )
     cleaned: list[list[Any]] = []
@@ -497,7 +724,7 @@ async def hybrid_seed(
             cleaned.append([])
         else:
             cleaned.append(item)
-    node_rows, concept_rows, rel_rows, ft_node_rows, ft_rel_rows = cleaned
+    node_rows, concept_rows, rel_rows, ft_node_rows, ft_rel_rows, name_rel_rows = cleaned
 
     id_lists: list[list[str]] = [
         _ids_from_hits(node_rows),
@@ -508,12 +735,75 @@ async def hybrid_seed(
     for extra in (
         _relation_rrf_scores(rel_rows),
         _relation_rrf_scores(ft_rel_rows),
+        _relation_rrf_scores(name_rel_rows),
     ):
         for item_id, value in extra.items():
             scores[item_id] = scores.get(item_id, 0.0) + value
 
     ranked = sorted(scores, key=lambda item_id: scores[item_id], reverse=True)
+    concept_hit_ids = _ids_from_hits(concept_rows)
+    ranked = await _expand_concept_members(session, driver, ranked, concept_hit_ids)
+    ranked = await _apply_connectivity_scope(
+        session,
+        driver,
+        ranked,
+        kernel_categories=scope_kernel_categories,
+        concept_ids=scope_concept_ids,
+    )
     return ranked[:SEED_CAP]
+
+
+async def _expand_concept_members(
+    session: AsyncSession,
+    driver,
+    ranked: list[str],
+    concept_hit_ids: list[str],
+) -> list[str]:
+    """MEMBER_OF neighbors of matched Concepts join the seed list (capped later)."""
+    if not concept_hit_ids:
+        return ranked
+    rows = await _run_search(
+        session,
+        driver,
+        CONCEPT_MEMBERS_CYPHER,
+        concept_ids=concept_hit_ids[:SEED_CAP],
+        k=SEED_CAP,
+    )
+    seen = set(ranked)
+    extra: list[str] = []
+    for row in rows:
+        item_id = row["id"] if hasattr(row, "__getitem__") else None
+        if item_id and item_id not in seen:
+            seen.add(item_id)
+            extra.append(item_id)
+    return ranked + extra
+
+
+async def _apply_connectivity_scope(
+    session: AsyncSession,
+    driver,
+    ranked: list[str],
+    *,
+    kernel_categories: list[str] | None,
+    concept_ids: list[str] | None,
+) -> list[str]:
+    """Restrict seeds to planner scope; empty filter falls back to unrestricted."""
+    cats = [c for c in (kernel_categories or []) if c]
+    concepts = [c for c in (concept_ids or []) if c]
+    if not ranked or (not cats and not concepts):
+        return ranked
+    rows = await _run_search(
+        session,
+        driver,
+        SCOPE_FILTER_CYPHER,
+        ids=ranked,
+        scopeCats=cats,
+        scopeConceptIds=concepts,
+    )
+    kept = {row["id"] for row in rows if row["id"]}
+    if not kept:
+        return ranked
+    return [item_id for item_id in ranked if item_id in kept]
 
 
 async def expand_ppr(session: AsyncSession, seed_ids: list[str]) -> list[Candidate]:
@@ -704,11 +994,75 @@ async def _persist_node_query_log(
             cited_node_ids=response.cited_node_ids,
             node_ids=[n.id for n in response.nodes_used],
             concept_ids=[c.id for c in response.concepts_used],
+            citations=list(response.citations),
         )
     except Exception:
         logger.warning(
             "Failed to persist NodeQueryLog for text=%r", text[:80], exc_info=True
         )
+
+
+def derived_link_key(link: DerivedLink) -> str:
+    return f"{link.source_id}|{link.relation_type}|{link.target_id}"
+
+
+def _incident_asserted(node_id: str, subgraph: NodeSubgraph) -> bool:
+    return any(
+        rel.source == node_id or rel.target == node_id for rel in subgraph.relationships
+    )
+
+
+def label_query_citations(
+    *,
+    cited_node_ids: list[str],
+    subgraph: NodeSubgraph,
+    derived_links: list[DerivedLink],
+    context_ids: list[str],
+) -> list[QueryCitation]:
+    """Python-side S0/S2 labels. LLM never assigns epistemic_status."""
+    citations: list[QueryCitation] = []
+    seen: set[str] = set()
+    relevant = set(cited_node_ids) | set(context_ids)
+
+    for nid in cited_node_ids:
+        if not nid or nid in seen:
+            continue
+        seen.add(nid)
+        matching = [
+            link
+            for link in derived_links
+            if nid in {link.source_id, link.target_id}
+            and (
+                (link.source_id if link.source_id != nid else link.target_id) in relevant
+            )
+        ]
+        if matching and not _incident_asserted(nid, subgraph):
+            link = matching[0]
+            citations.append(
+                QueryCitation(
+                    id=nid,
+                    epistemic_status="derived",
+                    derivation_chain=list(link.derivation_chain),
+                )
+            )
+        else:
+            citations.append(QueryCitation(id=nid, epistemic_status="asserted"))
+
+    for link in derived_links:
+        if link.source_id not in relevant or link.target_id not in relevant:
+            continue
+        key = derived_link_key(link)
+        if key in seen:
+            continue
+        seen.add(key)
+        citations.append(
+            QueryCitation(
+                id=key,
+                epistemic_status="derived",
+                derivation_chain=list(link.derivation_chain),
+            )
+        )
+    return citations
 
 
 async def run_node_query(
@@ -723,9 +1077,15 @@ async def run_node_query(
         await _persist_node_query_log(session, text=text, response=response)
         return response
 
+    scope = await plan_connectivity_scope(session, text)
     embedding = await asyncio.to_thread(embeddings.embed, text)
     seed_ids = await hybrid_seed(
-        session, text=text, embedding=embedding, threshold=SIMILARITY_THRESHOLD
+        session,
+        text=text,
+        embedding=embedding,
+        threshold=SIMILARITY_THRESHOLD,
+        scope_kernel_categories=list(scope.kernel_categories) or None,
+        scope_concept_ids=list(scope.concept_ids) or None,
     )
     if not seed_ids:
         response = _empty_response()
@@ -741,8 +1101,16 @@ async def run_node_query(
     nodes_used, concepts_used = _split_used(context)
     subgraph = await _load_subgraph(session, item_ids, by_id)
 
+    derived_links: list[DerivedLink] = []
+    try:
+        derived_links = await derive_candidate_links(session, seed_node_ids=item_ids)
+    except Exception:
+        logger.warning("S2 derive_candidate_links failed; continuing asserted-only", exc_info=True)
+
     descriptions = [c.description for c in context if c.description]
-    system, user = build_node_query_answer_prompt(text, descriptions)
+    system, user = build_node_query_answer_prompt(
+        text, descriptions, derived_links=derived_links
+    )
     cited: list[str] = []
     try:
         answer_model = await call_structured(
@@ -763,12 +1131,19 @@ async def run_node_query(
         else:
             answer = EMPTY_NODE_ANSWER
 
+    citations = label_query_citations(
+        cited_node_ids=cited,
+        subgraph=subgraph,
+        derived_links=derived_links,
+        context_ids=item_ids,
+    )
     response = NodeQueryResponse(
         answer=answer,
         nodes_used=nodes_used,
         concepts_used=concepts_used,
         cited_node_ids=cited,
         subgraph=subgraph,
+        citations=citations,
     )
     await _persist_node_query_log(session, text=text, response=response)
     return response
@@ -816,12 +1191,6 @@ LOAD_ISA_EDGES_CYPHER = f"""
 MATCH (child:Concept)-[:{_ISA_REL}]->(parent:Concept)
 RETURN child.id AS child_id, parent.id AS parent_id
 """
-
-
-@dataclass
-class DerivationStep:
-    kind: Literal["s0", "s1"]
-    detail: str
 
 
 @dataclass
