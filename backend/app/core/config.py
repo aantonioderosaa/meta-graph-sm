@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     ENABLE_TEMPORAL_TRANSITIONS: bool = True
     # Blocking cosine on summary embeddings (doc4 §2). Same kernel_category required.
     IDENTITY_BLOCK_THRESHOLD: float = 0.82
+    # Fase 10: post-batch judge (doc4 §5). Default on so every batch logs :JudgeRun.
+    ENABLE_JUDGE: bool = True
+    # ϕ_collapse for equivalent_to between promoted sibling Concepts (doc4 §5).
+    BACKBONE_COLLAPSE_THRESHOLD: float = 0.90
 
 
 settings = Settings()

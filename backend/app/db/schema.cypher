@@ -94,3 +94,8 @@ FOR (r:ConnectivityRule) REQUIRE (r.source_category, r.relation_type, r.target_c
 // Properties: summary_text, embedding, updated_at, document_count
 // No new vector index for this embedding in this phase.
 CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE c.id IS UNIQUE;
+
+// :JudgeRun (Fase 10) — structured log of each post-batch judge pass.
+// Properties: id, batch_id, timestamp, anti_blur, equivalent_to, reraffine,
+// identity, missed_contradictions, temporal. No uniqueness constraint required;
+// pipeline MERGEs on id = job_id.

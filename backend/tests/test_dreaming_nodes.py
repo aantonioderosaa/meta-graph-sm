@@ -116,7 +116,7 @@ async def test_phase1_runs_before_phase2_gather(monkeypatch):
         log.append("bb")
         return 0
 
-    async def promote(_session, job_id: str) -> int:
+    async def promote(_session, job_id: str, **_kwargs) -> int:
         assert job_id == JOB_ID
         assert "bb" in log
         assert "p2_rel" not in log
@@ -338,7 +338,7 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
     log: list[str] = []
     published: list[dict] = []
 
-    async def fake_nodes(driver, job_id: str) -> set[str]:
+    async def fake_nodes(driver, job_id: str, **_kwargs) -> set[str]:
         log.append("nodes")
         assert job_id == JOB_ID
         return set()
@@ -351,6 +351,13 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
     async def fake_refresh(_session) -> None:
         log.append("ppr")
 
+    async def fake_judge(_session, job_id: str, **_kwargs):
+        from app.pipeline.judge import JudgeStats
+
+        log.append("judge")
+        assert job_id == JOB_ID
+        return JudgeStats()
+
     async def spy_publish(job_id, stage, event, payload):
         published.append({"stage": stage, "event": event, "payload": payload})
 
@@ -360,6 +367,7 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
         fake_rel_reconcile,
     )
     monkeypatch.setattr("app.pipeline.dreaming._run_node_phases", fake_nodes)
+    monkeypatch.setattr("app.pipeline.dreaming.run_judge", fake_judge)
     monkeypatch.setattr(
         "app.pipeline.dreaming.node_ppr_projection.refresh_ppr_projection",
         fake_refresh,
@@ -369,7 +377,7 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
 
     stats = await run_dreaming_pipeline(JOB_ID)
 
-    assert log == ["nodes", "rel_reconcile", "ppr"]
+    assert log == ["nodes", "rel_reconcile", "judge", "ppr"]
     complete = [m for m in published if m["event"] == "pipeline_complete"]
     assert len(complete) == 1
     assert complete[0]["stage"] == "done"
@@ -377,6 +385,9 @@ async def test_run_dreaming_pipeline_calls_node_helpers_and_completes(monkeypatc
     assert payload_stats["node_drift_count"] == 0
     assert "facts_processed" not in payload_stats
     assert "groups" not in payload_stats
+    judge_done = [m for m in published if m["event"] == "judge_complete"]
+    assert len(judge_done) == 1
+    assert judge_done[0]["stage"] == "judge"
     drift = [m for m in published if m["event"] == "drift_check"]
     assert len(drift) == 1
     assert drift[0]["stage"] == "reconciliation"
@@ -407,6 +418,7 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
             FakeSession(),  # promote_clusters
             FakeSession(),  # relations
             event_session,  # events
+            FakeSession(),  # judge
             FakeSession(),  # ppr projection refresh
         ]
     )

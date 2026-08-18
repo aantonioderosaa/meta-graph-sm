@@ -19,6 +19,7 @@ from app.pipeline import (
     reconcile,
 )
 from app.pipeline.backbone import classify_and_grow_backbone
+from app.pipeline.judge import run_judge
 from app.pipeline.promote import promote_clusters
 
 logger = logging.getLogger(__name__)
@@ -212,7 +213,12 @@ async def _resolve_and_classify_events(session: AsyncSession, job_id: str) -> se
     return touched
 
 
-async def _run_node_phases(driver, job_id: str) -> set[str]:
+async def _run_node_phases(
+    driver,
+    job_id: str,
+    *,
+    promoted_parent_ids: list[str] | None = None,
+) -> set[str]:
     """Entity resolution, backbone, PROMOTE, then relation + event in parallel."""
     async with driver.session() as entity_session:
         node_touched = await _resolve_fresh_entities(entity_session, job_id)
@@ -235,7 +241,9 @@ async def _run_node_phases(driver, job_id: str) -> set[str]:
 
     async with driver.session() as promote_session:
         try:
-            await promote_clusters(promote_session, job_id)
+            await promote_clusters(
+                promote_session, job_id, parent_ids_out=promoted_parent_ids
+            )
         except Exception as exc:
             logger.exception("promote_clusters_stage_failed")
             await event_bus.publish(
@@ -264,9 +272,39 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
     stats = DreamingStats()
     driver = get_driver()
 
-    node_touched = await _run_node_phases(driver, job_id)
+    promoted_parent_ids: list[str] = []
+    node_touched = await _run_node_phases(
+        driver, job_id, promoted_parent_ids=promoted_parent_ids
+    )
     node_drift = await reconcile.reconcile_scoped_relations(list(node_touched))
     stats.node_drift_count = node_drift
+
+    try:
+        async with driver.session() as judge_session:
+            judge_stats = await run_judge(
+                judge_session, job_id, promoted_parent_ids=promoted_parent_ids
+            )
+        await event_bus.publish(
+            job_id,
+            "judge",
+            "judge_complete",
+            {"stats": {
+                "anti_blur": judge_stats.anti_blur,
+                "equivalent_to": judge_stats.equivalent_to,
+                "reraffine": judge_stats.reraffine,
+                "identity": judge_stats.identity,
+                "missed_contradictions": judge_stats.missed_contradictions,
+                "temporal": judge_stats.temporal,
+            }},
+        )
+    except Exception as exc:
+        logger.exception("judge_stage_failed")
+        await event_bus.publish(
+            job_id,
+            "judge",
+            "llm_call_failed",
+            {"stage": "judge", "item_id": job_id, "error": str(exc)},
+        )
 
     async with driver.session() as session:
         await node_ppr_projection.refresh_ppr_projection(session)

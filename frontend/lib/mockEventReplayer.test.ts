@@ -31,6 +31,7 @@ describe("mockEventReplayer", () => {
         "entity_relation_classification",
         "event_resolution_and_classification",
         "reconciliation",
+        "judge",
         "done",
       ]),
     );

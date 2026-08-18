@@ -63,6 +63,22 @@ export const MOCK_PIPELINE_EVENTS: PipelineEvent[] = [
     payload: { drift_count: 0 },
   },
   {
+    ts: "2026-01-01T12:00:03.900Z",
+    job_id: "mock-job-1",
+    stage: "judge",
+    event: "judge_complete",
+    payload: {
+      stats: {
+        anti_blur: 0,
+        equivalent_to: 0,
+        reraffine: 0,
+        identity: 0,
+        missed_contradictions: 0,
+        temporal: 0,
+      },
+    },
+  },
+  {
     ts: "2026-01-01T12:00:04.000Z",
     job_id: "mock-job-1",
     stage: "done",

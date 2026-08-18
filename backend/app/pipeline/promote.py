@@ -489,8 +489,17 @@ async def promote(
     return await _execute_write(session, work)
 
 
-async def promote_clusters(session: AsyncSession, job_id: str) -> int:
-    """Dreaming stage: promote Node clusters under kernel / first-level catch-alls."""
+async def promote_clusters(
+    session: AsyncSession,
+    job_id: str,
+    *,
+    parent_ids_out: list[str] | None = None,
+) -> int:
+    """Dreaming stage: promote Node clusters under kernel / first-level catch-alls.
+
+    When ``parent_ids_out`` is provided, append each parent that produced an S
+    (for the judge's historical re-refine pass, F10.4).
+    """
     if not settings.ENABLE_PROMOTE:
         return 0
 
@@ -533,6 +542,8 @@ async def promote_clusters(session: AsyncSession, job_id: str) -> int:
         if not concept_id:
             continue
         written += 1
+        if parent_ids_out is not None:
+            parent_ids_out.append(parent_id)
         await event_bus.publish(
             job_id,
             STAGE,

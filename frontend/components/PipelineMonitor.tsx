@@ -13,7 +13,7 @@ import type { PipelineEvent } from "@/lib/types";
 // Ordine di esecuzione: chunking/node_extraction (ingestione) → entity_resolution
 // → backbone_classification → promote_clusters → entity_relation_classification /
 // event_resolution_and_classification (dreaming; questi due girano in parallelo
-// tra loro, mostrati come righe adiacenti) → reconciliation → done.
+// tra loro, mostrati come righe adiacenti) → reconciliation → judge → done.
 const STAGES: PipelineEvent["stage"][] = [
   "chunking",
   "node_extraction",
@@ -23,6 +23,7 @@ const STAGES: PipelineEvent["stage"][] = [
   "entity_relation_classification",
   "event_resolution_and_classification",
   "reconciliation",
+  "judge",
   "done",
 ];
 
@@ -35,6 +36,7 @@ const STAGE_LABELS: Record<PipelineEvent["stage"], string> = {
   entity_relation_classification: "Relazioni (entità)",
   event_resolution_and_classification: "Risoluzione eventi",
   reconciliation: "Riconciliazione",
+  judge: "Giudice",
   done: "Done",
   failed: "Fallito",
 };
