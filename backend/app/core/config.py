@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     BACKBONE_MDL_MIN_PAYLOAD: int = 2
     # Fase 7: S1 generalization up the Concept IS_A lattice. Stop before kernel catch-all.
     CONNECTIVITY_MAX_GENERALIZATION_HOPS: int = 1
+    # Fase 8: identity-as-facets instead of destructive merge_nodes. Default off so
+    # existing node-resolution / dreaming tests stay on today's merge path.
+    ENABLE_FACET_IDENTITY: bool = False
+    # Blocking cosine on summary embeddings (doc4 §2). Same kernel_category required.
+    IDENTITY_BLOCK_THRESHOLD: float = 0.82
 
 
 settings = Settings()

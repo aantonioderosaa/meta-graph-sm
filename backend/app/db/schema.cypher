@@ -72,6 +72,9 @@ CREATE CONSTRAINT identity_node_uri IF NOT EXISTS FOR (i:IdentityNode) REQUIRE i
 //   SAME_AS, POSSIBLY_SAME_AS, CONTRADICTS, SUPERSEDES, UPDATED_BY, EQUIVALENT_TO, DERIVED_FROM
 // DERIVED_FROM already exists in the pipeline toward :Chunk; generalized: also allowed
 // as assertion-provenance toward :Node / :Relation (pipeline Cypher unchanged in this phase).
+// Identity blocking (Fase 8): NOT_SAME_AS between :Node pairs (judge-declassified
+// omonimia). Not a Famiglia B kernel member; dedicated rel type so blocking can skip
+// the pair without a property on POSSIBLY_SAME_AS.
 
 // :Relation additive properties (do not drop relation, normalized_relation, is_latest, embedding):
 //   witnesses_a, witnesses_b, provenance, valid_time, system_time
