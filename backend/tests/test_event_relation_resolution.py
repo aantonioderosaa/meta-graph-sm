@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import pytest
 
+from app.models.kernel import EntityKernelType, RelationKernelType
 from app.models.node_extraction import EventRelationClassification, EventRelationLabel, SequenceType
 from app.pipeline.event_relation_resolution import (
     CREATE_EVENT_SEQUENCE_CYPHER,
+    CREATE_SITUATION_EVENT_CYPHER,
+    FIND_EVENT_BY_NAME_CYPHER,
     FIND_EVENT_CANDIDATES_CYPHER,
     FIND_FRESH_EVENTS_CYPHER,
+    MERGE_SITUATION_PARTICIPATES_CYPHER,
     SET_EVENT_SEQUENCE_CYPHER,
     SHARED_ENTITIES_CYPHER,
+    SITUATION_NORMALIZED_RELATION,
+    SITUATION_PARTICIPATES_RELATION,
     classify_event_relation,
+    reify_shared_situation,
     resolve_event,
     resolve_fresh_events,
 )
@@ -163,6 +170,9 @@ def test_no_unfiltered_node_scan():
         CREATE_EVENT_SEQUENCE_CYPHER,
         SET_EVENT_SEQUENCE_CYPHER,
         FIND_NODE_CANDIDATES_CYPHER,
+        FIND_EVENT_BY_NAME_CYPHER,
+        CREATE_SITUATION_EVENT_CYPHER,
+        MERGE_SITUATION_PARTICIPATES_CYPHER,
     ):
         assert "MATCH (n:Node) RETURN n" not in _compact(cypher)
 
@@ -209,3 +219,56 @@ async def test_classify_sequenced_without_sequence_type_coerced_to_none(monkeypa
     verdict = await classify_event_relation("A", "B", shared_count=2, job_id=JOB_ID)
 
     assert verdict.label == EventRelationLabel.none
+
+
+@pytest.mark.asyncio
+async def test_reify_shared_situation_creates_evento_participates_not_context():
+    session = FakeSession()
+    session.enqueue([])  # no existing event
+
+    event_id = await reify_shared_situation(
+        session,
+        participant_node_ids=["alice", "bob"],
+        situation_name="Summit",
+    )
+
+    assert session.calls[0][0] == FIND_EVENT_BY_NAME_CYPHER
+    assert session.calls[0][1]["name"] == "Summit"
+    create = [call for call in session.calls if call[0] == CREATE_SITUATION_EVENT_CYPHER]
+    assert len(create) == 1
+    assert create[0][1]["id"] == event_id
+    assert create[0][1]["kernel_category"] == EntityKernelType.Evento.value
+    assert create[0][1]["kernel_category"] != "E4"
+    assert create[0][1]["name"] == "Summit"
+    merges = [call for call in session.calls if call[0] == MERGE_SITUATION_PARTICIPATES_CYPHER]
+    assert len(merges) == 2
+    assert {call[1]["participant_id"] for call in merges} == {"alice", "bob"}
+    assert all(call[1]["event_id"] == event_id for call in merges)
+    assert all(call[1]["normalized_relation"] == SITUATION_NORMALIZED_RELATION for call in merges)
+    assert all(call[1]["relation"] == SITUATION_PARTICIPATES_RELATION for call in merges)
+    assert all(
+        call[1]["kernel_parent"] == RelationKernelType.Partecipativa.value for call in merges
+    )
+    assert not any(call[0] == CREATE_EVENT_SEQUENCE_CYPHER for call in session.calls)
+    assert not any(
+        "context" in str(call[1].get("relation", "")).casefold() for call in session.calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_reify_shared_situation_reuses_event_by_name():
+    session = FakeSession()
+    session.enqueue([{"id": "ev-existing"}])
+
+    event_id = await reify_shared_situation(
+        session,
+        participant_node_ids=["alice"],
+        situation_name="Summit",
+    )
+
+    assert event_id == "ev-existing"
+    assert not any(call[0] == CREATE_SITUATION_EVENT_CYPHER for call in session.calls)
+    merges = [call for call in session.calls if call[0] == MERGE_SITUATION_PARTICIPATES_CYPHER]
+    assert len(merges) == 1
+    assert merges[0][1]["event_id"] == "ev-existing"
+

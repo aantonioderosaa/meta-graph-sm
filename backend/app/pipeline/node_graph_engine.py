@@ -1,4 +1,8 @@
-"""Read-only Node/Concept graph views for the four frontend panels (Macrotask 6)."""
+"""Read-only Node/Concept graph views for the four frontend panels (Macrotask 6).
+
+Fase 6: subdomain fact visibility is a traversal of leaf ``:Relation`` edges
+(see ``FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER``), never a duplicated Node–Node copy.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,28 @@ from typing import Any
 from neo4j import AsyncSession
 
 from app.api.schemas import GraphNode, GraphRelationship, GraphResponse
+from app.pipeline.lca import (
+    COUNT_PHYSICAL_LEAF_FACTS_CYPHER,
+    FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER,
+    WITNESSED_NEIGHBORS_CYPHER,
+    count_physical_leaf_facts,
+    facts_visible_in_subdomain,
+    witnessed_neighbors,
+)
+
+__all__ = [
+    "COUNT_PHYSICAL_LEAF_FACTS_CYPHER",
+    "FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER",
+    "WITNESSED_NEIGHBORS_CYPHER",
+    "count_physical_leaf_facts",
+    "facts_visible_in_subdomain",
+    "get_concept_neighbors",
+    "get_concept_overview",
+    "get_entity_graph",
+    "get_event_graph",
+    "get_participation_graph",
+    "witnessed_neighbors",
+]
 
 ENTITY_GRAPH_NODES_CYPHER = """
 MATCH (n:Node {type:'entity'}) WHERE n.merged_into IS NULL

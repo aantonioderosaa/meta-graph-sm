@@ -10,7 +10,9 @@ from app.pipeline import node_graph_engine
 from app.pipeline.node_graph_engine import (
     ENTITY_GRAPH_RELS_CYPHER,
     EVENT_GRAPH_NODES_CYPHER,
+    FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER,
     PARTICIPATION_GRAPH_CYPHER,
+    WITNESSED_NEIGHBORS_CYPHER,
     get_concept_neighbors,
     get_entity_graph,
     get_event_graph,
@@ -213,6 +215,25 @@ def test_no_cypher_matches_fact_or_chunk_labels():
     for cypher in _cyphers():
         assert ":Fact" not in cypher
         assert ":Chunk" not in cypher
+
+
+def test_facts_visible_cypher_is_read_traversal_of_leaf_relations():
+    compact = " ".join(FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER.split())
+    assert FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER in _cyphers()
+    assert "CREATE" not in FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER
+    assert "MERGE" not in FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER
+    assert "(a:Node)-[r:Relation]->(b:Node)" in compact
+    assert "r.lifted_from IS NULL" in FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER
+    assert ":MEMBER_OF" in FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER
+    assert ":IS_A" in FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER
+
+
+def test_witnessed_neighbors_cypher_matches_relation_not_membership():
+    assert WITNESSED_NEIGHBORS_CYPHER in _cyphers()
+    assert "[r:Relation]" in " ".join(WITNESSED_NEIGHBORS_CYPHER.split())
+    assert "MEMBER_OF" not in WITNESSED_NEIGHBORS_CYPHER
+    assert "HAS_CONCEPT" not in WITNESSED_NEIGHBORS_CYPHER
+    assert "IS_A" not in WITNESSED_NEIGHBORS_CYPHER
 
 
 @pytest.mark.asyncio

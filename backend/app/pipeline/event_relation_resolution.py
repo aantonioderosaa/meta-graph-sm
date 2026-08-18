@@ -2,13 +2,19 @@
 
 Participation (event→entity) is not a separate stage: merge_nodes already
 collapses duplicate participates arcs.
+
+Fase 6.3: shared situations are reified as an Evento node plus R5
+``participates`` edges — never as a direct entity–entity context arc.
 """
 
 from __future__ import annotations
 
+import uuid
+
 from neo4j import AsyncSession
 
 from app.core.llm_client import call_structured
+from app.models.kernel import EntityKernelType, RelationKernelType
 from app.models.node_extraction import (
     EventRelationClassification,
     EventRelationLabel,
@@ -20,6 +26,9 @@ from app.pipeline.node_resolution import (
     find_node_candidates,
     merge_nodes,
 )
+
+SITUATION_PARTICIPATES_RELATION = "is participated by"
+SITUATION_NORMALIZED_RELATION = "participates"
 
 FIND_EVENT_CANDIDATES_CYPHER = FIND_NODE_CANDIDATES_CYPHER
 
@@ -58,6 +67,42 @@ CREATE (a)-[r:Relation {
     is_latest: true,
     created_at: datetime()
 }]->(b)
+"""
+
+FIND_EVENT_BY_NAME_CYPHER = """
+MATCH (n:Node {type: 'event', name: $name})
+WHERE n.merged_into IS NULL
+RETURN n.id AS id
+LIMIT 1
+"""
+
+CREATE_SITUATION_EVENT_CYPHER = """
+CREATE (n:Node {
+  id: $id,
+  name: $name,
+  type: 'event',
+  dreamed: false,
+  merged_into: null,
+  kernel_category: $kernel_category,
+  summary: $name,
+  created_at: datetime()
+})
+RETURN n.id AS id
+"""
+
+LINK_SITUATION_CHUNK_CYPHER = """
+MATCH (n:Node {id: $node_id}), (c:Chunk {id: $chunk_id})
+CREATE (n)-[:DERIVED_FROM]->(c)
+"""
+
+MERGE_SITUATION_PARTICIPATES_CYPHER = """
+MATCH (ev:Node {id: $event_id}), (p:Node {id: $participant_id})
+MERGE (ev)-[r:Relation {normalized_relation: $normalized_relation}]->(p)
+ON CREATE SET
+  r.relation = $relation,
+  r.kernel_parent = $kernel_parent,
+  r.is_latest = true,
+  r.created_at = datetime()
 """
 
 EVENT_RELATION_SYSTEM_PROMPT = (
@@ -279,3 +324,54 @@ async def resolve_fresh_events(session: AsyncSession, job_id: str) -> set[str]:
         canon = await resolve_event(session, event_id, name, embedding, job_id)
         touched.add(canon)
     return touched
+
+
+async def reify_shared_situation(
+    session: AsyncSession,
+    *,
+    participant_node_ids: list[str],
+    situation_name: str,
+    chunk_id: str | None = None,
+) -> str:
+    """Reify a shared situation as an Evento node plus R5 participates edges.
+
+    Reuses an existing ``:Node {type:'event'}`` with the same name. Never
+    creates a direct entity–entity context / co-occurrence edge.
+    """
+    existing = await session.run(FIND_EVENT_BY_NAME_CYPHER, name=situation_name)
+    event_id: str | None = None
+    async for record in existing:
+        event_id = str(record["id"])
+        break
+
+    if event_id is None:
+        event_id = str(uuid.uuid4())
+        await session.run(
+            CREATE_SITUATION_EVENT_CYPHER,
+            id=event_id,
+            name=situation_name,
+            kernel_category=EntityKernelType.Evento.value,
+        )
+        if chunk_id:
+            await session.run(
+                LINK_SITUATION_CHUNK_CYPHER,
+                node_id=event_id,
+                chunk_id=chunk_id,
+            )
+
+    kernel_parent = RelationKernelType.Partecipativa.value
+    seen: set[str] = set()
+    for participant_id in participant_node_ids:
+        if not participant_id or participant_id in seen or participant_id == event_id:
+            continue
+        seen.add(participant_id)
+        await session.run(
+            MERGE_SITUATION_PARTICIPATES_CYPHER,
+            event_id=event_id,
+            participant_id=participant_id,
+            normalized_relation=SITUATION_NORMALIZED_RELATION,
+            relation=SITUATION_PARTICIPATES_RELATION,
+            kernel_parent=kernel_parent,
+        )
+    return event_id
+
