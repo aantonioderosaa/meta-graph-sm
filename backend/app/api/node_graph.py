@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
-from app.api.schemas import GraphResetResponse, GraphResponse
+from app.api.schemas import (
+    BundleResponse,
+    GraphResetResponse,
+    GraphResponse,
+    NodeMetadataResponse,
+)
 from app.core.neo4j_client import Neo4jSessionDep
 from app.pipeline import node_graph_engine
 
@@ -67,6 +72,37 @@ async def get_participation_graph_endpoint(
 ) -> GraphResponse:
     """Return event→entity participates edges only."""
     return await node_graph_engine.get_participation_graph(session, limit=limit)
+
+
+@router.get("/macro", response_model=GraphResponse)
+async def get_macro_graph_endpoint(
+    session: Neo4jSessionDep,
+    limit: int = Query(default=400, ge=1, le=2000),
+) -> GraphResponse:
+    """Aggregated Concept-domain view: names only, collapsed BUNDLE edges."""
+    return await node_graph_engine.get_macro_graph(session, limit=limit)
+
+
+@router.get("/bundle/{node_a_id}/{node_b_id}", response_model=BundleResponse)
+async def get_graph_bundle_endpoint(
+    node_a_id: str,
+    node_b_id: str,
+    session: Neo4jSessionDep,
+) -> BundleResponse:
+    """Expanded stored relations between two macro nodes (both directions)."""
+    return await node_graph_engine.get_graph_bundle(session, node_a_id, node_b_id)
+
+
+@router.get("/metadata/{node_id}", response_model=NodeMetadataResponse)
+async def get_node_metadata_endpoint(
+    node_id: str,
+    session: Neo4jSessionDep,
+) -> NodeMetadataResponse:
+    """Concept or Node metadata for the macro drill-down panel (not NVL captions)."""
+    data = await node_graph_engine.get_node_metadata(session, node_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Nodo non trovato")
+    return data
 
 
 @router.get("/concepts", response_model=GraphResponse)

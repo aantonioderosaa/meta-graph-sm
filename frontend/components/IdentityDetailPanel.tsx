@@ -14,8 +14,11 @@ import type { IdentityItem } from "@/lib/types";
 
 export function IdentityDetailPanel({
   onHighlightChange,
+  filterFacetNodeId,
 }: {
   onHighlightChange?: (ids: Set<string> | null) => void;
+  /** When set, show only identities that include this facet `:Node`. */
+  filterFacetNodeId?: string;
 } = {}) {
   const kbResetEpoch = useAppStore((s) => s.kbResetEpoch);
   const [items, setItems] = useState<IdentityItem[]>([]);
@@ -61,6 +64,12 @@ export function IdentityDetailPanel({
     }
   }
 
+  const visibleItems = filterFacetNodeId
+    ? items.filter((identity) =>
+        identity.facets.some((facet) => facet.id === filterFacetNodeId),
+      )
+    : items;
+
   return (
     <Card
       aria-label="Identità e faccette"
@@ -74,13 +83,13 @@ export function IdentityDetailPanel({
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-auto p-3 text-xs">
         {error ? <p className="mb-2 text-xs text-destructive">{error}</p> : null}
-        {items.length === 0 && !error ? (
+        {visibleItems.length === 0 && !error ? (
           <p className="text-center text-xs text-muted-foreground">
             Nessuna identità con faccette.
           </p>
         ) : null}
         <ul className="space-y-2">
-          {items.map((identity) => (
+          {visibleItems.map((identity) => (
             <li
               key={identity.uri}
               className="rounded border border-border/70 bg-muted/30 px-2 py-1.5"
@@ -121,7 +130,7 @@ export function IdentityDetailPanel({
                 ))}
               </ul>
             </li>
-          ))}
+          )}
         </ul>
       </CardContent>
     </Card>

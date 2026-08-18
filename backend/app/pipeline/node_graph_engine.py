@@ -10,7 +10,16 @@ from typing import Any
 
 from neo4j import AsyncSession
 
-from app.api.schemas import GraphNode, GraphRelationship, GraphResponse
+from app.api.schemas import (
+    BundleRelation,
+    BundleResponse,
+    GraphNode,
+    GraphRelationship,
+    GraphResponse,
+    MetadataBreadcrumbItem,
+    NodeMetadataResponse,
+)
+from app.pipeline.connectivity_rules import kernel_catch_all_ids
 from app.pipeline.lca import (
     COUNT_PHYSICAL_LEAF_FACTS_CYPHER,
     FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER,
@@ -24,12 +33,17 @@ __all__ = [
     "COUNT_PHYSICAL_LEAF_FACTS_CYPHER",
     "FACTS_VISIBLE_IN_SUBDOMAIN_CYPHER",
     "WITNESSED_NEIGHBORS_CYPHER",
+    "bundle_edge_id",
+    "collapse_pair_counts",
     "count_physical_leaf_facts",
     "facts_visible_in_subdomain",
     "get_concept_neighbors",
     "get_concept_overview",
     "get_entity_graph",
     "get_event_graph",
+    "get_graph_bundle",
+    "get_macro_graph",
+    "get_node_metadata",
     "get_participation_graph",
     "witnessed_neighbors",
 ]
@@ -468,3 +482,347 @@ async def get_concept_neighbors(session: AsyncSession, concept_id: str) -> Graph
         )
 
     return GraphResponse(nodes=nodes, relationships=relationships)
+
+
+# --- Fase 15: macro graph (names only) + bundle / metadata drill-down ---
+
+MACRO_PROMOTED_CONCEPTS_CYPHER = """
+MATCH (c:Concept {promoted: true})
+RETURN c LIMIT $limit
+"""
+
+MACRO_UNPROMOTED_NODES_CYPHER = """
+MATCH (n:Node)-[:MEMBER_OF]->(home:Concept)
+WHERE n.merged_into IS NULL
+  AND (
+    home.id IN $kernel_ids
+    OR (
+      EXISTS {
+        MATCH (home)-[:IS_A]->(k:Concept)
+        WHERE k.id IN $kernel_ids
+      }
+      AND (home.promoted IS NULL OR home.promoted = false)
+    )
+  )
+RETURN n LIMIT $limit
+"""
+
+MACRO_MEMBER_OF_CYPHER = """
+MATCH (n:Node)-[:MEMBER_OF]->(c:Concept)
+WHERE n.merged_into IS NULL
+RETURN n.id AS node_id, c.id AS concept_id
+"""
+
+MACRO_LEAF_RELS_CYPHER = """
+MATCH (a:Node)-[r:Relation]->(b:Node)
+WHERE r.lifted_from IS NULL
+  AND a.merged_into IS NULL
+  AND b.merged_into IS NULL
+RETURN a.id AS from_id, b.id AS to_id
+"""
+
+MACRO_ENDPOINT_IDS_CYPHER = """
+OPTIONAL MATCH (n:Node {id: $id})
+WHERE n.merged_into IS NULL
+OPTIONAL MATCH (root:Concept {id: $id})
+OPTIONAL MATCH (desc:Concept)-[:IS_A*0..]->(root)
+OPTIONAL MATCH (inst:Node)-[:MEMBER_OF]->(desc)
+WHERE inst IS NULL OR inst.merged_into IS NULL
+WITH n, [xid IN collect(DISTINCT inst.id) WHERE xid IS NOT NULL] AS member_ids
+RETURN CASE WHEN n IS NOT NULL THEN [n.id] ELSE member_ids END AS ids
+"""
+
+MACRO_BUNDLE_RELS_CYPHER = """
+MATCH (a:Node)-[r:Relation]->(b:Node)
+WHERE r.lifted_from IS NULL
+  AND (
+    (a.id IN $ids_a AND b.id IN $ids_b)
+    OR (a.id IN $ids_b AND b.id IN $ids_a)
+  )
+RETURN elementId(r) AS id, a.id AS from_id, b.id AS to_id,
+       r.relation AS relation,
+       coalesce(r.normalized_relation, r.relation) AS rel_type,
+       r.kernel_parent AS kernel_parent,
+       r.witnesses_a AS witnesses_a,
+       r.witnesses_b AS witnesses_b,
+       r.provenance AS provenance,
+       r.valid_time AS valid_time,
+       r.system_time AS system_time
+"""
+
+MACRO_METADATA_RESOLVE_CYPHER = """
+OPTIONAL MATCH (c:Concept {id: $id})
+OPTIONAL MATCH (n:Node {id: $id})
+WHERE n.merged_into IS NULL
+RETURN c, n
+"""
+
+MACRO_CONCEPT_BREADCRUMB_CYPHER = """
+MATCH (c:Concept {id: $id})
+OPTIONAL MATCH path = (c)-[:IS_A*0..8]->(anc:Concept)
+RETURN c, anc, length(path) AS dist
+ORDER BY dist
+"""
+
+MACRO_MEMBER_COUNT_CYPHER = """
+MATCH (n:Node)-[:MEMBER_OF]->(c:Concept {id: $id})
+WHERE n.merged_into IS NULL
+RETURN count(n) AS n
+"""
+
+MACRO_NODE_IDENTITIES_CYPHER = """
+MATCH (n:Node {id: $id})-[:SAME_AS]->(i:IdentityNode)
+RETURN i.uri AS uri
+"""
+
+_NODE_ATTR_SKIP = frozenset(
+    {
+        "id",
+        "name",
+        "type",
+        "summary",
+        "kernel_category",
+        "embedding",
+        "summary_embedding",
+        "merged_into",
+    }
+)
+
+
+def bundle_edge_id(node_a_id: str, node_b_id: str) -> str:
+    """Stable undirected NVL id: ``bundle:{from}:{to}`` with ``from < to``."""
+    left, right = sorted((str(node_a_id), str(node_b_id)))
+    return f"bundle:{left}:{right}"
+
+
+def collapse_pair_counts(
+    pairs: list[tuple[str, str]],
+    macro_ids: set[str],
+    homes: dict[str, str],
+) -> dict[tuple[str, str], int]:
+    """Map leaf ``:Relation`` endpoints onto macro nodes and count undirected pairs."""
+
+    def to_macro(nid: str) -> str | None:
+        if nid in macro_ids:
+            return nid
+        home = homes.get(nid)
+        if home in macro_ids:
+            return home
+        return None
+
+    counts: dict[tuple[str, str], int] = {}
+    for src, tgt in pairs:
+        left = to_macro(str(src))
+        right = to_macro(str(tgt))
+        if left is None or right is None or left == right:
+            continue
+        key = (left, right) if left < right else (right, left)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    try:
+        return [str(item) for item in value if str(item).strip()]
+    except TypeError:
+        return [str(value)] if str(value).strip() else []
+
+
+def _as_iso(value: Any) -> str | None:
+    if value is None:
+        return None
+    iso = getattr(value, "iso_format", None)
+    if callable(iso):
+        return str(iso())
+    iso = getattr(value, "isoformat", None)
+    if callable(iso):
+        return str(iso())
+    text = str(value).strip()
+    return text or None
+
+
+def _node_attributes(n: Any) -> dict[str, Any]:
+    items = getattr(n, "items", None)
+    props = getattr(n, "_props", None)
+    if callable(items):
+        raw = dict(items())
+    elif isinstance(n, dict):
+        raw = dict(n)
+    elif isinstance(props, dict):
+        raw = dict(props)
+    else:
+        raw = {}
+    return {key: value for key, value in raw.items() if key not in _NODE_ATTR_SKIP}
+
+
+async def get_macro_graph(session: AsyncSession, limit: int = 400) -> GraphResponse:
+    """Promoted concepts + first-level leftover nodes; collapsed BUNDLE edges."""
+    kernel_ids = list(kernel_catch_all_ids())
+    nodes_by_id: dict[str, GraphNode] = {}
+
+    promoted = await session.run(MACRO_PROMOTED_CONCEPTS_CYPHER, limit=limit)
+    async for record in promoted:
+        node = _graph_node_from_node(record["c"], extra={"type": "concept"})
+        nodes_by_id[node.id] = node
+
+    leftovers = await session.run(
+        MACRO_UNPROMOTED_NODES_CYPHER, kernel_ids=kernel_ids, limit=limit
+    )
+    async for record in leftovers:
+        node = _graph_node_from_node(record["n"])
+        nodes_by_id.setdefault(node.id, node)
+
+    if not nodes_by_id:
+        return GraphResponse(nodes=[], relationships=[])
+
+    homes: dict[str, str] = {}
+    home_result = await session.run(MACRO_MEMBER_OF_CYPHER)
+    async for record in home_result:
+        homes[str(record["node_id"])] = str(record["concept_id"])
+
+    pairs: list[tuple[str, str]] = []
+    rel_result = await session.run(MACRO_LEAF_RELS_CYPHER)
+    async for record in rel_result:
+        pairs.append((str(record["from_id"]), str(record["to_id"])))
+
+    counts = collapse_pair_counts(pairs, set(nodes_by_id), homes)
+    relationships = [
+        _graph_relationship(
+            bundle_edge_id(left, right),
+            left,
+            right,
+            "BUNDLE",
+            str(count),
+        )
+        for (left, right), count in sorted(counts.items())
+    ]
+    return GraphResponse(nodes=list(nodes_by_id.values()), relationships=relationships)
+
+
+async def _endpoint_instance_ids(session: AsyncSession, endpoint_id: str) -> list[str]:
+    result = await session.run(MACRO_ENDPOINT_IDS_CYPHER, id=endpoint_id)
+    record = await result.single()
+    if record is None:
+        return []
+    ids = record["ids"] or []
+    return [str(item) for item in ids]
+
+
+async def get_graph_bundle(
+    session: AsyncSession, node_a_id: str, node_b_id: str
+) -> BundleResponse:
+    """Stored ``:Relation`` rows between two macro endpoints (both directions)."""
+    ids_a = await _endpoint_instance_ids(session, node_a_id)
+    ids_b = await _endpoint_instance_ids(session, node_b_id)
+    if not ids_a or not ids_b:
+        return BundleResponse(items=[])
+
+    result = await session.run(MACRO_BUNDLE_RELS_CYPHER, ids_a=ids_a, ids_b=ids_b)
+    items: list[BundleRelation] = []
+    async for record in result:
+        caption = _get(record, "relation")
+        rel_type = _get(record, "rel_type") or caption or "Relation"
+        kernel_parent = _get(record, "kernel_parent")
+        items.append(
+            BundleRelation(
+                id=str(record["id"]),
+                **{"from": str(record["from_id"]), "to": str(record["to_id"])},
+                type=str(rel_type),
+                relation=None if caption is None else str(caption),
+                kernel_parent=None if kernel_parent is None else str(kernel_parent),
+                witnesses_a=_as_str_list(_get(record, "witnesses_a")),
+                witnesses_b=_as_str_list(_get(record, "witnesses_b")),
+                provenance=_get(record, "provenance"),
+                valid_time=_as_iso(_get(record, "valid_time")),
+                system_time=_as_iso(_get(record, "system_time")),
+                epistemic_status="asserted",
+            )
+        )
+    return BundleResponse(items=items)
+
+
+def _breadcrumb_from_rows(
+    concept: Any, rows: list[dict[str, Any]]
+) -> list[MetadataBreadcrumbItem]:
+    items: list[MetadataBreadcrumbItem] = []
+    seen: set[str] = set()
+    kernel_ids = kernel_catch_all_ids()
+    ordered = sorted(rows, key=lambda row: int(row.get("dist") or 0))
+    for row in ordered:
+        anc = row.get("anc") or concept
+        nid = str(_get(anc, "id") or "")
+        if not nid or nid in seen:
+            continue
+        seen.add(nid)
+        items.append(
+            MetadataBreadcrumbItem(
+                id=nid,
+                name=str(_get(anc, "name") or nid),
+                kernel_category=_get(anc, "kernel_category"),
+            )
+        )
+        if nid in kernel_ids:
+            break
+    if not items:
+        cid = str(_get(concept, "id"))
+        items.append(
+            MetadataBreadcrumbItem(
+                id=cid,
+                name=str(_get(concept, "name") or cid),
+                kernel_category=_get(concept, "kernel_category"),
+            )
+        )
+    return items
+
+
+async def get_node_metadata(
+    session: AsyncSession, node_id: str
+) -> NodeMetadataResponse | None:
+    result = await session.run(MACRO_METADATA_RESOLVE_CYPHER, id=node_id)
+    record = await result.single()
+    if record is None:
+        return None
+    concept = record["c"]
+    node = record["n"]
+    if concept is not None:
+        crumb_result = await session.run(MACRO_CONCEPT_BREADCRUMB_CYPHER, id=node_id)
+        rows: list[dict[str, Any]] = []
+        async for row in crumb_result:
+            rows.append({"anc": row["anc"], "dist": row["dist"]})
+        count_result = await session.run(MACRO_MEMBER_COUNT_CYPHER, id=node_id)
+        count_row = await count_result.single()
+        member_count = int(count_row["n"]) if count_row is not None else 0
+        cid = str(_get(concept, "id"))
+        return NodeMetadataResponse(
+            id=cid,
+            kind="concept",
+            name=str(_get(concept, "name") or cid),
+            kernel_category=_get(concept, "kernel_category"),
+            definition=_get(concept, "definition"),
+            aliases=_as_str_list(_get(concept, "aliases")),
+            is_a_breadcrumb=_breadcrumb_from_rows(concept, rows),
+            member_count=member_count,
+        )
+    if node is not None:
+        ident_result = await session.run(MACRO_NODE_IDENTITIES_CYPHER, id=node_id)
+        uris: list[str] = []
+        async for row in ident_result:
+            uri = row["uri"]
+            if uri:
+                uris.append(str(uri))
+        nid = str(_get(node, "id"))
+        return NodeMetadataResponse(
+            id=nid,
+            kind="node",
+            name=str(_get(node, "name") or nid),
+            kernel_category=_get(node, "kernel_category"),
+            summary=_get(node, "summary"),
+            attributes=_node_attributes(node),
+            identity_uris=uris,
+        )
+    return None
+

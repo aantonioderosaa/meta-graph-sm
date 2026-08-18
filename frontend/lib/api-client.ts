@@ -4,6 +4,7 @@
  */
 
 import type {
+  BundleResponse,
   ConnectivityRuleListResponse,
   ContradictionListResponse,
   DocumentListResponse,
@@ -16,6 +17,7 @@ import type {
   IdentityListResponse,
   JobResponse,
   JudgeRunListResponse,
+  NodeMetadataResponse,
   NodeQueryRequest,
   NodeQueryResponse,
   QueryHistoryResponse,
@@ -150,6 +152,32 @@ export function getConceptOverview(
 export function getConceptNeighbors(conceptId: string): Promise<GraphResponse> {
   return request<GraphResponse>(
     `/graph/concepts/${encodeURIComponent(conceptId)}`,
+  );
+}
+
+export function getMacroGraph(
+  params: GetGraphLimitParams = {},
+): Promise<GraphResponse> {
+  const search = new URLSearchParams();
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+  const qs = search.toString();
+  return request<GraphResponse>(`/graph/macro${qs ? `?${qs}` : ""}`);
+}
+
+export function getGraphBundle(
+  nodeAId: string,
+  nodeBId: string,
+): Promise<BundleResponse> {
+  return request<BundleResponse>(
+    `/graph/bundle/${encodeURIComponent(nodeAId)}/${encodeURIComponent(nodeBId)}`,
+  );
+}
+
+export function getNodeMetadata(nodeId: string): Promise<NodeMetadataResponse> {
+  return request<NodeMetadataResponse>(
+    `/graph/metadata/${encodeURIComponent(nodeId)}`,
   );
 }
 

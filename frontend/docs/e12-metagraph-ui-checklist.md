@@ -24,6 +24,26 @@ Manuale UI (su dati reali):
 - [ ] Query NL: citazione asserita → badge ASSERITO; salto derivato → DERIVATO cliccabile con passi `s0`/`s1`
 - [ ] Mobile: pulsanti Pipeline / Query / **Layer**; Layer apre le stesse tab del sidebar desktop
 
+## Fase 15 — vista generale (nomi soli, un clic ai metadati)
+
+Toggle **Vista dettagliata** (default) ↔ **Vista generale**. La vista generale monta solo `MacroGraphPanel` (un canvas NVL). Le schede Fascio / Metadati sono liste, non canvas. Non montare mai MacroGraphPanel e EntityEventExplorer insieme (cap WebGL).
+
+| Caso | Superficie attesa | Verificato in test |
+|------|-------------------|--------------------|
+| Solo nomi sul canvas | caption = nome nodo; archi caption = `relation_count` (`"3"`), type `BUNDLE` | sì (`test_macro_graph.py`) |
+| Click arco → fascio | `GET /graph/bundle/{a}/{b}`, elenco relazioni, badge ASSERITO | sì (path API + `bundle-detail.test.ts`) |
+| Click nodo → metadati | `GET /graph/metadata/{id}` (breadcrumb `IS_A` / sommario / faccette via `IdentityDetailPanel`) | sì (`test_macro_graph.py`, path API) |
+| Colori kernel | `colorByKernelCategory`; `encodeNode` per type resta invariato | sì (`graph-encoding.test.ts`) |
+| Toggle senza 5° canvas | default dettagliata; `{generale ? Macro : EntityEventExplorer}` | sì (`test_acceptance_solo_entita_eventi.py`) |
+
+Manuale UI — Fase 15:
+
+- [ ] Default all’apertura: **Vista dettagliata**, quattro pannelli Entità/Concetti/Eventi/Partecipazione come in Fase 12; tab laterali invariate
+- [ ] Toggle **Vista generale**: un solo grafo, caption solo nomi (niente `kernel_parent` / testimoni / definizione sul canvas); gli archi mostrano un numero
+- [ ] Click su un arco: il pannello Fascio elenca le relazioni individuali con badge **ASSERITO**; espandere mostra `kernel_parent`, testimoni, `valid_time`
+- [ ] Click su un nodo: Metadati (definizione/breadcrumb per un concetto; sommario/attributi per un `:Node`); le faccette riusano il pannello Identità
+- [ ] Tornando a **Vista dettagliata** i quattro pannelli Fase 12 si comportano come prima; MacroGraphPanel è smontato (niente secondo grafo NVL)
+
 Manuale UI — sei casi-limite del §13 (Doc1), come li vede un umano nei pannelli Fase 12:
 
 - [ ] **Ditta individuale (Agente + CostruttoSociale)**: tab **Identità** mostra **due faccette** sullo stesso `:IdentityNode` (persona / ditta), non un unico nodo con due `kernel_category`. Tab **Dominio**: filtro/query per Persona evidenzia solo la faccetta Agente; Organizzazione solo CostruttoSociale. **Stacca faccetta** non cancella i `:Node`

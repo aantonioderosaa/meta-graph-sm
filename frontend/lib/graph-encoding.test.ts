@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   clearEncodingCache,
+  colorByKernelCategory,
+  KERNEL_CATEGORY_COLORS,
+  KERNEL_CATEGORY_FALLBACK,
   NODE_TYPE_COLORS,
   RELATION_COLORS,
   encodeNode,
@@ -156,5 +159,60 @@ describe("graph visual encoding", () => {
     });
     expect(second).not.toBe(first);
     expect(second.caption).toContain("faccette");
+  });
+
+  it("colorByKernelCategory uses kernel map and leaves encodeNode type colors unchanged", () => {
+    expect(colorByKernelCategory({
+      id: "n1",
+      caption: "Alice",
+      properties: { type: "entity", kernel_category: "Agente" },
+    })).toBe(KERNEL_CATEGORY_COLORS.Agente);
+    expect(colorByKernelCategory({
+      id: "n2",
+      caption: "Roma",
+      properties: { type: "entity", kernel_category: "Luogo" },
+    })).toBe(KERNEL_CATEGORY_COLORS.Luogo);
+    expect(colorByKernelCategory({
+      id: "n3",
+      caption: "X",
+      properties: { type: "entity" },
+    })).toBe(KERNEL_CATEGORY_FALLBACK);
+    expect(colorByKernelCategory({
+      id: "n4",
+      caption: "Y",
+      properties: { kernel_category: "Sconosciuto" },
+    })).toBe(KERNEL_CATEGORY_FALLBACK);
+
+    for (const name of [
+      "Agente",
+      "OggettoFisico",
+      "Luogo",
+      "Evento",
+      "EntitaTemporale",
+      "EntitaInformativa",
+      "CostruttoSociale",
+      "EntitaAstratta",
+    ]) {
+      expect(KERNEL_CATEGORY_COLORS[name]).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    }
+
+    const entity = encodeNode({
+      id: "e1",
+      caption: "Alice",
+      properties: { type: "entity", kernel_category: "Luogo" },
+    });
+    expect(entity.color).toBe(NODE_TYPE_COLORS.entity);
+    const event = encodeNode({
+      id: "ev1",
+      caption: "Summit",
+      properties: { type: "event", kernel_category: "Agente" },
+    });
+    expect(event.color).toBe(NODE_TYPE_COLORS.event);
+    const concept = encodeNode({
+      id: "c1",
+      caption: "Sport",
+      properties: { type: "concept", kernel_category: "Agente" },
+    });
+    expect(concept.color).toBe(NODE_TYPE_COLORS.concept);
   });
 });

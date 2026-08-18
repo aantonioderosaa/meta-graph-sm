@@ -57,6 +57,45 @@ export interface GraphResponse {
   relationships: GraphRelationship[];
 }
 
+export interface BundleRelation {
+  id: string;
+  from: string;
+  to: string;
+  type: string;
+  relation?: string | null;
+  kernel_parent?: string | null;
+  witnesses_a?: string[];
+  witnesses_b?: string[];
+  provenance?: unknown;
+  valid_time?: string | null;
+  system_time?: string | null;
+  epistemic_status?: "asserted" | "derived";
+}
+
+export interface BundleResponse {
+  items: BundleRelation[];
+}
+
+export interface MetadataBreadcrumbItem {
+  id: string;
+  name: string;
+  kernel_category?: string | null;
+}
+
+export interface NodeMetadataResponse {
+  id: string;
+  kind: "concept" | "node" | string;
+  name: string;
+  kernel_category?: string | null;
+  definition?: string | null;
+  aliases?: string[];
+  is_a_breadcrumb?: MetadataBreadcrumbItem[];
+  member_count?: number | null;
+  summary?: string | null;
+  attributes?: Record<string, unknown>;
+  identity_uris?: string[];
+}
+
 export interface QueryHistoryEntry {
   id: string;
   text: string;

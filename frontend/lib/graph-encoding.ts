@@ -26,6 +26,28 @@ export const NODE_TYPE_COLORS = {
   concept: "#6D28D9", // violet-700
 } as const;
 
+/** Palette for MacroGraphPanel via `colorForNode` — does not change encodeNode. */
+export const KERNEL_CATEGORY_COLORS: Record<string, string> = {
+  Agente: "#0369A1",
+  OggettoFisico: "#B45309",
+  Luogo: "#15803D",
+  Evento: "#BE123C",
+  EntitaTemporale: "#0F766E",
+  EntitaInformativa: "#7C3AED",
+  CostruttoSociale: "#C2410C",
+  EntitaAstratta: "#334155",
+};
+
+export const KERNEL_CATEGORY_FALLBACK = "#64748B";
+
+export function colorByKernelCategory(node: GraphNode): string {
+  const raw = String(node.properties?.kernel_category ?? "").trim();
+  if (raw && raw in KERNEL_CATEGORY_COLORS) {
+    return KERNEL_CATEGORY_COLORS[raw];
+  }
+  return KERNEL_CATEGORY_FALLBACK;
+}
+
 export const RELATION_COLORS = {
   UPDATES: "#D97706", // warning / amber-600
   EXTENDS: "#2563EB", // info / blue-600

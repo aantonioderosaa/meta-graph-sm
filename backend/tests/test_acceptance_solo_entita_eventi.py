@@ -84,6 +84,11 @@ def test_scenario_1_pipelines_never_publish_fact_stages():
 def test_scenario_2_dashboard_has_single_entity_event_explorer():
     shell = (FRONTEND_COMPONENTS / "DashboardShell.tsx").read_text(encoding="utf-8")
     assert shell.count("<EntityEventExplorer") == 1
+    assert shell.count("<MacroGraphPanel") == 1
+    assert '"dettagliata"' in shell
+    assert "Vista dettagliata" in shell
+    assert "Vista generale" in shell
+    assert "{generale ?" in shell
     assert "GraphExplorer" not in shell
     assert 'from "@/components/QueryPanel"' not in shell
     assert "NodeQueryPanel" in shell
@@ -103,6 +108,8 @@ def test_scenario_2b_metagraph_layer_panels_exist_as_list_not_nvl():
         "ContradictionsPanel.tsx",
         "ConnectivityRulesPanel.tsx",
         "JudgeLogPanel.tsx",
+        "BundleDetailPanel.tsx",
+        "NodeMetadataPanel.tsx",
     )
     for name in names:
         path = FRONTEND_COMPONENTS / name
@@ -112,10 +119,23 @@ def test_scenario_2b_metagraph_layer_panels_exist_as_list_not_nvl():
         assert "GraphPanel" not in text
 
 
+def test_scenario_2c_macro_reuses_graph_panel_not_a_fifth_canvas():
+    macro = (FRONTEND_COMPONENTS / "MacroGraphPanel.tsx").read_text(encoding="utf-8")
+    assert "GraphPanel" in macro
+    assert "getMacroGraph" in macro
+    assert "colorByKernelCategory" in macro
+    assert "InteractiveNvlWrapper" not in macro
+    shell = (FRONTEND_COMPONENTS / "DashboardShell.tsx").read_text(encoding="utf-8")
+    assert "{generale ?" in shell
+    assert "<MacroGraphPanel" in shell
+    assert "<EntityEventExplorer" in shell
+
+
 def test_scenario_3_graph_panel_handles_nvl_init_error():
     panel = (FRONTEND_COMPONENTS / "GraphPanel.tsx").read_text(encoding="utf-8")
     assert "onInitializationError" in panel
     assert "Riprova" in panel
+    assert "onRelationshipClick" in panel
 
 
 def test_scenario_4_include_concepts_defaults_off():

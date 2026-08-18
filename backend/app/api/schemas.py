@@ -145,6 +145,49 @@ class HealthResponse(BaseModel):
     gds: str
 
 
+class BundleRelation(BaseModel):
+    """One stored ``:Relation`` between two macro endpoints (Fase 15)."""
+
+    id: str
+    from_id: str = Field(alias="from")
+    to: str
+    type: str
+    relation: str | None = None
+    kernel_parent: str | None = None
+    witnesses_a: list[str] = Field(default_factory=list)
+    witnesses_b: list[str] = Field(default_factory=list)
+    provenance: Any = None
+    valid_time: str | None = None
+    system_time: str | None = None
+    epistemic_status: str = "asserted"
+
+    model_config = {"populate_by_name": True}
+
+
+class BundleResponse(BaseModel):
+    items: list[BundleRelation] = Field(default_factory=list)
+
+
+class MetadataBreadcrumbItem(BaseModel):
+    id: str
+    name: str
+    kernel_category: str | None = None
+
+
+class NodeMetadataResponse(BaseModel):
+    id: str
+    kind: str
+    name: str
+    kernel_category: str | None = None
+    definition: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    is_a_breadcrumb: list[MetadataBreadcrumbItem] = Field(default_factory=list)
+    member_count: int | None = None
+    summary: str | None = None
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    identity_uris: list[str] = Field(default_factory=list)
+
+
 __all__ = [
     "ConnectivityRuleItem",
     "ConnectivityRuleListResponse",
@@ -157,9 +200,13 @@ __all__ = [
     "GraphNode",
     "GraphRelationship",
     "GraphResponse",
+    "BundleRelation",
+    "BundleResponse",
     "GraphResetResponse",
     "HealthResponse",
     "IdentityFacet",
+    "MetadataBreadcrumbItem",
+    "NodeMetadataResponse",
     "IdentityItem",
     "IdentityListResponse",
     "JobResponse",

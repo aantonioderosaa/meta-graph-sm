@@ -90,6 +90,7 @@ export interface GraphPanelProps {
   emptyMessage?: string;
   /** Changing this value re-runs `fetcher` (e.g. concept-bridge toggle). */
   reloadKey?: unknown;
+  onRelationshipClick?: (rel: GraphRelationship) => void;
 }
 
 export function GraphPanel({
@@ -102,6 +103,7 @@ export function GraphPanel({
   selectedId = null,
   emptyMessage = "Nessun nodo nel grafo.",
   reloadKey,
+  onRelationshipClick,
 }: GraphPanelProps) {
   const lastPipelineEvent = useAppStore((s) => s.lastPipelineEvent);
   const kbResetEpoch = useAppStore((s) => s.kbResetEpoch);
@@ -180,14 +182,24 @@ export function GraphPanel({
     [onNodeClick, nodes],
   );
 
+  const onRelationshipClickInternal = useCallback(
+    (nvlRel: { id: string }) => {
+      if (!onRelationshipClick) return;
+      const rel = relationships.find((item) => item.id === nvlRel.id);
+      if (rel) onRelationshipClick(rel);
+    },
+    [onRelationshipClick, relationships],
+  );
+
   const mouseEventCallbacks: MouseEventCallbacks = useMemo(
     () => ({
       onNodeClick: onNodeClickInternal,
+      onRelationshipClick: onRelationshipClickInternal,
       onPan: true,
       onZoom: true,
       onDrag: true,
     }),
-    [onNodeClickInternal],
+    [onNodeClickInternal, onRelationshipClickInternal],
   );
 
   return (
