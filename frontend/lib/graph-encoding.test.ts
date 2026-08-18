@@ -120,4 +120,41 @@ describe("graph visual encoding", () => {
     expect(getEncodingCacheSize().nodes).toBe(1);
     expect(getEncodingCacheSize().rels).toBe(0);
   });
+
+  it("appends · faccette when has_facets or facet_count > 1 and includes it in the cache signature", () => {
+    const withFlag = encodeNode({
+      id: "entity-alice",
+      caption: "Alice",
+      properties: { type: "entity", has_facets: true },
+    });
+    expect(withFlag.caption).toBe("Alice · faccette");
+
+    const withCount = encodeNode({
+      id: "entity-acme",
+      caption: "Acme",
+      properties: { type: "entity", facet_count: 2 },
+    });
+    expect(withCount.caption).toBe("Acme · faccette");
+
+    const single = encodeNode({
+      id: "entity-solo",
+      caption: "Solo",
+      properties: { type: "entity", facet_count: 1 },
+    });
+    expect(single.caption).toBe("Solo");
+
+    clearEncodingCache();
+    const first = encodeNode({
+      id: "entity-alice",
+      caption: "Alice",
+      properties: { type: "entity" },
+    });
+    const second = encodeNode({
+      id: "entity-alice",
+      caption: "Alice",
+      properties: { type: "entity", has_facets: true },
+    });
+    expect(second).not.toBe(first);
+    expect(second.caption).toContain("faccette");
+  });
 });

@@ -60,6 +60,72 @@ class GraphResetResponse(BaseModel):
     deleted: bool
 
 
+class IdentityFacet(BaseModel):
+    id: str
+    name: str
+    kernel_category: str | None = None
+
+
+class IdentityItem(BaseModel):
+    uri: str
+    facets: list[IdentityFacet] = Field(default_factory=list)
+
+
+class IdentityListResponse(BaseModel):
+    items: list[IdentityItem]
+
+
+class UnlinkFacetRequest(BaseModel):
+    facet_node_id: str
+
+
+class UnlinkFacetResponse(BaseModel):
+    unlinked: bool
+    identity_uri: str
+    facet_node_id: str
+
+
+class ContradictionItem(BaseModel):
+    id: str
+    left_id: str
+    left_name: str
+    right_id: str
+    right_name: str
+    subject_id: str | None = None
+
+
+class ContradictionListResponse(BaseModel):
+    items: list[ContradictionItem]
+
+
+class ConnectivityRuleItem(BaseModel):
+    source_category: str
+    relation_type: str
+    target_category: str
+    generalization_level: int = 0
+    origin_count: int = 0
+
+
+class ConnectivityRuleListResponse(BaseModel):
+    items: list[ConnectivityRuleItem]
+
+
+class JudgeRunItem(BaseModel):
+    id: str
+    batch_id: str | None = None
+    timestamp: str | None = None
+    anti_blur: int = 0
+    equivalent_to: int = 0
+    reraffine: int = 0
+    identity: int = 0
+    missed_contradictions: int = 0
+    temporal: int = 0
+
+
+class JudgeRunListResponse(BaseModel):
+    items: list[JudgeRunItem]
+
+
 class NodeQueryRequest(BaseModel):
     text: str
 
@@ -80,6 +146,10 @@ class HealthResponse(BaseModel):
 
 
 __all__ = [
+    "ConnectivityRuleItem",
+    "ConnectivityRuleListResponse",
+    "ContradictionItem",
+    "ContradictionListResponse",
     "DocumentListResponse",
     "DocumentRequest",
     "DocumentSummary",
@@ -89,8 +159,15 @@ __all__ = [
     "GraphResponse",
     "GraphResetResponse",
     "HealthResponse",
+    "IdentityFacet",
+    "IdentityItem",
+    "IdentityListResponse",
     "JobResponse",
+    "JudgeRunItem",
+    "JudgeRunListResponse",
     "NodeQueryRequest",
     "QueryHistoryEntry",
     "QueryHistoryResponse",
+    "UnlinkFacetRequest",
+    "UnlinkFacetResponse",
 ]

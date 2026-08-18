@@ -2,14 +2,19 @@
 
 /**
  * Dashboard shell: single EntityEventExplorer mount (always visible) plus
- * Pipeline Monitor / Node Query around it. Desktop sidebar at lg; mobile uses
- * Sheets — never a second graph (WebGL context cap).
+ * tabbed Pipeline / Query / Metagraph layer panels. Desktop sidebar at lg;
+ * mobile uses Sheets — never a second graph (WebGL context cap).
  */
 
 import { useState } from "react";
-import { Activity, MessageSquareText } from "lucide-react";
+import { Activity, Layers, MessageSquareText } from "lucide-react";
 
+import { ConceptDomainExplorer } from "@/components/ConceptDomainExplorer";
+import { ConnectivityRulesPanel } from "@/components/ConnectivityRulesPanel";
+import { ContradictionsPanel } from "@/components/ContradictionsPanel";
 import { EntityEventExplorer } from "@/components/EntityEventExplorer";
+import { IdentityDetailPanel } from "@/components/IdentityDetailPanel";
+import { JudgeLogPanel } from "@/components/JudgeLogPanel";
 import { NodeQueryPanel } from "@/components/NodeQueryPanel";
 import { PipelineEventBridge } from "@/components/PipelineEventBridge";
 import { PipelineMonitorPanel } from "@/components/PipelineMonitorPanel";
@@ -20,10 +25,74 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+function LayerTabs({
+  highlightIds,
+  onHighlightChange,
+  defaultValue = "pipeline",
+}: {
+  highlightIds: Set<string> | null;
+  onHighlightChange: (ids: Set<string> | null) => void;
+  defaultValue?: string;
+}) {
+  return (
+    <Tabs defaultValue={defaultValue} className="flex h-full min-h-0 flex-col">
+      <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/60 p-1">
+        <TabsTrigger value="pipeline" className="px-2 text-[11px]">
+          Pipeline
+        </TabsTrigger>
+        <TabsTrigger value="query" className="px-2 text-[11px]">
+          Query
+        </TabsTrigger>
+        <TabsTrigger value="dominio" className="px-2 text-[11px]">
+          Dominio
+        </TabsTrigger>
+        <TabsTrigger value="identita" className="px-2 text-[11px]">
+          Identità
+        </TabsTrigger>
+        <TabsTrigger value="contraddizioni" className="px-2 text-[11px]">
+          Contraddizioni
+        </TabsTrigger>
+        <TabsTrigger value="regole" className="px-2 text-[11px]">
+          Regole
+        </TabsTrigger>
+        <TabsTrigger value="giudice" className="px-2 text-[11px]">
+          Giudice
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="pipeline" className="mt-2 min-h-0 flex-1 overflow-hidden">
+        <PipelineMonitorPanel />
+      </TabsContent>
+      <TabsContent value="query" className="mt-2 min-h-0 flex-1 overflow-hidden">
+        <NodeQueryPanel
+          highlightIds={highlightIds}
+          onHighlightChange={onHighlightChange}
+        />
+      </TabsContent>
+      <TabsContent value="dominio" className="mt-2 min-h-0 flex-1 overflow-hidden">
+        <ConceptDomainExplorer onHighlightChange={onHighlightChange} />
+      </TabsContent>
+      <TabsContent value="identita" className="mt-2 min-h-0 flex-1 overflow-hidden">
+        <IdentityDetailPanel onHighlightChange={onHighlightChange} />
+      </TabsContent>
+      <TabsContent value="contraddizioni" className="mt-2 min-h-0 flex-1 overflow-hidden">
+        <ContradictionsPanel onHighlightChange={onHighlightChange} />
+      </TabsContent>
+      <TabsContent value="regole" className="mt-2 min-h-0 flex-1 overflow-hidden">
+        <ConnectivityRulesPanel />
+      </TabsContent>
+      <TabsContent value="giudice" className="mt-2 min-h-0 flex-1 overflow-hidden">
+        <JudgeLogPanel />
+      </TabsContent>
+    </Tabs>
+  );
+}
 
 export function DashboardShell() {
   const [pipelineOpen, setPipelineOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
+  const [layerOpen, setLayerOpen] = useState(false);
   const [highlightIds, setHighlightIds] = useState<Set<string> | null>(null);
 
   return (
@@ -52,6 +121,10 @@ export function DashboardShell() {
             <MessageSquareText className="mr-2 h-4 w-4" />
             Query
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setLayerOpen(true)}>
+            <Layers className="mr-2 h-4 w-4" />
+            Layer
+          </Button>
         </div>
       </header>
 
@@ -64,16 +137,11 @@ export function DashboardShell() {
             onHighlightChange={setHighlightIds}
           />
         </div>
-        <aside className="hidden w-full shrink-0 flex-col gap-3 lg:flex lg:w-80">
-          <div className="min-h-[180px] flex-1">
-            <PipelineMonitorPanel />
-          </div>
-          <div className="min-h-[180px] flex-1">
-            <NodeQueryPanel
-              highlightIds={highlightIds}
-              onHighlightChange={setHighlightIds}
-            />
-          </div>
+        <aside className="hidden w-full shrink-0 flex-col lg:flex lg:w-80">
+          <LayerTabs
+            highlightIds={highlightIds}
+            onHighlightChange={setHighlightIds}
+          />
         </aside>
       </div>
 
@@ -93,6 +161,14 @@ export function DashboardShell() {
         >
           <MessageSquareText className="mr-2 h-4 w-4" />
           Query
+        </Button>
+        <Button
+          variant="outline"
+          className="flex-1"
+          onClick={() => setLayerOpen(true)}
+        >
+          <Layers className="mr-2 h-4 w-4" />
+          Layer
         </Button>
       </div>
 
@@ -116,6 +192,21 @@ export function DashboardShell() {
             <NodeQueryPanel
               highlightIds={highlightIds}
               onHighlightChange={setHighlightIds}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={layerOpen} onOpenChange={setLayerOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Layer Metagraph</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 h-[calc(100vh-8rem)]">
+            <LayerTabs
+              highlightIds={highlightIds}
+              onHighlightChange={setHighlightIds}
+              defaultValue="dominio"
             />
           </div>
         </SheetContent>

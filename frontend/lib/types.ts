@@ -155,3 +155,69 @@ export interface GetEntityEventGraphParams {
 export interface GetGraphLimitParams {
   limit?: number;
 }
+
+export interface IdentityFacet {
+  id: string;
+  name: string;
+  kernel_category?: string | null;
+}
+
+export interface IdentityItem {
+  uri: string;
+  facets: IdentityFacet[];
+}
+
+export interface IdentityListResponse {
+  items: IdentityItem[];
+}
+
+export interface UnlinkFacetRequest {
+  facet_node_id: string;
+}
+
+export interface UnlinkFacetResponse {
+  unlinked: boolean;
+  identity_uri: string;
+  facet_node_id: string;
+}
+
+export interface ContradictionItem {
+  id: string;
+  left_id: string;
+  left_name: string;
+  right_id: string;
+  right_name: string;
+  subject_id?: string | null;
+}
+
+export interface ContradictionListResponse {
+  items: ContradictionItem[];
+}
+
+export interface ConnectivityRuleItem {
+  source_category: string;
+  relation_type: string;
+  target_category: string;
+  generalization_level: number;
+  origin_count: number;
+}
+
+export interface ConnectivityRuleListResponse {
+  items: ConnectivityRuleItem[];
+}
+
+export interface JudgeRunItem {
+  id: string;
+  batch_id?: string | null;
+  timestamp?: string | null;
+  anti_blur: number;
+  equivalent_to: number;
+  reraffine: number;
+  identity: number;
+  missed_contradictions: number;
+  temporal: number;
+}
+
+export interface JudgeRunListResponse {
+  items: JudgeRunItem[];
+}

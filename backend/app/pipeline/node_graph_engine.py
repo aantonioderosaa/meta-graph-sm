@@ -88,6 +88,12 @@ RETURN c, count(n) AS degree
 ORDER BY degree DESC LIMIT $limit
 """
 
+CONCEPT_OVERVIEW_ISA_CYPHER = """
+MATCH (child:Concept)-[:IS_A]->(parent:Concept)
+WHERE child.id IN $ids OR parent.id IN $ids
+RETURN child, parent
+"""
+
 CONCEPT_BY_ID_CYPHER = """
 MATCH (c:Concept {id: $concept_id})
 RETURN c
@@ -96,8 +102,37 @@ RETURN c
 CONCEPT_NEIGHBORS_CYPHER = """
 MATCH (c:Concept {id: $concept_id})<-[:HAS_CONCEPT]-(n:Node)
 WHERE n.merged_into IS NULL
-RETURN n.id AS id, n.name AS name, n.type AS type
+RETURN n.id AS id, n.name AS name, n.type AS type,
+       n.kernel_category AS kernel_category
 """
+
+CONCEPT_ISA_PARENT_CYPHER = """
+MATCH (c:Concept {id: $concept_id})-[:IS_A]->(parent:Concept)
+RETURN parent
+"""
+
+CONCEPT_ISA_CHILDREN_CYPHER = """
+MATCH (child:Concept)-[:IS_A]->(c:Concept {id: $concept_id})
+RETURN child
+"""
+
+CONCEPT_MEMBERS_CYPHER = """
+MATCH (n:Node)-[:MEMBER_OF]->(c:Concept {id: $concept_id})
+WHERE n.merged_into IS NULL
+RETURN n.id AS id, n.name AS name, n.type AS type,
+       n.kernel_category AS kernel_category
+"""
+
+ENTITY_FACET_COUNTS_CYPHER = """
+MATCH (n:Node)-[:SAME_AS]->(i:IdentityNode)
+WHERE n.id IN $ids
+MATCH (facet:Node)-[:SAME_AS]->(i)
+WITH n.id AS id, count(DISTINCT facet) AS facet_count
+WHERE facet_count > 1
+RETURN id, facet_count
+"""
+
+_CONCEPT_PROP_KEYS = ("parent_uri", "kernel_category", "definition")
 
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
@@ -115,6 +150,10 @@ def _get(obj: Any, key: str, default: Any = None) -> Any:
 def _graph_node_from_node(n: Any, extra: dict[str, Any] | None = None) -> GraphNode:
     nid = str(n["id"])
     props: dict[str, Any] = {"type": _get(n, "type")}
+    for key in _CONCEPT_PROP_KEYS:
+        value = _get(n, key)
+        if value is not None:
+            props[key] = value
     if extra:
         props.update(extra)
     return GraphNode(id=nid, caption=_get(n, "name") or nid, properties=props)
@@ -180,6 +219,24 @@ async def _typed_node_graph(
     return GraphResponse(nodes=nodes, relationships=relationships)
 
 
+async def _annotate_multi_facet_identities(
+    session: AsyncSession, nodes: list[GraphNode]
+) -> None:
+    """Mark entity nodes that share an IdentityNode with more than one facet."""
+    ids = [node.id for node in nodes]
+    if not ids:
+        return
+    result = await session.run(ENTITY_FACET_COUNTS_CYPHER, ids=ids)
+    counts: dict[str, int] = {}
+    async for record in result:
+        counts[str(record["id"])] = int(record["facet_count"])
+    for node in nodes:
+        count = counts.get(node.id)
+        if count is not None and count > 1:
+            node.properties["has_facets"] = True
+            node.properties["facet_count"] = count
+
+
 async def _append_concept_bridge(
     session: AsyncSession,
     base: GraphResponse,
@@ -233,6 +290,7 @@ async def get_entity_graph(
         is_latest=is_latest,
         limit=limit,
     )
+    await _annotate_multi_facet_identities(session, base.nodes)
     return await _append_concept_bridge(
         session,
         base,
@@ -288,23 +346,51 @@ async def get_participation_graph(session: AsyncSession, limit: int = 200) -> Gr
     return GraphResponse(nodes=list(nodes_by_id.values()), relationships=relationships)
 
 
+def _neighbor_graph_node(rec: Any) -> GraphNode:
+    nid = str(rec["id"])
+    props: dict[str, Any] = {"type": _get(rec, "type")}
+    kernel = _get(rec, "kernel_category")
+    if kernel is not None:
+        props["kernel_category"] = kernel
+    return GraphNode(id=nid, caption=_get(rec, "name") or nid, properties=props)
+
+
 async def get_concept_overview(session: AsyncSession, limit: int = 100) -> GraphResponse:
-    """Concepts ranked by number of linked (non-merged) nodes. No edges required."""
+    """Concepts ranked by HAS_CONCEPT degree, plus IS_A child→parent edges."""
     result = await session.run(CONCEPT_OVERVIEW_CYPHER, limit=limit)
-    nodes: list[GraphNode] = []
+    nodes_by_id: dict[str, GraphNode] = {}
     async for record in result:
         concept = record["c"]
-        nodes.append(
-            _graph_node_from_node(
-                concept,
-                extra={"degree": int(record["degree"]), "type": "concept"},
-            )
+        node = _graph_node_from_node(
+            concept,
+            extra={"degree": int(record["degree"]), "type": "concept"},
         )
-    return GraphResponse(nodes=nodes, relationships=[])
+        nodes_by_id[node.id] = node
+
+    relationships: list[GraphRelationship] = []
+    ids = list(nodes_by_id.keys())
+    if ids:
+        isa_result = await session.run(CONCEPT_OVERVIEW_ISA_CYPHER, ids=ids)
+        async for rec in isa_result:
+            child_node = _graph_node_from_node(rec["child"], extra={"type": "concept"})
+            parent_node = _graph_node_from_node(rec["parent"], extra={"type": "concept"})
+            nodes_by_id.setdefault(child_node.id, child_node)
+            nodes_by_id.setdefault(parent_node.id, parent_node)
+            relationships.append(
+                _graph_relationship(
+                    f"{child_node.id}-IS_A-{parent_node.id}",
+                    child_node.id,
+                    parent_node.id,
+                    "IS_A",
+                    "IS_A",
+                )
+            )
+
+    return GraphResponse(nodes=list(nodes_by_id.values()), relationships=relationships)
 
 
 async def get_concept_neighbors(session: AsyncSession, concept_id: str) -> GraphResponse:
-    """Concept plus linked entities and events (HAS_CONCEPT from neighbor → concept)."""
+    """Concept plus HAS_CONCEPT neighbors, IS_A parent/children, MEMBER_OF members."""
     result = await session.run(CONCEPT_BY_ID_CYPHER, concept_id=concept_id)
     record = await result.single()
     if record is None:
@@ -322,9 +408,7 @@ async def get_concept_neighbors(session: AsyncSession, concept_id: str) -> Graph
         if nid in seen:
             continue
         seen.add(nid)
-        ntype = _get(rec, "type")
-        name = _get(rec, "name")
-        nodes.append(GraphNode(id=nid, caption=name or nid, properties={"type": ntype}))
+        nodes.append(_neighbor_graph_node(rec))
         relationships.append(
             _graph_relationship(
                 f"{nid}-HAS_CONCEPT-{concept_node.id}",
@@ -332,6 +416,54 @@ async def get_concept_neighbors(session: AsyncSession, concept_id: str) -> Graph
                 concept_node.id,
                 "HAS_CONCEPT",
                 "HAS_CONCEPT",
+            )
+        )
+
+    parent_result = await session.run(CONCEPT_ISA_PARENT_CYPHER, concept_id=concept_id)
+    async for rec in parent_result:
+        parent_node = _graph_node_from_node(rec["parent"], extra={"type": "concept"})
+        if parent_node.id not in seen:
+            seen.add(parent_node.id)
+            nodes.append(parent_node)
+        relationships.append(
+            _graph_relationship(
+                f"{concept_node.id}-IS_A-{parent_node.id}",
+                concept_node.id,
+                parent_node.id,
+                "IS_A",
+                "IS_A",
+            )
+        )
+
+    child_result = await session.run(CONCEPT_ISA_CHILDREN_CYPHER, concept_id=concept_id)
+    async for rec in child_result:
+        child_node = _graph_node_from_node(rec["child"], extra={"type": "concept"})
+        if child_node.id not in seen:
+            seen.add(child_node.id)
+            nodes.append(child_node)
+        relationships.append(
+            _graph_relationship(
+                f"{child_node.id}-IS_A-{concept_node.id}",
+                child_node.id,
+                concept_node.id,
+                "IS_A",
+                "IS_A",
+            )
+        )
+
+    member_result = await session.run(CONCEPT_MEMBERS_CYPHER, concept_id=concept_id)
+    async for rec in member_result:
+        nid = str(rec["id"])
+        if nid not in seen:
+            seen.add(nid)
+            nodes.append(_neighbor_graph_node(rec))
+        relationships.append(
+            _graph_relationship(
+                f"{nid}-MEMBER_OF-{concept_node.id}",
+                nid,
+                concept_node.id,
+                "MEMBER_OF",
+                "MEMBER_OF",
             )
         )
 

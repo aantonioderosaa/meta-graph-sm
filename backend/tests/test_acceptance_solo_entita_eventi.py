@@ -16,7 +16,8 @@ from app.main import app
 FACT_STAGES = frozenset(
     {"extraction", "grouping", "consolidation", "relation_detection"}
 )
-FACT_RESIDUE = re.compile(r"\bFact\b|:Fact\b|fact_")
+# origin_fact_ids is the ConnectivityRule origin list (Fase 7), not the removed :Fact layer.
+FACT_RESIDUE = re.compile(r"\bFact\b|:Fact\b|(?<!origin_)fact_")
 SM_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = SM_ROOT / "backend" / "app"
 FRONTEND_COMPONENTS = SM_ROOT / "frontend" / "components"
@@ -88,6 +89,27 @@ def test_scenario_2_dashboard_has_single_entity_event_explorer():
     assert "NodeQueryPanel" in shell
     assert "Fatti" not in shell
     assert "GraphViewTabs" not in shell
+    assert "ConceptDomainExplorer" in shell
+    assert "IdentityDetailPanel" in shell
+    assert "ContradictionsPanel" in shell
+    assert "ConnectivityRulesPanel" in shell
+    assert "JudgeLogPanel" in shell
+
+
+def test_scenario_2b_metagraph_layer_panels_exist_as_list_not_nvl():
+    names = (
+        "ConceptDomainExplorer.tsx",
+        "IdentityDetailPanel.tsx",
+        "ContradictionsPanel.tsx",
+        "ConnectivityRulesPanel.tsx",
+        "JudgeLogPanel.tsx",
+    )
+    for name in names:
+        path = FRONTEND_COMPONENTS / name
+        assert path.is_file(), name
+        text = path.read_text(encoding="utf-8")
+        assert "InteractiveNvlWrapper" not in text
+        assert "GraphPanel" not in text
 
 
 def test_scenario_3_graph_panel_handles_nvl_init_error():

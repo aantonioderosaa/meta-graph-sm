@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ApiError, getNodeQueryHistory, postNodeQuery } from "@/lib/api-client";
+import { citationBadge, listCitationBadges } from "@/lib/citation-badges";
 import { idsFromNodeQuerySubgraph } from "@/lib/node-query-highlight";
 import {
   formatQueryHistoryLabel,
@@ -203,38 +204,25 @@ export function NodeQueryPanel({
                 <ul className="space-y-1.5">
                   {response.nodes_used.map((node) => {
                     const cited = response.cited_node_ids.includes(node.id);
+                    const badge = citationBadge(node.id, response);
                     const docs =
                       node.source_doc_ids.length > 0
                         ? node.source_doc_ids.join(", ")
                         : "—";
                     return (
-                      <li
+                      <CitationRow
                         key={node.id}
-                        className={cn(
-                          "w-full rounded border bg-muted/30 px-2 py-1.5 text-left text-xs",
-                          cited ? "border-primary" : "border-border/70",
-                        )}
-                      >
-                        <span className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
-                          {cited ? (
-                            <Quote
-                              className="h-3 w-3 shrink-0 text-primary"
-                              aria-label="Citato nella risposta"
-                            />
-                          ) : null}
-                          {node.name} · {NODE_TYPE_LABEL[node.type]} · {docs}
-                          {cited ? (
-                            <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-sans uppercase tracking-wide text-primary">
-                              citato
-                            </span>
-                          ) : null}
-                        </span>
-                      </li>
+                        cited={cited || badge !== null}
+                        label={`${node.name} · ${NODE_TYPE_LABEL[node.type]} · ${docs}`}
+                        badge={badge}
+                      />
                     );
                   })}
                 </ul>
               )}
             </div>
+
+            <CitationExtras response={response} />
 
             <div>
               <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -259,5 +247,75 @@ export function NodeQueryPanel({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function CitationRow({
+  cited,
+  label,
+  badge,
+}: {
+  cited: boolean;
+  label: string;
+  badge: ReturnType<typeof citationBadge>;
+}) {
+  const [open, setOpen] = useState(false);
+  const derived = badge?.status === "derived";
+  return (
+    <li
+      className={cn(
+        "w-full rounded border bg-muted/30 px-2 py-1.5 text-left text-xs",
+        cited ? "border-primary" : "border-border/70",
+      )}
+    >
+      <span className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+        {cited ? (
+          <Quote className="h-3 w-3 shrink-0 text-primary" aria-label="Citato nella risposta" />
+        ) : null}
+        {label}
+        {badge ? (
+          derived ? (
+            <button
+              type="button"
+              className="rounded bg-amber-500/15 px-1 py-0.5 font-sans text-[9px] uppercase tracking-wide text-amber-700"
+              onClick={() => setOpen((value) => !value)}
+            >
+              {badge.label}
+            </button>
+          ) : (
+            <span className="rounded bg-muted px-1 py-0.5 font-sans text-[9px] uppercase tracking-wide text-muted-foreground">
+              {badge.label}
+            </span>
+          )
+        ) : null}
+      </span>
+      {open && derived && badge && badge.chain.length > 0 ? (
+        <ol className="mt-1 space-y-0.5 border-l border-amber-500/40 pl-2 text-[10px] text-muted-foreground">
+          {badge.chain.map((step, index) => (
+            <li key={`${step.kind}-${index}`}>
+              <span className="font-medium uppercase">{step.kind}</span> · {step.detail}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </li>
+  );
+}
+
+function CitationExtras({ response }: { response: NodeQueryResponse }) {
+  const used = new Set(response.nodes_used.map((node) => node.id));
+  const extras = listCitationBadges(response).filter((badge) => !used.has(badge.id));
+  if (extras.length === 0) return null;
+  return (
+    <div>
+      <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Altre citazioni ({extras.length})
+      </h3>
+      <ul className="space-y-1.5">
+        {extras.map((badge) => (
+          <CitationRow key={badge.id} cited label={badge.id} badge={badge} />
+        ))}
+      </ul>
+    </div>
   );
 }

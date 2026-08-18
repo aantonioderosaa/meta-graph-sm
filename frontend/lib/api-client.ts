@@ -4,17 +4,23 @@
  */
 
 import type {
+  ConnectivityRuleListResponse,
+  ContradictionListResponse,
   DocumentListResponse,
   DocumentRequest,
   DreamingRunRequest,
   GetEntityEventGraphParams,
   GetGraphLimitParams,
   GraphResponse,
+  IdentityItem,
+  IdentityListResponse,
   JobResponse,
+  JudgeRunListResponse,
   NodeQueryRequest,
   NodeQueryResponse,
   QueryHistoryResponse,
   ReconcileResponse,
+  UnlinkFacetResponse,
 } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -145,6 +151,39 @@ export function getConceptNeighbors(conceptId: string): Promise<GraphResponse> {
   return request<GraphResponse>(
     `/graph/concepts/${encodeURIComponent(conceptId)}`,
   );
+}
+
+export function getIdentities(): Promise<IdentityListResponse> {
+  return request<IdentityListResponse>("/graph/identities");
+}
+
+export function getIdentity(uri: string): Promise<IdentityItem> {
+  return request<IdentityItem>(`/graph/identities/${encodeURIComponent(uri)}`);
+}
+
+export function postUnlinkFacet(
+  uri: string,
+  facetNodeId: string,
+): Promise<UnlinkFacetResponse> {
+  return request<UnlinkFacetResponse>(
+    `/graph/identities/${encodeURIComponent(uri)}/unlink`,
+    {
+      method: "POST",
+      body: JSON.stringify({ facet_node_id: facetNodeId }),
+    },
+  );
+}
+
+export function getContradictions(): Promise<ContradictionListResponse> {
+  return request<ContradictionListResponse>("/graph/contradictions");
+}
+
+export function getConnectivityRules(): Promise<ConnectivityRuleListResponse> {
+  return request<ConnectivityRuleListResponse>("/graph/connectivity-rules");
+}
+
+export function getJudgeRuns(): Promise<JudgeRunListResponse> {
+  return request<JudgeRunListResponse>("/graph/judge-runs");
 }
 
 export async function resetKnowledgeBase(): Promise<void> {
