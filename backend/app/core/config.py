@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # discussion) — while False, consolidation groups skip abstraction entirely and each
     # fact is evaluated individually for updates/extends instead. Flip to re-enable.
     ENABLE_DERIVES: bool = False
+    # Two-threshold MDL baseline for genre promotion (doc4 §1). Both required (AND).
+    # Declared here so k/m are tarable; unused by the pipeline until Fase 5.
+    BACKBONE_MDL_MIN_COVERAGE: int = 5
+    BACKBONE_MDL_MIN_PAYLOAD: int = 2
 
 
 settings = Settings()
