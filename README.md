@@ -4,6 +4,7 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 
 ## Documentazione
 
+- Kernel a tre assi (vocabolario chiuso in `backend/app/models/kernel.py`; nessun cambiamento di pipeline in Fase 0)
 - [Scope e semantica](./milestone1/milestone1.md)
 - [Specifica tecnica](./milestone1/milestone1-tech-spec.md)
 - [Piano implementativo (epic/task)](./milestone1/milestone1-implementation-plan.md)
