@@ -49,6 +49,13 @@ class FakeSession:
             async def single(self):
                 return session._existing_corpus
 
+            def __aiter__(self):
+                return self._iterate()
+
+            async def _iterate(self):
+                if False:
+                    yield {}
+
         return _Result()
 
 

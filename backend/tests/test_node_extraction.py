@@ -32,6 +32,19 @@ class FakeSession:
     async def run(self, cypher, **kwargs):
         self.calls.append((cypher, kwargs))
 
+        class _Result:
+            async def single(self):
+                return None
+
+            def __aiter__(self):
+                return self._iterate()
+
+            async def _iterate(self):
+                if False:
+                    yield {}
+
+        return _Result()
+
 
 def _entity_rel() -> EntityRelationExtractionResult:
     return EntityRelationExtractionResult(

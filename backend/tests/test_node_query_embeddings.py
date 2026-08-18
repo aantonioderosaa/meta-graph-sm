@@ -4,8 +4,24 @@ from __future__ import annotations
 
 import pytest
 
+from app.models.kernel import RelationKernelType
 from app.pipeline.concepts import MERGE_CONCEPT_LINK_CYPHER, merge_concept_and_link
 from app.pipeline.ingestion import CREATE_NODE_RELATION_CYPHER, write_node_relation
+
+
+class FakeResult:
+    def __init__(self, records: list[dict] | None = None):
+        self._records = records or []
+
+    async def single(self):
+        return self._records[0] if self._records else None
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def _iterate(self):
+        for record in self._records:
+            yield record
 
 
 class FakeSession:
@@ -14,6 +30,7 @@ class FakeSession:
 
     async def run(self, cypher, **kwargs):
         self.calls.append((cypher, kwargs))
+        return FakeResult()
 
 
 @pytest.mark.asyncio
@@ -52,6 +69,7 @@ async def test_write_open_vocab_relation_embeds_synthetic_text(monkeypatch):
         normalized_relation=None,
         head_name="Mario",
         tail_name="Acme",
+        kernel_parent=RelationKernelType.SocialeIntenzionale,
     )
 
     assert seen == ["Mario ha fondato Acme"]
@@ -77,6 +95,7 @@ async def test_participates_relation_never_embeds(monkeypatch):
         normalized_relation="participates",
         head_name="product launch",
         tail_name="Alice",
+        kernel_parent=RelationKernelType.Partecipativa,
     )
 
     cypher, kwargs = session.calls[0]

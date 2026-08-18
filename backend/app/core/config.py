@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # Two-threshold MDL baseline for genre promotion (doc4 §1). Both required (AND).
     BACKBONE_MDL_MIN_COVERAGE: int = 5
     BACKBONE_MDL_MIN_PAYLOAD: int = 2
+    # Fase 7: S1 generalization up the Concept IS_A lattice. Stop before kernel catch-all.
+    CONNECTIVITY_MAX_GENERALIZATION_HOPS: int = 1
 
 
 settings = Settings()

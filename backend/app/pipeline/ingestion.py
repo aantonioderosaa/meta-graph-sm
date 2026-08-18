@@ -25,6 +25,7 @@ from app.models.node_extraction import (
 from app.pipeline import chunking, embeddings, node_extraction
 from app.pipeline.chunking import Chunk
 from app.pipeline.concepts import merge_concept_and_link
+from app.pipeline.connectivity_rules import deposit_from_asserted_fact
 from app.pipeline.node_extraction_prompts import build_corpus_summary_prompt
 
 logger = logging.getLogger(__name__)
@@ -194,14 +195,21 @@ async def write_node_relation(
     witness_source: str = "",
     witness_target: str = "",
 ) -> None:
-    embedding = None
-    if normalized_relation != "participates":
-        embedding = embeddings.embed(f"{head_name} {relation} {tail_name}")
     parent_value: str | None
     if isinstance(kernel_parent, RelationKernelType):
         parent_value = kernel_parent.value
     else:
         parent_value = kernel_parent
+    if not (parent_value or "").strip():
+        logger.warning(
+            "skipping asserted relation without kernel_parent head_id=%s tail_id=%s",
+            head_id,
+            tail_id,
+        )
+        return
+    embedding = None
+    if normalized_relation != "participates":
+        embedding = embeddings.embed(f"{head_name} {relation} {tail_name}")
     await session.run(
         CREATE_NODE_RELATION_CYPHER,
         head_id=head_id,
@@ -212,6 +220,15 @@ async def write_node_relation(
         kernel_parent=parent_value,
         witnesses_a=[witness_source] if witness_source.strip() else [],
         witnesses_b=[witness_target] if witness_target.strip() else [],
+    )
+    relation_type = (relation or "").strip() or parent_value
+    origin_id = f"{head_id}|{relation_type}|{tail_id}"
+    await deposit_from_asserted_fact(
+        session,
+        head_id=head_id,
+        tail_id=tail_id,
+        relation_type=relation_type,
+        origin_id=origin_id,
     )
 
 

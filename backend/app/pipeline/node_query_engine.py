@@ -12,7 +12,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from neo4j import AsyncSession
 from neo4j.exceptions import ClientError
@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.llm_client import call_structured
+from app.models.kernel import IS_A, MEMBER_OF
 from app.models.query import (
     ConceptUsed,
     NodeQueryResponse,
@@ -29,6 +30,7 @@ from app.models.query import (
     NodeUsed,
 )
 from app.pipeline import embeddings
+from app.pipeline.connectivity_rules import kernel_catch_all_ids
 from app.pipeline.node_ppr_projection import PPR_GRAPH_NAME, ensure_ppr_projection
 
 logger = logging.getLogger(__name__)
@@ -770,3 +772,347 @@ async def run_node_query(
     )
     await _persist_node_query_log(session, text=text, response=response)
     return response
+
+
+# ---------------------------------------------------------------------------
+# Fase 7 — Strato 2 derivation (query-time only; never CREATE/MERGE :Relation)
+# ---------------------------------------------------------------------------
+
+_ISA_REL = IS_A.upper()
+_MEMBER_OF_REL = MEMBER_OF.upper()
+MAX_DESCENT_HOPS = 3
+
+LOAD_CONNECTIVITY_RULES_CYPHER = """
+MATCH (r:ConnectivityRule)
+RETURN r.source_category AS source_category,
+       r.relation_type AS relation_type,
+       r.target_category AS target_category,
+       r.generalization_level AS generalization_level,
+       r.origin_fact_ids AS origin_fact_ids
+"""
+
+LOAD_LEAF_S0_RELATIONS_CYPHER = """
+MATCH (a:Node)-[r:Relation]->(b:Node)
+WHERE r.lifted_from IS NULL
+  AND a.merged_into IS NULL
+  AND b.merged_into IS NULL
+RETURN a.id AS src_id, b.id AS tgt_id,
+       r.relation AS relation,
+       r.kernel_parent AS kernel_parent,
+       r.normalized_relation AS normalized_relation
+"""
+
+LOAD_NODE_TYPE_TOKENS_CYPHER = f"""
+MATCH (n:Node)
+WHERE n.merged_into IS NULL
+OPTIONAL MATCH (n)-[:{_MEMBER_OF_REL}]->(c:Concept)
+RETURN n.id AS id,
+       n.kernel_category AS kernel_category,
+       c.id AS concept_id,
+       c.name AS concept_name
+"""
+
+LOAD_ISA_EDGES_CYPHER = f"""
+MATCH (child:Concept)-[:{_ISA_REL}]->(parent:Concept)
+RETURN child.id AS child_id, parent.id AS parent_id
+"""
+
+
+@dataclass
+class DerivationStep:
+    kind: Literal["s0", "s1"]
+    detail: str
+
+
+@dataclass
+class DerivedLink:
+    source_id: str
+    target_id: str
+    relation_type: str
+    confidence: float
+    derivation_chain: list[DerivationStep]
+
+
+@dataclass(frozen=True)
+class _S0Edge:
+    src_id: str
+    tgt_id: str
+    relation: str
+    kernel_parent: str | None
+
+
+@dataclass(frozen=True)
+class _S1Rule:
+    source_category: str
+    relation_type: str
+    target_category: str
+    generalization_level: int
+
+
+def _as_str(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+async def _iter_rows(result: Any) -> list[dict[str, Any]]:
+    if result is None:
+        return []
+    rows: list[dict[str, Any]] = []
+    aiter = getattr(result, "__aiter__", None)
+    if aiter is None:
+        single = getattr(result, "single", None)
+        if callable(single):
+            row = await single()
+            if row is None:
+                return []
+            return [dict(row) if not isinstance(row, dict) else row]
+        return []
+    async for record in result:
+        rows.append(dict(record) if not isinstance(record, dict) else record)
+    return rows
+
+
+def _edge_matches_rule(edge: _S0Edge, rule: _S1Rule) -> bool:
+    want = rule.relation_type
+    rel = edge.relation
+    parent = edge.kernel_parent or ""
+    return want in {rel, parent} or rel.casefold() == want.casefold()
+
+
+def _direct_s0_pair(edges: list[_S0Edge], src: str, tgt: str) -> bool:
+    return any(edge.src_id == src and edge.tgt_id == tgt for edge in edges)
+
+
+def _node_type_tokens(
+    row: dict[str, Any],
+    isa_parent: dict[str, str],
+    catch_alls: frozenset[str],
+) -> list[str]:
+    """Specific → general, excluding kernel catch-all ids."""
+    tokens: list[str] = []
+    seen: set[str] = set()
+
+    def _add(token: str | None) -> None:
+        if not token or token in seen or token in catch_alls:
+            return
+        seen.add(token)
+        tokens.append(token)
+
+    concept_id = row.get("concept_id")
+    if concept_id:
+        _add(str(concept_id))
+        current = str(concept_id)
+        walked = 0
+        while current in isa_parent and walked < 8:
+            current = isa_parent[current]
+            if current in catch_alls:
+                break
+            _add(current)
+            walked += 1
+    _add(_as_str(row.get("concept_name")) or None)
+    _add(_as_str(row.get("kernel_category")) or None)
+    return tokens
+
+
+def _directed_paths(
+    edges: list[_S0Edge],
+    src: str,
+    tgt: str,
+    *,
+    min_len: int = 2,
+    max_len: int = MAX_DESCENT_HOPS,
+) -> list[list[_S0Edge]]:
+    adj: dict[str, list[_S0Edge]] = {}
+    for edge in edges:
+        adj.setdefault(edge.src_id, []).append(edge)
+    found: list[list[_S0Edge]] = []
+    stack: list[tuple[str, list[_S0Edge]]] = [(src, [])]
+    while stack:
+        node, path = stack.pop()
+        if len(path) >= max_len:
+            continue
+        seen_nodes = {src, *(step.tgt_id for step in path)}
+        for edge in adj.get(node, []):
+            if edge.tgt_id in seen_nodes:
+                continue
+            new_path = path + [edge]
+            if edge.tgt_id == tgt and min_len <= len(new_path) <= max_len:
+                found.append(new_path)
+            elif len(new_path) < max_len:
+                stack.append((edge.tgt_id, new_path))
+    found.sort(key=len)
+    return found
+
+
+def _shared_neighbor_path(
+    edges: list[_S0Edge], src: str, tgt: str, rule: _S1Rule
+) -> list[_S0Edge] | None:
+    """Undirected 2-hop via a shared neighbor that instantiates the rule pattern."""
+    src_inc: dict[str, _S0Edge] = {}
+    tgt_inc: dict[str, _S0Edge] = {}
+    for edge in edges:
+        if edge.src_id == src:
+            src_inc[edge.tgt_id] = edge
+        elif edge.tgt_id == src:
+            src_inc[edge.src_id] = edge
+        if edge.src_id == tgt:
+            tgt_inc[edge.tgt_id] = edge
+        elif edge.tgt_id == tgt:
+            tgt_inc[edge.src_id] = edge
+    for neighbor, first in src_inc.items():
+        if neighbor in {src, tgt} or neighbor not in tgt_inc:
+            continue
+        second = tgt_inc[neighbor]
+        if _edge_matches_rule(first, rule) or _edge_matches_rule(second, rule):
+            return [first, second]
+    return None
+
+
+def _descent_path(
+    edges: list[_S0Edge], src: str, tgt: str, rule: _S1Rule
+) -> list[_S0Edge] | None:
+    for path in _directed_paths(edges, src, tgt):
+        if any(_edge_matches_rule(step, rule) for step in path):
+            return path
+    return _shared_neighbor_path(edges, src, tgt, rule)
+
+
+def _s0_step_detail(edge: _S0Edge) -> str:
+    rel = edge.relation or edge.kernel_parent or "?"
+    return f"{edge.src_id}-[{rel}]->{edge.tgt_id}"
+
+
+def _s1_step_detail(rule: _S1Rule) -> str:
+    return f"{rule.source_category} -{rule.relation_type}-> {rule.target_category}"
+
+
+def _confidence(rule: _S1Rule, src_tokens: list[str], tgt_tokens: list[str]) -> float:
+    exact = (
+        bool(src_tokens)
+        and bool(tgt_tokens)
+        and src_tokens[0] == rule.source_category
+        and tgt_tokens[0] == rule.target_category
+    )
+    if exact:
+        return 1.0
+    level = max(0, int(rule.generalization_level))
+    return 1.0 / (1.0 + level)
+
+
+async def derive_candidate_links(
+    session: AsyncSession,
+    *,
+    seed_node_ids: list[str] | None = None,
+    source_id: str | None = None,
+    target_id: str | None = None,
+) -> list[DerivedLink]:
+    """Instantiate S2 hypotheses from S1 rules + S0 descent. Zero writes."""
+    rules_result = await session.run(LOAD_CONNECTIVITY_RULES_CYPHER)
+    rule_rows = await _iter_rows(rules_result)
+    rules: list[_S1Rule] = []
+    for row in rule_rows:
+        src_cat = _as_str(row.get("source_category"))
+        rel_type = _as_str(row.get("relation_type"))
+        tgt_cat = _as_str(row.get("target_category"))
+        if not src_cat or not rel_type or not tgt_cat:
+            continue
+        level_raw = row.get("generalization_level")
+        level = int(level_raw) if level_raw is not None else 0
+        rules.append(
+            _S1Rule(
+                source_category=src_cat,
+                relation_type=rel_type,
+                target_category=tgt_cat,
+                generalization_level=level,
+            )
+        )
+    if not rules:
+        return []
+
+    s0_result = await session.run(LOAD_LEAF_S0_RELATIONS_CYPHER)
+    s0_rows = await _iter_rows(s0_result)
+    edges: list[_S0Edge] = []
+    for row in s0_rows:
+        src = _as_str(row.get("src_id"))
+        tgt = _as_str(row.get("tgt_id"))
+        if not src or not tgt:
+            continue
+        edges.append(
+            _S0Edge(
+                src_id=src,
+                tgt_id=tgt,
+                relation=_as_str(row.get("relation")),
+                kernel_parent=_as_str(row.get("kernel_parent")) or None,
+            )
+        )
+
+    tokens_result = await session.run(LOAD_NODE_TYPE_TOKENS_CYPHER)
+    token_rows = await _iter_rows(tokens_result)
+    nodes: dict[str, dict[str, Any]] = {}
+    for row in token_rows:
+        nid = _as_str(row.get("id"))
+        if nid:
+            nodes[nid] = row
+
+    isa_result = await session.run(LOAD_ISA_EDGES_CYPHER)
+    isa_rows = await _iter_rows(isa_result)
+    isa_parent = {
+        _as_str(row.get("child_id")): _as_str(row.get("parent_id"))
+        for row in isa_rows
+        if row.get("child_id") and row.get("parent_id")
+    }
+    catch_alls = kernel_catch_all_ids()
+    token_index: dict[str, list[str]] = {
+        nid: _node_type_tokens(row, isa_parent, catch_alls) for nid, row in nodes.items()
+    }
+
+    if source_id and target_id:
+        pairs = [(source_id, target_id)]
+    else:
+        universe = list(nodes)
+        if seed_node_ids:
+            allowed = set(seed_node_ids)
+            universe = [nid for nid in universe if nid in allowed]
+        pairs = [
+            (a, b) for a in universe for b in universe if a != b
+        ]
+
+    derived: list[DerivedLink] = []
+    seen: set[tuple[str, str, str]] = set()
+    for src, tgt in pairs:
+        if src not in nodes or tgt not in nodes:
+            continue
+        if _direct_s0_pair(edges, src, tgt):
+            continue
+        src_tokens = token_index.get(src) or []
+        tgt_tokens = token_index.get(tgt) or []
+        if not src_tokens or not tgt_tokens:
+            continue
+        matching = [
+            rule
+            for rule in rules
+            if rule.source_category in src_tokens and rule.target_category in tgt_tokens
+        ]
+        matching.sort(key=lambda r: (r.generalization_level, r.relation_type))
+        for rule in matching:
+            key = (src, tgt, rule.relation_type)
+            if key in seen:
+                continue
+            path = _descent_path(edges, src, tgt, rule)
+            if not path:
+                continue
+            seen.add(key)
+            chain = [DerivationStep(kind="s0", detail=_s0_step_detail(step)) for step in path]
+            chain.append(DerivationStep(kind="s1", detail=_s1_step_detail(rule)))
+            derived.append(
+                DerivedLink(
+                    source_id=src,
+                    target_id=tgt,
+                    relation_type=rule.relation_type,
+                    confidence=_confidence(rule, src_tokens, tgt_tokens),
+                    derivation_chain=chain,
+                )
+            )
+            break
+    return derived

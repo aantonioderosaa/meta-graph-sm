@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
 from app.core.config import Settings
 from app.models.kernel import KERNEL_VERSION, EntityKernelType
+from app.pipeline import promote as promote_mod
 from app.pipeline.concepts import kernel_catch_all_concept_id
 from app.pipeline.promote import (
     CREATE_PROMOTED_CONCEPT_CYPHER,
@@ -31,6 +33,7 @@ from app.pipeline.promote import (
     promote,
     promote_clusters,
     promoted_concept_id,
+    update_bundle,
 )
 
 JOB_ID = "job-f5-promote"
@@ -696,3 +699,39 @@ def test_cypher_shapes_create_not_merge_and_skip_backbone():
 
 def test_enable_promote_setting_default_true():
     assert Settings.model_fields["ENABLE_PROMOTE"].default is True
+
+
+def test_update_bundle_is_create_lift_called_from_work():
+    source = Path(promote_mod.__file__).read_text(encoding="utf-8")
+    assert "async def update_bundle" in source
+    assert "await update_bundle(" in source
+    lift = _compact(LIFT_EXTERNAL_RELATION_CYPHER)
+    assert "CREATE (src)-[:Relation" in lift
+    assert "MERGE (src)-[:Relation" not in lift
+
+
+@pytest.mark.asyncio
+async def test_promote_invokes_update_bundle(embed_stub, monkeypatch):
+    called: list[dict] = []
+    orig = update_bundle
+
+    async def spy(tx, *, promoted_concept_id, lift_edges):
+        called.append({"id": promoted_concept_id, "n": len(lift_edges)})
+        await orig(tx, promoted_concept_id=promoted_concept_id, lift_edges=lift_edges)
+
+    monkeypatch.setattr(promote_mod, "update_bundle", spy)
+    session = PromoteFakeSession()
+    parent, ids = _seed_cluster(session.graph)
+    s_id = await promote(session, parent, ids)
+    assert called
+    assert called[0]["id"] == s_id
+    assert called[0]["n"] >= 1
+    lifted = [
+        rel
+        for rel in session.graph.relations
+        if rel.get("src_id") == s_id
+        and rel.get("relation") == "plays_for"
+        and rel.get("lifted_from")
+    ]
+    assert len(lifted) == 1
+    assert "CREATE (src)-[:Relation" in LIFT_EXTERNAL_RELATION_CYPHER

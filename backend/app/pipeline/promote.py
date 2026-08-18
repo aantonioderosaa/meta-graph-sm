@@ -255,6 +255,23 @@ async def _execute_write(session: Any, fn: WriteFn) -> Any:
     return await fn(session)
 
 
+async def update_bundle(
+    tx: Any,
+    *,
+    promoted_concept_id: str,
+    lift_edges: list[dict[str, Any]],
+) -> None:
+    """CREATE-lift distinct external bundle elements onto S. No MERGE, no fusion.
+
+    Called from ``work()`` inside the same ``execute_write`` as the rest of
+    ``promote()``. ``lifted_from`` is already set on each edge.
+    """
+    _ = promoted_concept_id
+    if not lift_edges:
+        return
+    await tx.run(LIFT_EXTERNAL_RELATION_CYPHER, edges=lift_edges)
+
+
 async def _maybe_definition(member_rows: list[dict[str, Any]], name: str) -> str:
     """LLM definition is optional; empty string is acceptable this phase (F5.6)."""
     if not settings.OPENAI_API_KEY:
@@ -459,7 +476,9 @@ async def promote(
             parent_id=parent_concept_id,
             concept_id=concept_id,
         )
-        await tx.run(LIFT_EXTERNAL_RELATION_CYPHER, edges=lift_edges)
+        await update_bundle(
+            tx, promoted_concept_id=concept_id, lift_edges=lift_edges
+        )
         await tx.run(
             MERGE_TYPE_MIGRATION_ALIAS_CYPHER,
             types=alias_types,
