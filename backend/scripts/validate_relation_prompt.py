@@ -61,18 +61,18 @@ CASES: list[Case] = [
         v_text="Il treno per Milano parte alle 9:00.",
         expected=RelationLabel.none,
     ),
-    # R2.3 replaces cases updated with explicit temporal markers (T1.3 non-regression).
+    # R2.3 succession cases (T1 replaces → F9 supersedes).
     Case(
-        name="replaces_employer_change_temporal",
+        name="supersedes_employer_change_temporal",
         n_text="Da gennaio 2024 Alice lavora a Beta Corp.",
         v_text="Fino al 2023 Alice lavorava ad Acme Corp.",
-        expected=RelationLabel.replaces,
+        expected=RelationLabel.supersedes,
     ),
     Case(
-        name="replaces_office_city_temporal",
+        name="supersedes_office_city_temporal",
         n_text="Ora l'ufficio è a Milano.",
         v_text="Fino al mese scorso l'ufficio era a Roma.",
-        expected=RelationLabel.replaces,
+        expected=RelationLabel.supersedes,
     ),
     Case(
         name="extends_complementary_detail",
@@ -156,7 +156,7 @@ async def run() -> int:
     if failures:
         print(
             f"RESULT: {failures}/{scored} mismatches — "
-            "refine SYSTEM_PROMPT (T1.1/T1.2) and re-run."
+            "refine SYSTEM_PROMPT (T1.1/T1.2/F9) and re-run."
         )
         return 1
     print(f"RESULT: all {scored} expected outcomes confirmed "

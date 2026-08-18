@@ -7,16 +7,20 @@ import pytest
 from app.models.relations import RelationClassification, RelationLabel
 from app.pipeline.entity_relation_resolution import (
     APPLY_EXTENDS_CYPHER,
+    APPLY_SUPERSEDES_CYPHER,
+    APPLY_UPDATED_BY_CYPHER,
     APPLY_UPDATES_CYPHER,
     FIND_FRESH_ENTITY_RELS_CYPHER,
     FIND_FRESH_ENTITY_RELS_TOUCHED_CYPHER,
     FIND_SAME_ENDPOINT_RELS_CYPHER,
+    MARK_CONTRADICTS_CYPHER,
     MARK_PROCESSED_NONE_CYPHER,
     VECTOR_ASSISTED_SAME_ENDPOINT_RELS_CYPHER,
     classify_and_apply_entity_relation,
     find_entity_relation_candidates,
     resolve_fresh_entity_relations,
 )
+from app.pipeline.ingestion import CREATE_CONTRADICTS_CYPHER
 
 JOB_ID = "job-entity-rel-1"
 HEAD_ID = "alice-1"
@@ -64,7 +68,21 @@ def _all_cypher() -> list[str]:
         APPLY_UPDATES_CYPHER,
         APPLY_EXTENDS_CYPHER,
         MARK_PROCESSED_NONE_CYPHER,
+        MARK_CONTRADICTS_CYPHER,
+        APPLY_SUPERSEDES_CYPHER,
+        APPLY_UPDATED_BY_CYPHER,
     ]
+
+
+def _disable_temporal(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.pipeline.entity_relation_resolution.settings.ENABLE_TEMPORAL_TRANSITIONS",
+        False,
+    )
+    monkeypatch.setattr(
+        "app.pipeline.entity_relation_resolution.settings.ENABLE_FACET_IDENTITY",
+        False,
+    )
 
 
 async def _boom_classify(*_args, **_kwargs):
@@ -85,7 +103,8 @@ def _enqueue_same_endpoint_only(session: FakeSession, old_relation: str) -> None
 
 
 @pytest.mark.asyncio
-async def test_replaces_sets_updates_and_flips_old_is_latest(monkeypatch):
+async def test_flag_off_replaces_still_applies_updates(monkeypatch):
+    _disable_temporal(monkeypatch)
     session = FakeSession()
     _enqueue_same_endpoint_only(session, "works at Acme")
 
@@ -120,6 +139,113 @@ async def test_replaces_sets_updates_and_flips_old_is_latest(monkeypatch):
     compact = _compact(APPLY_UPDATES_CYPHER)
     assert "neu.normalized_relation = 'updates'" in compact
     assert "old.is_latest = false" in compact
+    assert not any(call[0] == APPLY_SUPERSEDES_CYPHER for call in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_supersedes_flips_old_and_creates_famiglia_b(monkeypatch):
+    session = FakeSession()
+    _enqueue_same_endpoint_only(session, "calciatore")
+
+    async def fake_classify(*_args, **_kwargs):
+        return RelationClassification(relation=RelationLabel.supersedes)
+
+    monkeypatch.setattr(
+        "app.pipeline.entity_relation_resolution.classify_relation",
+        fake_classify,
+    )
+
+    outcome = await classify_and_apply_entity_relation(
+        session,
+        HEAD_ID,
+        TAIL_ID,
+        NEW_REL_ID,
+        "dal 2018 presidente",
+        JOB_ID,
+    )
+
+    assert outcome == "supersedes"
+    apply_calls = [call for call in session.calls if call[0] == APPLY_SUPERSEDES_CYPHER]
+    assert len(apply_calls) == 1
+    _, kwargs = apply_calls[0]
+    assert kwargs["new_rel_id"] == NEW_REL_ID
+    assert kwargs["old_rel_id"] == OLD_REL_ID
+    compact = _compact(APPLY_SUPERSEDES_CYPHER)
+    assert "old.is_latest = false" in compact
+    assert "[:SUPERSEDES" in compact
+    assert "new_rel_id: $new_rel_id" in compact
+    assert "old_rel_id: $old_rel_id" in compact
+    assert not any(call[0] == APPLY_UPDATES_CYPHER for call in session.calls)
+    assert not any(call[0] == APPLY_UPDATED_BY_CYPHER for call in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_updated_by_keeps_old_relation_but_not_latest(monkeypatch):
+    session = FakeSession()
+    _enqueue_same_endpoint_only(session, "vinto nel 2010")
+
+    async def fake_classify(*_args, **_kwargs):
+        return RelationClassification(relation=RelationLabel.updated_by)
+
+    monkeypatch.setattr(
+        "app.pipeline.entity_relation_resolution.classify_relation",
+        fake_classify,
+    )
+
+    outcome = await classify_and_apply_entity_relation(
+        session,
+        HEAD_ID,
+        TAIL_ID,
+        NEW_REL_ID,
+        "in realtà mi sono sbagliato, non nel 2010 ma nel 2011",
+        JOB_ID,
+    )
+
+    assert outcome == "updated_by"
+    apply_calls = [call for call in session.calls if call[0] == APPLY_UPDATED_BY_CYPHER]
+    assert len(apply_calls) == 1
+    compact = _compact(APPLY_UPDATED_BY_CYPHER)
+    assert "old.is_latest = false" in compact
+    assert "[:UPDATED_BY" in compact
+    assert "DELETE" not in compact
+    assert not any(call[0] == APPLY_SUPERSEDES_CYPHER for call in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_contradicts_keeps_both_latest_never_updated_by(monkeypatch):
+    session = FakeSession()
+    _enqueue_same_endpoint_only(session, "vinto nel 2010")
+
+    async def fake_classify(*_args, **_kwargs):
+        return RelationClassification(relation=RelationLabel.contradicts)
+
+    monkeypatch.setattr(
+        "app.pipeline.entity_relation_resolution.classify_relation",
+        fake_classify,
+    )
+
+    outcome = await classify_and_apply_entity_relation(
+        session,
+        HEAD_ID,
+        TAIL_ID,
+        NEW_REL_ID,
+        "vinto nel 2011",
+        JOB_ID,
+    )
+
+    assert outcome == "contradicts"
+    mark_calls = [call for call in session.calls if call[0] == MARK_CONTRADICTS_CYPHER]
+    assert len(mark_calls) == 1
+    assert "is_latest" not in _compact(MARK_CONTRADICTS_CYPHER)
+    contra = [call for call in session.calls if call[0] == CREATE_CONTRADICTS_CYPHER]
+    assert len(contra) == 1
+    _, kwargs = contra[0]
+    assert kwargs["left_id"] == TAIL_ID
+    assert kwargs["right_id"] == TAIL_ID
+    assert kwargs["subject_id"] == HEAD_ID
+    assert not any(call[0] == APPLY_UPDATED_BY_CYPHER for call in session.calls)
+    assert not any(call[0] == APPLY_SUPERSEDES_CYPHER for call in session.calls)
+    assert not any(call[0] == APPLY_UPDATES_CYPHER for call in session.calls)
 
 
 @pytest.mark.asyncio

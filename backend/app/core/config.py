@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # Fase 8: identity-as-facets instead of destructive merge_nodes. Default off so
     # existing node-resolution / dreaming tests stay on today's merge path.
     ENABLE_FACET_IDENTITY: bool = False
+    # Fase 9: three-way temporal transitions (supersedes / updated_by / contradicts).
+    # Also treated as on when ENABLE_FACET_IDENTITY is True (OR). Both false → T1
+    # replaces/extends/none apply path.
+    ENABLE_TEMPORAL_TRANSITIONS: bool = True
     # Blocking cosine on summary embeddings (doc4 §2). Same kernel_category required.
     IDENTITY_BLOCK_THRESHOLD: float = 0.82
 

@@ -11,6 +11,9 @@ class RelationLabel(str, Enum):
     replaces = "replaces"
     extends = "extends"
     none = "none"
+    supersedes = "supersedes"
+    updated_by = "updated_by"
+    contradicts = "contradicts"
 
 
 class RelationClassification(BaseModel):

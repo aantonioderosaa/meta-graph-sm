@@ -21,6 +21,16 @@ def test_relation_classification_valid():
     assert rc.relation == RelationLabel.extends
 
 
+def test_relation_label_temporal_members():
+    assert RelationLabel.supersedes.value == "supersedes"
+    assert RelationLabel.updated_by.value == "updated_by"
+    assert RelationLabel.contradicts.value == "contradicts"
+    assert RelationLabel.replaces.value == "replaces"
+    assert RelationClassification(relation=RelationLabel.supersedes).relation == (
+        RelationLabel.supersedes
+    )
+
+
 def test_relation_classification_invalid():
     with pytest.raises(ValidationError):
         RelationClassification(relation="conflicts")

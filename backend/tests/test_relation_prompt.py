@@ -1,4 +1,4 @@
-"""Relation classification prompt builder tests (E4.4)."""
+"""Relation classification prompt builder tests (E4.4 / Fase 9)."""
 
 # ruff: noqa: E501
 
@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from app.pipeline.entity_relation_resolution import (
     _REPLACES_SECTION,
+    _TEMPORAL_TRANSITIONS_SECTION,
+    LEGACY_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     build_relation_prompt,
 )
@@ -54,7 +56,7 @@ def test_system_prompt_matches_spec():
 
 
 def test_system_prompt_extends_section_present():
-    """R2.2: extends broadened with examples; still present after T1 replaces rewrite."""
+    """R2.2: extends broadened with examples; still present after T1/F9 rewrite."""
     assert SYSTEM_PROMPT.startswith(
         "Confronta il FATTO NUOVO con il FATTO ESISTENTE e classifica la relazione tra i due:\n"
     )
@@ -63,24 +65,40 @@ def test_system_prompt_extends_section_present():
     assert "Esempio none:" in SYSTEM_PROMPT
     assert "momenti diversi dello stesso episodio narrativo" in SYSTEM_PROMPT
     assert "argomenti scorrelati" in SYSTEM_PROMPT
+    assert "extends non è una transizione di versione" in SYSTEM_PROMPT
 
 
-def test_system_prompt_replaces_temporal_markers_and_label_disambiguation():
-    """T1.1: replaces prioritizes temporal markers; labels are not chronological."""
-    assert _REPLACES_SECTION in SYSTEM_PROMPT
-    assert "cerca marcatori temporali" in _REPLACES_SECTION
-    assert "date assolute" in _REPLACES_SECTION
-    assert '"ora"' in _REPLACES_SECTION
-    assert '"da allora"' in _REPLACES_SECTION
-    assert '"fino al"' in _REPLACES_SECTION
-    assert '"ho appena iniziato"' in _REPLACES_SECTION
-    assert '"il mese scorso"' in _REPLACES_SECTION
-    assert "base primaria" in _REPLACES_SECTION
+def test_system_prompt_three_way_temporal_section():
+    """F9.3: supersedes / updated_by / contradicts; temporal markers stay the primary cue."""
+    assert _TEMPORAL_TRANSITIONS_SECTION in SYSTEM_PROMPT
+    assert '"supersedes"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert '"updated_by"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert '"contradicts"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert "cerca marcatori temporali" in _TEMPORAL_TRANSITIONS_SECTION
+    assert "date assolute" in _TEMPORAL_TRANSITIONS_SECTION
+    assert '"ora"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert '"da allora"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert '"fino al"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert '"dal 2018"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert '"ho appena iniziato"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert '"il mese scorso"' in _TEMPORAL_TRANSITIONS_SECTION
+    assert "base primaria" in _TEMPORAL_TRANSITIONS_SECTION
     assert (
         "Le etichette FATTO NUOVO/FATTO ESISTENTE indicano solo quale dei due stai "
         "valutando ora — non implicano da sole che uno sia temporalmente precedente "
         "all'altro."
-    ) in _REPLACES_SECTION
+    ) in _TEMPORAL_TRANSITIONS_SECTION
+
+
+def test_system_prompt_updated_by_requires_explicit_error():
+    """F9.5: UPDATED_BY only if explicit error/correction wording."""
+    assert "in realtà mi sono sbagliato" in SYSTEM_PROMPT
+    assert "Senza quel marcatore di errore nel testo, non scegliere `updated_by`" in SYSTEM_PROMPT
+    assert "mai `updated_by`" in SYSTEM_PROMPT
+    assert (
+        "due fonti autorevoli in conflitto senza marcatore di errore → `contradicts`, "
+        "mai `updated_by`"
+    ) in SYSTEM_PROMPT
 
 
 def test_build_relation_prompt_still_substitutes_placeholders():
@@ -96,24 +114,42 @@ def test_build_relation_prompt_still_substitutes_placeholders():
 
 
 def test_system_prompt_prudence_rule_when_no_temporal_marker():
-    """T1.2: without an explicit temporal marker, do not force replaces; risk asymmetry stated."""
+    """T1.2 / F9: without an explicit temporal marker, do not force supersedes/replaces."""
     assert (
         "Se nessuno dei due fatti contiene un marcatore temporale esplicito che stabilisca "
-        "quale dei due descrive lo stato più recente, non scegliere `replaces` sulla sola "
-        "base dell'ordine di presentazione"
+        "quale dei due descrive lo stato più recente, non scegliere `supersedes` (né "
+        "`replaces`) sulla sola base dell'ordine di presentazione"
     ) in SYSTEM_PROMPT
     assert "valuta invece se i due fatti possono coesistere (`extends`)" in SYSTEM_PROMPT
+    assert "disaccordo senza rettifica (`contradicts`)" in SYSTEM_PROMPT
     assert "non c'è relazione significativa (`none`)" in SYSTEM_PROMPT
     assert (
-        "Dichiarare erroneamente `replaces` nasconde un fatto vero: è un errore peggiore "
-        "di non dichiarare nulla."
+        "Dichiarare erroneamente una transizione che nasconde un fatto vero è un errore "
+        "peggiore di non dichiarare nulla."
     ) in SYSTEM_PROMPT
 
 
 def test_system_prompt_t1_blocks_present_for_ci():
-    """T1.4: both new prompt blocks (temporal markers + prudence) stay in SYSTEM_PROMPT."""
+    """T1.4: temporal markers + prudence stay in the default (three-way) SYSTEM_PROMPT."""
     assert "cerca marcatori temporali" in SYSTEM_PROMPT
     assert "base primaria della decisione" in SYSTEM_PROMPT
     assert "Le etichette FATTO NUOVO/FATTO ESISTENTE indicano solo" in SYSTEM_PROMPT
     assert "marcatore temporale esplicito" in SYSTEM_PROMPT
     assert "errore peggiore di non dichiarare nulla" in SYSTEM_PROMPT
+
+
+def test_legacy_prompt_kept_for_flag_off(monkeypatch):
+    """Both flags False → T1 replaces/extends/none prompt (tests can target it)."""
+    monkeypatch.setattr(
+        "app.pipeline.entity_relation_resolution.settings.ENABLE_TEMPORAL_TRANSITIONS",
+        False,
+    )
+    monkeypatch.setattr(
+        "app.pipeline.entity_relation_resolution.settings.ENABLE_FACET_IDENTITY",
+        False,
+    )
+    system, _user = build_relation_prompt("new", "old")
+    assert system == LEGACY_SYSTEM_PROMPT
+    assert _REPLACES_SECTION in system
+    assert "`replaces`" in system
+    assert _TEMPORAL_TRANSITIONS_SECTION not in system

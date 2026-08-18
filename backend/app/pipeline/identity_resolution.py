@@ -242,6 +242,17 @@ async def link_as_facet(session: AsyncSession, identity_id: str, facet_node_id: 
     )
 
 
+async def index_entity_version(
+    session: AsyncSession, identity_id: str, node_id: str
+) -> None:
+    """Index a temporal version ``:Node`` under ``:IdentityNode`` via SAME_AS.
+
+    Versions stay autonomous (own facts). SAME_AS here is the identity index,
+    not a destructive merge — no edges are moved or deleted.
+    """
+    await link_as_facet(session, identity_id, node_id)
+
+
 async def unlink_facet(session: AsyncSession, identity_id: str, facet_node_id: str) -> None:
     """DELETE SAME_AS and POSSIBLY_SAME_AS between that IdentityNode/Node pair only."""
     await session.run(

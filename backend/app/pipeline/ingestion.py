@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -67,7 +68,9 @@ CREATE (h)-[:Relation {
   kernel_parent: $kernel_parent,
   witnesses_a: $witnesses_a,
   witnesses_b: $witnesses_b,
+  valid_time: $valid_time,
   system_time: datetime(),
+  provenance: $provenance,
   created_at: datetime()
 }]->(t)
 """
@@ -182,6 +185,14 @@ async def write_node(
     )
 
 
+def _provenance_value(provenance: dict | str | None) -> str | None:
+    if provenance is None:
+        return None
+    if isinstance(provenance, str):
+        return provenance
+    return json.dumps(provenance, ensure_ascii=False, sort_keys=True)
+
+
 async def write_node_relation(
     session: AsyncSession,
     *,
@@ -194,6 +205,8 @@ async def write_node_relation(
     kernel_parent: RelationKernelType | str | None = None,
     witness_source: str = "",
     witness_target: str = "",
+    valid_time: str | None = None,
+    provenance: dict | str | None = None,
 ) -> None:
     parent_value: str | None
     if isinstance(kernel_parent, RelationKernelType):
@@ -220,6 +233,8 @@ async def write_node_relation(
         kernel_parent=parent_value,
         witnesses_a=[witness_source] if witness_source.strip() else [],
         witnesses_b=[witness_target] if witness_target.strip() else [],
+        valid_time=valid_time,
+        provenance=_provenance_value(provenance),
     )
     relation_type = (relation or "").strip() or parent_value
     origin_id = f"{head_id}|{relation_type}|{tail_id}"
