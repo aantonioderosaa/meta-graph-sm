@@ -18,7 +18,8 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 - Query NL coarse-to-fine (Fase 11): `plan_connectivity_scope` interroga `:ConnectivityRule` sulle categorie kernel della domanda **prima** di `hybrid_seed`. `POST /graph/query` aggiunge `citations[]` con `epistemic_status` asserted/derived e `derivation_chain` (passi S0/S1) calcolata in Python, non dall'LLM. I salti S2 restano in memoria e non vengono mai scritti come `:Relation`.
 - Layer Metagraph in UI (Fase 12): tab laterali Dominio / Identità / Contraddizioni / Regole / Giudice (liste e albero, nessun canvas NVL extra). Badge ` · faccette` sui nodi multi-identità; citazioni query ASSERITO/DERIVATO.
 - Backfill `kernel_category` (Fase 13): job idempotente [`backend/scripts/backfill_kernel_category.py`](./backend/scripts/backfill_kernel_category.py) (`--dry-run`, `--limit`) su `:Node` già ingeriti senza categoria. Non cancella nodi; non richiede dump/restore. `DERIVED_FROM` verso `:Chunk` è già Famiglia B — nessuna riscrittura archi.
-- Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12](./frontend/docs/e12-metagraph-ui-checklist.md).
+- Qualità e accettazione e-e (Fase 14): corpus fisso `tests/test_acceptance_metagraph_e2e.py` (FakeSession, no Docker/OpenAI) + sei stress kernel §13 in `tests/test_kernel_stress.py`; schema Fase 2 in CI Docker (`backend-integration-metagraph`); checklist UI estesa in [`frontend/docs/e12-metagraph-ui-checklist.md`](./frontend/docs/e12-metagraph-ui-checklist.md).
+- Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12 / F14.5](./frontend/docs/e12-metagraph-ui-checklist.md).
 
 ### Flag Metagraph (default in `Settings`)
 
@@ -55,7 +56,7 @@ Policy di rollout: ogni flag resta spento finché la relativa suite di accettazi
 | 11 | Query engine coarse-to-fine | completata |
 | 12 | Frontend — layer Metagraph | completata |
 | 13 | Migrazione e coesistenza | completata |
-| 14 | Qualità e accettazione e-e | aperta |
+| 14 | Qualità e accettazione e-e | completata |
 | 15 | Vista a grafo generale | aperta |
 
 ## Prerequisiti
@@ -265,4 +266,4 @@ Accettazione Q7: `pytest tests/test_acceptance_node_query.py` (unit, no Docker) 
 
 ## Note Epic 10
 
-`docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12](./frontend/docs/e12-metagraph-ui-checklist.md). CI con job `backend-integration` come gate.
+`docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12 / F14.5](./frontend/docs/e12-metagraph-ui-checklist.md). CI: `backend` (unit, no Docker), `backend-integration`, `backend-integration-metagraph` (schema Fase 2 + `test_schema.py`).

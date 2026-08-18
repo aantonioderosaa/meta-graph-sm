@@ -1,6 +1,6 @@
-# Checklist UI Metagraph layer — Fase 12 / placeholder Fase 14.5
+# Checklist UI Metagraph layer — successore di e10-manual-ui-checklist (Fase 14.5)
 
-Dataset: grafo dopo ingest + dreaming con backbone, faccette, CONTRADICTS, ConnectivityRule e almeno un `:JudgeRun`. I pannelli sono **liste/alberi** nella tab laterale (nessun canvas NVL extra; `EntityEventExplorer` resta l’unico grafo).
+Dataset: grafo dopo ingest + dreaming con backbone, faccette, CONTRADICTS, ConnectivityRule e almeno un `:JudgeRun`. I pannelli sono **liste/alberi** nella tab laterale (nessun canvas NVL extra; `EntityEventExplorer` resta l’unico grafo). Automated vs manual: la tabella sotto è la superficie già coperta dai test; i casi §13 sono verifica umana sui pannelli di Fase 12.
 
 | Caso | Superficie attesa | Verificato in test |
 |------|-------------------|--------------------|
@@ -23,3 +23,12 @@ Manuale UI (su dati reali):
 - [ ] Tab **Giudice**: l’ultima passata è in cima; i sei conteggi coincidono con il `:JudgeRun` in Neo4j
 - [ ] Query NL: citazione asserita → badge ASSERITO; salto derivato → DERIVATO cliccabile con passi `s0`/`s1`
 - [ ] Mobile: pulsanti Pipeline / Query / **Layer**; Layer apre le stesse tab del sidebar desktop
+
+Manuale UI — sei casi-limite del §13 (Doc1), come li vede un umano nei pannelli Fase 12:
+
+- [ ] **Ditta individuale (Agente + CostruttoSociale)**: tab **Identità** mostra **due faccette** sullo stesso `:IdentityNode` (persona / ditta), non un unico nodo con due `kernel_category`. Tab **Dominio**: filtro/query per Persona evidenzia solo la faccetta Agente; Organizzazione solo CostruttoSociale. **Stacca faccetta** non cancella i `:Node`
+- [ ] **Relazione che sembra un fratello orizzontale** (`coached_by` o analogo): tab **Dominio** non ha un tipo orfano accanto a R1–R6; il fatto resta raffinamento verticale (catch-all / padre `kernel_parent` Partecipativa). Nessun nuovo tipo in albero
+- [ ] **Raffinamenti equivalenti da domini sorelli**: tab **Giudice** registra `EQUIVALENT_TO`; i membri restano nel grafo con provenienza `absorbed_from`; **Dominio** non introduce un nono genere kernel
+- [ ] **Referente cross-dominio con relazioni contraddittorie apparenti**: tab **Identità** due faccette; gli archi di ciascuna restano visibili (plays_for vs president_of). **Contraddizioni** non “risolve” fondendo i nodi
+- [ ] **Contraddizione tra fonti in ingestione**: tab **Contraddizioni** mostra la coppia e **non** la nasconde; entrambe le asserzioni restano `is_latest` (nessuna scomparsa da Query / grafo). PROMOTE non ha ritipizzato CONTRADICTS
+- [ ] **Collegamento cross-dominio mai attestato**: tab **Query** badge **DERIVATO** sul salto non asserito, con catena `s0`/`s1`; il grafo NVL non mostra un `:Relation` inventato. Tab **Regole**: se nessuna regola S1 autorizza, nessun candidato / nessuna riga DERIVATO fittizia

@@ -26,7 +26,8 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Unit tests (no Docker)
-        # Metagraph unit tests (Fasi 0–13) ride this job; no separate E2E job yet (Fase 14).
+        # Metagraph unit tests (Fasi 0–14 E2E + kernel stress) ride this job.
+        # Docker schema/GDS tests: backend-integration + backend-integration-metagraph.
         run: >
           pytest -q
           --ignore=tests/test_schema.py
@@ -38,6 +39,7 @@ jobs:
           --ignore=tests/test_node_query_engine_integration.py
           --ignore=tests/test_documents_list.py
           --ignore=tests/test_graph_reset.py
+          --ignore=tests/test_metagraph_schema_integration.py
 
   backend-integration:
     runs-on: ubuntu-latest
@@ -66,6 +68,29 @@ jobs:
           tests/test_node_query_engine_integration.py
           tests/test_documents_list.py
           tests/test_graph_reset.py
+          --tb=short
+
+  backend-integration-metagraph:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Metagraph schema integration (Docker / testcontainers)
+        run: >
+          pytest -q
+          tests/test_metagraph_schema_integration.py
+          tests/test_schema.py
           --tb=short
 
   frontend:
