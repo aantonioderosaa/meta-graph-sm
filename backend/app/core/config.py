@@ -30,11 +30,12 @@ class Settings(BaseSettings):
     ENABLE_DERIVES: bool = False
     # Fase 4: classify entities onto the Concept TBox (MEMBER_OF). Kill switch.
     ENABLE_KERNEL_CLASSIFICATION: bool = True
+    # Fase 5: PROMOTE Node clusters under kernel / first-level catch-alls. Kill switch.
+    ENABLE_PROMOTE: bool = True
     # Two-level Concept match (doc4 §3). Exact then cosine; reuse vs near-band.
     BACKBONE_REUSE_THRESHOLD: float = 0.80
     BACKBONE_NEAR_THRESHOLD: float = 0.50
     # Two-threshold MDL baseline for genre promotion (doc4 §1). Both required (AND).
-    # Declared here so k/m are tarable; unused by the pipeline until Fase 5.
     BACKBONE_MDL_MIN_COVERAGE: int = 5
     BACKBONE_MDL_MIN_PAYLOAD: int = 2
 

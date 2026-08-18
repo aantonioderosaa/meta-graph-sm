@@ -35,6 +35,13 @@ export const MOCK_PIPELINE_EVENTS: PipelineEvent[] = [
     payload: { node_id: "en-1", concept_id: "c-agente", kernel_category: "Agente" },
   },
   {
+    ts: "2026-01-01T12:00:02.400Z",
+    job_id: "mock-job-1",
+    stage: "promote_clusters",
+    event: "cluster_promoted",
+    payload: { concept_id: "c-promoted", parent_id: "c-agente", member_count: 5 },
+  },
+  {
     ts: "2026-01-01T12:00:02.500Z",
     job_id: "mock-job-1",
     stage: "entity_relation_classification",
