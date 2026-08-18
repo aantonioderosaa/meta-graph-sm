@@ -28,6 +28,13 @@ export const MOCK_PIPELINE_EVENTS: PipelineEvent[] = [
     payload: { dup_id: "en-2", canon_id: "en-1" },
   },
   {
+    ts: "2026-01-01T12:00:02.250Z",
+    job_id: "mock-job-1",
+    stage: "backbone_classification",
+    event: "backbone_member_assigned",
+    payload: { node_id: "en-1", concept_id: "c-agente", kernel_category: "Agente" },
+  },
+  {
     ts: "2026-01-01T12:00:02.500Z",
     job_id: "mock-job-1",
     stage: "entity_relation_classification",

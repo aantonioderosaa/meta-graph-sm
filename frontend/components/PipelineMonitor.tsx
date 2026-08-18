@@ -11,13 +11,14 @@ import { useAppStore } from "@/lib/store";
 import type { PipelineEvent } from "@/lib/types";
 
 // Ordine di esecuzione: chunking/node_extraction (ingestione) → entity_resolution
-// → entity_relation_classification/event_resolution_and_classification (dreaming;
-// questi due girano in parallelo tra loro, mostrati come righe adiacenti) →
-// reconciliation → done.
+// → backbone_classification → entity_relation_classification /
+// event_resolution_and_classification (dreaming; questi due girano in parallelo
+// tra loro, mostrati come righe adiacenti) → reconciliation → done.
 const STAGES: PipelineEvent["stage"][] = [
   "chunking",
   "node_extraction",
   "entity_resolution",
+  "backbone_classification",
   "entity_relation_classification",
   "event_resolution_and_classification",
   "reconciliation",
@@ -28,6 +29,7 @@ const STAGE_LABELS: Record<PipelineEvent["stage"], string> = {
   chunking: "Chunking",
   node_extraction: "Estrazione entità/eventi",
   entity_resolution: "Risoluzione entità",
+  backbone_classification: "Classificazione backbone",
   entity_relation_classification: "Relazioni (entità)",
   event_resolution_and_classification: "Risoluzione eventi",
   reconciliation: "Riconciliazione",

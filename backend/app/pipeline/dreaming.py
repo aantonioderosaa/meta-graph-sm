@@ -18,6 +18,7 @@ from app.pipeline import (
     node_resolution,
     reconcile,
 )
+from app.pipeline.backbone import classify_and_grow_backbone
 
 logger = logging.getLogger(__name__)
 
@@ -211,9 +212,25 @@ async def _resolve_and_classify_events(session: AsyncSession, job_id: str) -> se
 
 
 async def _run_node_phases(driver, job_id: str) -> set[str]:
-    """Entity resolution, then relation + event branches in parallel (two sessions)."""
+    """Entity resolution, backbone classification, then relation + event in parallel."""
     async with driver.session() as entity_session:
         node_touched = await _resolve_fresh_entities(entity_session, job_id)
+
+    async with driver.session() as backbone_session:
+        try:
+            await classify_and_grow_backbone(backbone_session, job_id)
+        except Exception as exc:
+            logger.exception("backbone_classification_stage_failed")
+            await event_bus.publish(
+                job_id,
+                "backbone_classification",
+                "llm_call_failed",
+                {
+                    "stage": "backbone_classification",
+                    "item_id": job_id,
+                    "error": str(exc),
+                },
+            )
 
     async with driver.session() as rel_session, driver.session() as event_session:
         _, event_touched = await asyncio.gather(

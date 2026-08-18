@@ -108,27 +108,39 @@ async def test_phase1_runs_before_phase2_gather(monkeypatch):
         log.append("p1")
         return {"e1"}
 
+    async def backbone(_session, job_id: str) -> int:
+        assert job_id == JOB_ID
+        assert "p1" in log
+        assert "p2_rel" not in log
+        assert "p2_ev" not in log
+        log.append("bb")
+        return 0
+
     async def rels(_session, job_id: str, touched: set[str]) -> int:
         assert "p1" in log
+        assert "bb" in log
         log.append("p2_rel")
         assert touched == {"e1"}
         return 1
 
     async def events(_session, job_id: str) -> set[str]:
         assert "p1" in log
+        assert "bb" in log
         log.append("p2_ev")
         return {"ev1"}
 
     monkeypatch.setattr("app.pipeline.dreaming._resolve_fresh_entities", phase1)
+    monkeypatch.setattr("app.pipeline.dreaming.classify_and_grow_backbone", backbone)
     monkeypatch.setattr("app.pipeline.dreaming._classify_entity_relations", rels)
     monkeypatch.setattr("app.pipeline.dreaming._resolve_and_classify_events", events)
 
     touched = await _run_node_phases(FakeDriver(), JOB_ID)
 
     assert log[0] == "p1"
+    assert log[1] == "bb"
     assert "p2_rel" in log
     assert "p2_ev" in log
-    assert set(log[1:]) == {"p2_rel", "p2_ev"}
+    assert set(log[2:]) == {"p2_rel", "p2_ev"}
     assert touched == {"e1", "ev1"}
 
 
@@ -381,6 +393,7 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
     driver = FakeDriver(
         [
             entity_session,  # phase 1
+            FakeSession(),  # backbone classification
             FakeSession(),  # relations
             event_session,  # events
             FakeSession(),  # ppr projection refresh
@@ -389,6 +402,10 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
 
     monkeypatch.setattr("app.pipeline.dreaming.get_driver", lambda: driver)
     monkeypatch.setattr("app.pipeline.dreaming.node_resolution.resolve_node", boom_resolve)
+    monkeypatch.setattr(
+        "app.pipeline.dreaming.classify_and_grow_backbone",
+        _async_zero,
+    )
     monkeypatch.setattr(
         "app.pipeline.dreaming.reconcile.reconcile_scoped_relations",
         _async_zero,

@@ -120,6 +120,7 @@ export interface PipelineEvent {
     | "chunking"
     | "node_extraction"
     | "entity_resolution"
+    | "backbone_classification"
     | "entity_relation_classification"
     | "event_resolution_and_classification"
     | "reconciliation"
