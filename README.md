@@ -16,14 +16,47 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 - Asse temporale (Fase 9): T1 esteso a tre transizioni (`SUPERSEDES` / `UPDATED_BY` / `CONTRADICTS`); `extends` resta complementare. Un disaccordo non si risolve in silenzio (`CONTRADICTS` tiene entrambe `is_latest=true`). `valid_time` e `system_time` sono proprietà distinte. Flag `ENABLE_TEMPORAL_TRANSITIONS` (default true; anche on se `ENABLE_FACET_IDENTITY`). Entrambi false → percorso T1 `replaces`/`extends`/`none`.
 - Giudice (Fase 10): a fine di ogni batch di dreaming (dopo `reconcile`) gira `run_judge` — anti-blur, `EQUIVALENT_TO`, ri-raffinamento storico, conferma identità, `CONTRADICTS` mancate, smistamento temporale. Scrive solo primitive esistenti (INGEST/PROMOTE + Famiglia B / `MEMBER_OF`). Ogni passata è loggata in `:JudgeRun`. Flag `ENABLE_JUDGE` (default true); `BACKBONE_COLLAPSE_THRESHOLD=0.90`.
 - Query NL coarse-to-fine (Fase 11): `plan_connectivity_scope` interroga `:ConnectivityRule` sulle categorie kernel della domanda **prima** di `hybrid_seed`. `POST /graph/query` aggiunge `citations[]` con `epistemic_status` asserted/derived e `derivation_chain` (passi S0/S1) calcolata in Python, non dall'LLM. I salti S2 restano in memoria e non vengono mai scritti come `:Relation`.
-- Layer Metagraph in UI (Fase 12): tab laterali Dominio / Identità / Contraddizioni / Regole / Giudice (liste e albero, nessun canvas NVL extra). Badge ` · faccette` sui nodi multi-identità; citazioni query ASSERITO/DERIVATO. Checklist: [frontend/docs/e12-metagraph-ui-checklist.md](./frontend/docs/e12-metagraph-ui-checklist.md).
-- [Scope e semantica](./milestone1/milestone1.md)
-- [Specifica tecnica](./milestone1/milestone1-tech-spec.md)
-- [Piano implementativo (epic/task)](./milestone1/milestone1-implementation-plan.md)
-- [Piano fix post-E10 (F1–F4)](./milestone1/milestone1-fixes-plan.md)
-- [Piano coerenza documento/chunk e reset KB (R1–R4)](./milestone1/milestone1-relation-detection-plan.md)
-- [Piano ragionamento temporale in `replaces` (T1)](./milestone1/milestone1-temporal-reasoning-plan.md)
-- [Checklist UI manuale §8](./milestone1/e10-manual-ui-checklist.md)
+- Layer Metagraph in UI (Fase 12): tab laterali Dominio / Identità / Contraddizioni / Regole / Giudice (liste e albero, nessun canvas NVL extra). Badge ` · faccette` sui nodi multi-identità; citazioni query ASSERITO/DERIVATO.
+- Backfill `kernel_category` (Fase 13): job idempotente [`backend/scripts/backfill_kernel_category.py`](./backend/scripts/backfill_kernel_category.py) (`--dry-run`, `--limit`) su `:Node` già ingeriti senza categoria. Non cancella nodi; non richiede dump/restore. `DERIVED_FROM` verso `:Chunk` è già Famiglia B — nessuna riscrittura archi.
+- Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12](./frontend/docs/e12-metagraph-ui-checklist.md).
+
+### Flag Metagraph (default in `Settings`)
+
+Policy di rollout: ogni flag resta spento finché la relativa suite di accettazione non è verde. Fasi 4–12 sono verdi salvo le faccette, quindi solo `ENABLE_FACET_IDENTITY` resta False.
+
+| Flag | Default | Perché |
+|---|---|---|
+| `ENABLE_KERNEL_CLASSIFICATION` | True | Fase 4 suite verde |
+| `ENABLE_PROMOTE` | True | Fase 5 suite verde |
+| `ENABLE_TEMPORAL_TRANSITIONS` | True | Fase 9 suite verde |
+| `ENABLE_JUDGE` | True | Fase 10 suite verde |
+| `ENABLE_FACET_IDENTITY` | **False** | `merge_nodes` resta il percorso di produzione (F13.4) |
+| `ENABLE_DERIVES` | False | kill switch preesistente |
+
+### Debito noto
+
+`merge_nodes` (percorso distruttivo) e il binario `RelationLabel.replaces` / `extends` restano finché `ENABLE_FACET_IDENTITY` e le transizioni temporali a tre vie non hanno una finestra di osservazione in produzione. Non rimossi in questa fase (F13.4 differito).
+
+### Stato Fasi Metagraph
+
+| Fase | Nome | Stato |
+|------|------|--------|
+| 0 | Fondamenta del kernel | completata |
+| 1 | Book del dominio | completata |
+| 2 | Modello dati Neo4j esteso | completata |
+| 3 | Ingestione anti-blur | completata |
+| 4 | Backbone/TBox | completata |
+| 5 | PROMOTE | completata |
+| 6 | Popolamento fatti / LCA | completata |
+| 7 | Relazioni S0/S1/S2 | completata |
+| 8 | Identità per faccette | completata |
+| 9 | Asse temporale | completata |
+| 10 | Il giudice | completata |
+| 11 | Query engine coarse-to-fine | completata |
+| 12 | Frontend — layer Metagraph | completata |
+| 13 | Migrazione e coesistenza | completata |
+| 14 | Qualità e accettazione e-e | aperta |
+| 15 | Vista a grafo generale | aperta |
 
 ## Prerequisiti
 
@@ -106,7 +139,7 @@ cd frontend && npm test && npm run lint && npm run build
 
 Su ogni `push` / `pull_request` verso `main`:
 
-- **backend** — ruff + unit pytest
+- **backend** — ruff + unit pytest (i test unitari Metagraph Fasi 0–13 girano su questo job)
 - **backend-integration** — suite Neo4j/GDS via Testcontainers (include accettazione §14)
 - **frontend** — lint + vitest + build
 
@@ -118,6 +151,7 @@ Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 - **Cambio modello embedding**: gli indici vettoriali sono fissati a 768 dim (`EMBEDDING_MODEL` = `BAAI/bge-base-en-v1.5`); un cambio modello richiede ricreare indici e ricalcolare embedding — tech-spec §15.
 - **CORS**: `CORS_ORIGINS` (default `http://localhost:3000`) elenca le origini browser autorizzate a chiamare l'API — va estesa (valori separati da virgola) se il frontend gira su un host/porta diversa.
 - **Schema Neo4j**: `AUTO_MIGRATE=true` (default) applica constraint/indici all'avvio del backend; in test/CI di solito è `false` e lo schema è applicato esplicitamente.
+- **Backfill `kernel_category`**: su una KB già popolata, da `backend/`: `python scripts/backfill_kernel_category.py --dry-run` poi senza `--dry-run`. Idempotente; `--limit` opzionale. Non cancella nulla.
 - **GDS 2.12.0 pinnato**: il jar è in `neo4j-plugins/` e montato su `/plugins` (Compose e Testcontainers). Non si usa `NEO4J_PLUGINS` per GDS — quella env var scarica sempre l'ultima versione compatibile da `graphdatascience.ninja`, non un pin. `CALL gds.version()` deve restituire `2.12.0`. Checksum: `neo4j-plugins/SHA256SUMS`.
 - **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline. `NEXT_PUBLIC_API_URL` punta al backend (default Compose: `http://localhost:8000`).
 - **Layer Fact rimosso**: niente più `:Fact`, `POST /query`, `GET /facts/{id}` né indici `fact_*`. Dreaming pubblica `reconciliation` poi `done`. Ingestione estrae solo nodi (`process_chunk_node_extraction`).
@@ -231,4 +265,4 @@ Accettazione Q7: `pytest tests/test_acceptance_node_query.py` (unit, no Docker) 
 
 ## Note Epic 10
 
-`docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: `milestone1/e10-manual-ui-checklist.md`. CI con job `backend-integration` come gate.
+`docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12](./frontend/docs/e12-metagraph-ui-checklist.md). CI con job `backend-integration` come gate.

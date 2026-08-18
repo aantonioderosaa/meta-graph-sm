@@ -26,6 +26,7 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Unit tests (no Docker)
+        # Metagraph unit tests (Fasi 0–13) ride this job; no separate E2E job yet (Fase 14).
         run: >
           pytest -q
           --ignore=tests/test_schema.py
