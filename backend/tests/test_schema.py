@@ -5,18 +5,22 @@ from __future__ import annotations
 import pytest
 
 from app.db.schema import (
+    BACKBONE_REL_TYPES,
+    FAMIGLIA_B_REL_TYPES,
     REQUIRED_BTREE_INDEXES,
     REQUIRED_CONSTRAINTS,
     REQUIRED_FULLTEXT_INDEXES,
     REQUIRED_VECTOR_INDEXES,
+    SCHEMA_PATH,
     apply_schema_with_driver,
     fetch_constraint_names,
     fetch_index_info,
     load_schema_statements,
 )
+from app.models.kernel import IS_A, MEMBER_OF, SpecialRelationType
 from tests.neo4j_gds import GDS_PINNED_VERSION, neo4j_gds_container, wait_for_gds
 
-EXPECTED_SCHEMA_STATEMENTS = 17
+EXPECTED_SCHEMA_STATEMENTS = 23
 
 
 @pytest.fixture(scope="module")
@@ -36,6 +40,7 @@ def neo4j_driver():
 def test_schema_file_has_expected_statements():
     statements = load_schema_statements()
     joined = "\n".join(statements)
+    raw = SCHEMA_PATH.read_text(encoding="utf-8")
     assert len(statements) == EXPECTED_SCHEMA_STATEMENTS
     assert "CONSTRAINT fact_id" not in joined
     assert "CONSTRAINT query_log_id" not in joined
@@ -62,6 +67,34 @@ def test_schema_file_has_expected_statements():
     assert "relation_fulltext" in joined
     assert "768" in joined
     assert "cosine" in joined
+    assert "concept_kernel_category" in joined
+    assert "concept_parent_uri" in joined
+    assert "node_kernel_category" in joined
+    assert "identity_node_uri" in joined
+    assert "connectivity_rule_triple" in joined
+    assert "corpus_context_id" in joined
+    for name in ("kernel_category", "parent_uri", "definition", "aliases", "promoted"):
+        assert name in raw
+    assert "canonical_summary" in raw
+    for rel in FAMIGLIA_B_REL_TYPES:
+        assert rel in raw
+    for name in ("witnesses_a", "witnesses_b", "provenance", "valid_time", "system_time"):
+        assert name in raw
+    for rel in BACKBONE_REL_TYPES:
+        assert rel in raw
+    assert "HAS_CONCEPT" in raw
+    for name in (
+        "source_category",
+        "relation_type",
+        "target_category",
+        "origin_fact_ids",
+        "generalization_level",
+    ):
+        assert name in raw
+    for name in ("summary_text", "updated_at", "document_count"):
+        assert name in raw
+    assert FAMIGLIA_B_REL_TYPES == {m.value.upper() for m in SpecialRelationType}
+    assert BACKBONE_REL_TYPES == {IS_A.upper(), MEMBER_OF.upper()}
 
 
 def test_apply_schema_idempotent_and_indexes(neo4j_driver):

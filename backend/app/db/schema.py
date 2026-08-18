@@ -7,6 +7,8 @@ from pathlib import Path
 
 from neo4j import Driver, GraphDatabase
 
+from app.models.kernel import IS_A, MEMBER_OF, SpecialRelationType
+
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.cypher"
 
 REQUIRED_CONSTRAINTS = {
@@ -14,6 +16,9 @@ REQUIRED_CONSTRAINTS = {
     "node_query_log_id",
     "node_id",
     "concept_id",
+    "identity_node_uri",
+    "connectivity_rule_triple",
+    "corpus_context_id",
 }
 REQUIRED_BTREE_INDEXES = {
     "chunk_doc",
@@ -23,6 +28,9 @@ REQUIRED_BTREE_INDEXES = {
     "node_merged_into",
     "relation_is_latest",
     "relation_normalized",
+    "concept_kernel_category",
+    "concept_parent_uri",
+    "node_kernel_category",
 }
 REQUIRED_VECTOR_INDEXES = {
     "chunk_embedding",
@@ -31,6 +39,11 @@ REQUIRED_VECTOR_INDEXES = {
     "relation_embedding",
 }
 REQUIRED_FULLTEXT_INDEXES = {"node_concept_fulltext", "relation_fulltext"}
+
+# Dedicated Neo4j relationship types (no CREATE TYPE). Uppercased kernel values so
+# schema and kernel cannot drift. IS_A / MEMBER_OF must never share one rel type.
+FAMIGLIA_B_REL_TYPES: frozenset[str] = frozenset(m.value.upper() for m in SpecialRelationType)
+BACKBONE_REL_TYPES: frozenset[str] = frozenset({IS_A.upper(), MEMBER_OF.upper()})
 
 
 def load_schema_statements(path: Path = SCHEMA_PATH) -> list[str]:
