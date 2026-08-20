@@ -16,6 +16,7 @@ from app.pipeline.concepts import kernel_catch_all_concept_id
 from app.pipeline.node_graph_engine import (
     MACRO_BUNDLE_RELS_CYPHER,
     MACRO_LEAF_RELS_CYPHER,
+    _json_safe,
     bundle_edge_id,
     collapse_pair_counts,
     get_graph_bundle,
@@ -288,6 +289,37 @@ async def test_metadata_node_summary_and_identities():
     assert meta.identity_uris == ["identity:alice:Agente"]
     assert "embedding" not in meta.attributes
     assert meta.attributes.get("aliases") == ["A. Rossi"]
+
+
+class _Neo4jishDateTime:
+    def iso_format(self) -> str:
+        return "2011-01-01T00:00:00"
+
+
+def test_json_safe_coerces_neo4j_datetime_and_nan():
+    assert _json_safe(_Neo4jishDateTime()) == "2011-01-01T00:00:00"
+    assert _json_safe(float("nan")) is None
+    assert _json_safe(["ok", _Neo4jishDateTime()]) == ["ok", "2011-01-01T00:00:00"]
+
+
+@pytest.mark.asyncio
+async def test_metadata_node_datetime_attribute_is_json_safe():
+    session = FakeSession()
+    node = FakeNode(
+        id="alice",
+        name="Alice",
+        type="entity",
+        kernel_category="Agente",
+        summary="giocatrice",
+        valid_time=_Neo4jishDateTime(),
+    )
+    session.enqueue([{"c": None, "n": node}])
+    session.enqueue([])
+
+    meta = await get_node_metadata(session, "alice")
+
+    assert meta is not None
+    assert meta.attributes["valid_time"] == "2011-01-01T00:00:00"
 
 
 @pytest.mark.asyncio

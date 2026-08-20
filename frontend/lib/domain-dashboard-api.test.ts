@@ -13,6 +13,7 @@ import {
   partitionDomainChildren,
   popDrill,
   pushDrill,
+  shouldEmbedIdentityPanel,
 } from "./domain-nav";
 import type { GraphNode } from "./types";
 
@@ -113,5 +114,32 @@ describe("domain drill stack", () => {
     expect(nodeTypeLabel("entity")).toBe("Entità");
     expect(nodeTypeLabel("event")).toBe("Evento");
     expect(nodeTypeLabel(null)).toBeNull();
+  });
+
+  it("shouldEmbedIdentityPanel only when the node already has identity URIs", () => {
+    expect(
+      shouldEmbedIdentityPanel({
+        id: "alice",
+        kind: "node",
+        name: "Alice",
+        identity_uris: [],
+      }),
+    ).toBe(false);
+    expect(
+      shouldEmbedIdentityPanel({
+        id: "alice",
+        kind: "node",
+        name: "Alice",
+        identity_uris: ["identity:alice:Agente"],
+      }),
+    ).toBe(true);
+    expect(
+      shouldEmbedIdentityPanel({
+        id: "sport",
+        kind: "concept",
+        name: "Sport",
+        identity_uris: ["identity:alice:Agente"],
+      }),
+    ).toBe(false);
   });
 });

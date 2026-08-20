@@ -675,6 +675,29 @@ def _as_iso(value: Any) -> str | None:
     return text or None
 
 
+def _json_safe(value: Any) -> Any:
+    """Coerce Neo4j property values into JSON-serializable primitives.
+
+    ``GET /graph/metadata`` returns leftover node properties; graph views do not.
+    A neo4j.time.DateTime (or similar) in ``attributes`` would 500 the metadata
+    endpoint while the canvas still rendered.
+    """
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        return value
+    iso_fn = getattr(value, "iso_format", None) or getattr(value, "isoformat", None)
+    if callable(iso_fn):
+        return str(iso_fn())
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
 def _node_attributes(n: Any) -> dict[str, Any]:
     items = getattr(n, "items", None)
     props = getattr(n, "_props", None)
@@ -686,7 +709,11 @@ def _node_attributes(n: Any) -> dict[str, Any]:
         raw = dict(props)
     else:
         raw = {}
-    return {key: value for key, value in raw.items() if key not in _NODE_ATTR_SKIP}
+    return {
+        key: _json_safe(value)
+        for key, value in raw.items()
+        if key not in _NODE_ATTR_SKIP
+    }
 
 
 async def get_macro_graph(session: AsyncSession, limit: int = 400) -> GraphResponse:
@@ -864,6 +891,7 @@ async def get_node_metadata(
 
 DOMAINS_LIST_CYPHER = """
 MATCH (c:Concept)
+WHERE c.kernel_category IS NOT NULL
 OPTIONAL MATCH (n:Node)-[:MEMBER_OF]->(c)
 WHERE n.merged_into IS NULL
 WITH c, count(n) AS direct_member_count
@@ -878,6 +906,7 @@ ORDER BY name
 
 DOMAINS_GRAPH_CONCEPTS_CYPHER = """
 MATCH (c:Concept)
+WHERE c.kernel_category IS NOT NULL
 RETURN c
 """
 

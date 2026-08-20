@@ -228,9 +228,14 @@ def test_mdl_coverage_and_payload_both_met_is_true():
     assert passes_mdl_gate(cluster, k=5, m=2) is True
 
 
-def test_settings_mdl_defaults_are_five_and_two():
-    assert Settings.model_fields["BACKBONE_MDL_MIN_COVERAGE"].default == 5
-    assert Settings.model_fields["BACKBONE_MDL_MIN_PAYLOAD"].default == 2
+def test_settings_mdl_defaults_are_three_and_one():
+    """Lowered from doc4's baseline (5, 2): those almost never fire PROMOTE on a
+    realistic/small corpus, leaving everything under the 8 kernel catch-alls
+    forever (observed in practice — see piano-implementativo-metagraph.md
+    residuo #4). Still not (1, 1): a lone node, or a cluster with no payload
+    of its own, still can't promote."""
+    assert Settings.model_fields["BACKBONE_MDL_MIN_COVERAGE"].default == 3
+    assert Settings.model_fields["BACKBONE_MDL_MIN_PAYLOAD"].default == 1
 
 
 def test_genre_not_topic_prompt_is_nonempty_and_states_the_rule():

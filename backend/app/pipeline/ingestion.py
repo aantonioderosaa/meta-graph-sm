@@ -25,7 +25,6 @@ from app.models.node_extraction import (
 )
 from app.pipeline import chunking, embeddings, node_extraction
 from app.pipeline.chunking import Chunk
-from app.pipeline.concepts import merge_concept_and_link
 from app.pipeline.connectivity_rules import deposit_from_asserted_fact
 from app.pipeline.node_extraction_prompts import build_corpus_summary_prompt
 
@@ -119,6 +118,39 @@ def dedupe_extracted_entities(entities: list[ExtractedEntity]) -> list[Extracted
         seen.add(key)
         unique.append(entity)
     return unique
+
+
+def find_entity_by_loose_name(
+    name: str, node_ids: dict[tuple[str, str], str]
+) -> str | None:
+    """Containment match against ``entity`` nodes already created for this chunk.
+
+    The entity-list pass and the event-participation pass are two independent
+    LLM calls reading the same chunk (Fase 3, run in parallel); they can name
+    the same referent differently ("Rossi" vs "Mario Rossi"). Exact
+    normalized-name matching (``_create_node``'s own dedup) misses that and
+    used to create a second, bare ``:Node`` with no ``summary``/
+    ``kernel_category`` — permanently unclassifiable by the backbone (Fase 4
+    skips nodes without ``kernel_category``). This is a cheap, local
+    heuristic: no new LLM/embedding call, and scoped to this chunk's own
+    entities only — cross-chunk/cross-document duplicates stay the job of
+    the embedding-based dedup in ``node_resolution.py`` during dreaming.
+    Ties broken by longest known name (the more specific match).
+    """
+    target = normalize_entity_name(name)
+    if not target:
+        return None
+    best_id: str | None = None
+    best_len = -1
+    for (node_type, known_name), node_id in node_ids.items():
+        if node_type != "entity" or not known_name:
+            continue
+        if known_name == target:
+            return node_id
+        if (known_name in target or target in known_name) and len(known_name) > best_len:
+            best_id = node_id
+            best_len = len(known_name)
+    return best_id
 
 
 @dataclass(frozen=True)
@@ -352,29 +384,6 @@ async def _unwrap_node_extraction[T](
     return result
 
 
-async def _concepts_for_node(
-    node_type: str,
-    name: str,
-    chunk_text: str,
-    job_id: str,
-    chunk_id: str,
-) -> list[str]:
-    try:
-        if node_type == "entity":
-            result = await node_extraction.extract_entity_concepts(
-                name, chunk_text, job_id=job_id
-            )
-        else:
-            result = await node_extraction.extract_event_concepts(name, job_id=job_id)
-    except LLMValidationError as exc:
-        await _publish_node_llm_failure(job_id, chunk_id, exc)
-        return []
-    except Exception as exc:
-        await _publish_node_llm_failure(job_id, chunk_id, exc)
-        return []
-    return [concept.strip() for concept in result.concepts if concept and concept.strip()]
-
-
 def _kernel_category_value(category: EntityKernelType | str | None) -> str | None:
     if category is None:
         return None
@@ -435,7 +444,6 @@ async def process_chunk_node_extraction(
         raw_event_rel, _empty_event_relations(), job_id, chunk.id
     )
 
-    created_nodes: list[tuple[str, str, str]] = []
     nodes_written = 0
     node_ids: dict[tuple[str, str], str] = {}
 
@@ -464,7 +472,6 @@ async def process_chunk_node_extraction(
             kernel_category=_kernel_category_value(kernel_category),
         )
         node_ids[key] = node_id
-        created_nodes.append((node_id, name, node_type))
         nodes_written += 1
         return node_id
 
@@ -582,7 +589,9 @@ async def process_chunk_node_extraction(
             entity = entity_name.strip()
             if not entity:
                 continue
-            entity_id = await _create_node(entity, "entity")
+            entity_id = find_entity_by_loose_name(
+                entity, node_ids
+            ) or await _create_node(entity, "entity")
             await write_node_relation(
                 session,
                 head_id=event_id,
@@ -605,16 +614,6 @@ async def process_chunk_node_extraction(
                     "chunk_id": chunk.id,
                 },
             )
-
-    concept_cache: dict[tuple[str, str], list[str]] = {}
-    for node_id, name, node_type in created_nodes:
-        key = (node_type, name)
-        if key not in concept_cache:
-            concept_cache[key] = await _concepts_for_node(
-                node_type, name, chunk.text, job_id, chunk.id
-            )
-        for concept_name in concept_cache[key]:
-            await merge_concept_and_link(session, node_id, concept_name)
 
     return nodes_written
 

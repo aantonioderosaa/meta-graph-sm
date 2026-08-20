@@ -30,14 +30,27 @@ class Settings(BaseSettings):
     ENABLE_DERIVES: bool = False
     # Fase 4: classify entities onto the Concept TBox (MEMBER_OF). Kill switch.
     ENABLE_KERNEL_CLASSIFICATION: bool = True
-    # Fase 5: PROMOTE Node clusters under kernel / first-level catch-alls. Kill switch.
-    ENABLE_PROMOTE: bool = True
+    # Fase 5: PROMOTE Node clusters under a kernel catch-all into a named Concept.
+    # Default OFF: there is no clustering criterion yet (promote_clusters() takes
+    # *all* direct members of a catch-all as one cluster, never splits them into
+    # distinct sub-genres — see is_promotable_parent's docstring and
+    # piano-implementativo-metagraph.md residuo #1). Until that exists, "promoting"
+    # only wraps everyone in one redundant node; better to keep exactly the 8
+    # kernel Concepts than add a meaningless extra layer. Flip on once a real
+    # per-cluster criterion is implemented.
+    ENABLE_PROMOTE: bool = False
     # Two-level Concept match (doc4 §3). Exact then cosine; reuse vs near-band.
     BACKBONE_REUSE_THRESHOLD: float = 0.80
     BACKBONE_NEAR_THRESHOLD: float = 0.50
     # Two-threshold MDL baseline for genre promotion (doc4 §1). Both required (AND).
-    BACKBONE_MDL_MIN_COVERAGE: int = 5
-    BACKBONE_MDL_MIN_PAYLOAD: int = 2
+    # doc4's own defaults (5, 2) were tuned for a large corpus; on realistic/small
+    # ones PROMOTE almost never fires and everything sits under the 8 kernel
+    # catch-alls forever (observed in practice — piano-implementativo-metagraph.md
+    # residuo #4). Lowered so genuine sub-genres can actually emerge; still not
+    # 1/1 — a lone node or a cluster with zero payload of its own still can't
+    # promote. Re-tune upward once real corpus volume argues for it.
+    BACKBONE_MDL_MIN_COVERAGE: int = 3
+    BACKBONE_MDL_MIN_PAYLOAD: int = 1
     # Fase 7: S1 generalization up the Concept IS_A lattice. Stop before kernel catch-all.
     CONNECTIVITY_MAX_GENERALIZATION_HOPS: int = 1
     # Fase 8: identity-as-facets instead of destructive merge_nodes. Default off so

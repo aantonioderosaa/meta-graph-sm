@@ -39,7 +39,9 @@ def test_promote_skips_famiglia_b_including_derived_from():
 def test_metagraph_flag_defaults_locked():
     fields = Settings.model_fields
     assert fields["ENABLE_KERNEL_CLASSIFICATION"].default is True
-    assert fields["ENABLE_PROMOTE"].default is True
+    # Off by default: no clustering criterion yet to split a catch-all's members
+    # into more than one sub-genre (app/pipeline/promote.py, is_promotable_parent).
+    assert fields["ENABLE_PROMOTE"].default is False
     assert fields["ENABLE_TEMPORAL_TRANSITIONS"].default is True
     assert fields["ENABLE_JUDGE"].default is True
     assert fields["ENABLE_FACET_IDENTITY"].default is False

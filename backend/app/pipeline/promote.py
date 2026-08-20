@@ -201,11 +201,19 @@ def promoted_concept_id(parent_concept_id: str, cluster_node_ids: list[str]) -> 
 
 
 def is_promotable_parent(parent_id: str, isa_parent_id: str | None) -> bool:
-    """F5.8: kernel catch-all, or first-level (IS_A a kernel catch-all)."""
-    kernel_ids = kernel_catch_all_ids()
-    if parent_id in kernel_ids:
-        return True
-    return isa_parent_id in kernel_ids
+    """Only a kernel catch-all (the 8 E1-E8 vertices) is a promotable parent.
+
+    Deliberately narrower than earlier (was: kernel catch-all OR first-level,
+    i.e. up to 2 nested Concept layers): without a real clustering criterion,
+    ``promote_clusters()`` cannot split a parent's members into more than one
+    sub-genre — it wraps *all* direct members into a single child. Allowing
+    that wrapper to itself become a parent just re-wraps the same members
+    again one level deeper, never a real subdivision. Capped at exactly one
+    Concept layer under each of the 8 until a real per-cluster criterion
+    exists (see piano-implementativo-metagraph.md residuo #1).
+    """
+    _ = isa_parent_id
+    return parent_id in kernel_catch_all_ids()
 
 
 def is_skipped_relation(relation: str | None, kernel_parent: str | None = None) -> bool:
@@ -495,10 +503,15 @@ async def promote_clusters(
     *,
     parent_ids_out: list[str] | None = None,
 ) -> int:
-    """Dreaming stage: promote Node clusters under kernel / first-level catch-alls.
+    """Dreaming stage: promote Node clusters under the 8 kernel catch-alls only.
 
-    When ``parent_ids_out`` is provided, append each parent that produced an S
-    (for the judge's historical re-refine pass, F10.4).
+    Only the kernel catch-alls are queried as candidate parents — a promoted
+    Concept is never itself a parent for a further promotion (see
+    ``is_promotable_parent``: no clustering criterion exists yet to split a
+    parent's members into more than one sub-genre, so a second layer would
+    only ever re-wrap the same members). When ``parent_ids_out`` is provided,
+    append each parent that produced an S (for the judge's historical
+    re-refine pass, F10.4).
     """
     if not settings.ENABLE_PROMOTE:
         return 0
@@ -506,11 +519,6 @@ async def promote_clusters(
     kernel_ids = list(kernel_catch_all_ids())
     kernel_result = await session.run(FIND_KERNEL_CATCH_ALL_CYPHER, kernel_ids=kernel_ids)
     catch_all_ids = [record["id"] async for record in kernel_result]
-
-    first_result = await session.run(
-        FIND_FIRST_LEVEL_CATCH_ALL_CYPHER, kernel_ids=kernel_ids
-    )
-    catch_all_ids.extend([record["id"] async for record in first_result])
     # Snapshot before any write so a newly created S is not re-promoted this run.
     seen: set[str] = set()
     unique_parents: list[str] = []

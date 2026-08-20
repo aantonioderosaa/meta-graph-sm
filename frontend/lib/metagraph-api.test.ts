@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ApiError,
   getConnectivityRules,
   getContradictions,
   getIdentities,
   getIdentity,
   getJudgeRuns,
+  getNodeMetadata,
+  NetworkError,
   postUnlinkFacet,
+  userFacingApiError,
 } from "./api-client";
 
 function okResponse(body: unknown = { items: [] }) {
@@ -85,6 +89,30 @@ describe("metagraph layer API client paths", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8000/graph/judge-runs",
       expect.any(Object),
+    );
+  });
+
+  it("wraps fetch failures as NetworkError with the path", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(getIdentities()).rejects.toBeInstanceOf(NetworkError);
+    await expect(getIdentities()).rejects.toMatchObject({
+      path: "/graph/identities",
+      message: "GET /graph/identities: richiesta di rete non completata",
+    });
+    await expect(getNodeMetadata("alice")).rejects.toMatchObject({
+      path: "/graph/metadata/alice",
+    });
+  });
+
+  it("userFacingApiError distinguishes HTTP vs network vs Failed to fetch", () => {
+    expect(userFacingApiError(new ApiError(404, "nope"), "Metadati")).toBe(
+      "Metadati non disponibili (404)",
+    );
+    expect(
+      userFacingApiError(new NetworkError("/graph/identities"), "Identità"),
+    ).toBe("Identità — GET /graph/identities: richiesta di rete non completata");
+    expect(userFacingApiError(new TypeError("Failed to fetch"), "Metadati")).toBe(
+      "Metadati: richiesta di rete fallita",
     );
   });
 });

@@ -41,15 +41,48 @@ export class ApiError extends Error {
   }
 }
 
+/** Thrown when ``fetch()`` itself fails (backend down, CORS, mixed content). */
+export class NetworkError extends Error {
+  readonly path: string;
+  readonly method: string;
+
+  constructor(path: string, method = "GET") {
+    super(`${method} ${path}: richiesta di rete non completata`);
+    this.name = "NetworkError";
+    this.path = path;
+    this.method = method;
+  }
+}
+
+export function userFacingApiError(err: unknown, resource: string): string {
+  if (err instanceof ApiError) {
+    return `${resource} non disponibili (${err.status})`;
+  }
+  if (err instanceof NetworkError) {
+    return `${resource} — ${err.message}`;
+  }
+  const message = err instanceof Error ? err.message : "";
+  if (!message || /failed to fetch/i.test(message)) {
+    return `${resource}: richiesta di rete fallita`;
+  }
+  return `${resource}: ${message}`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
+  const method = init?.method ?? "GET";
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        Accept: "application/json",
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...init?.headers,
+      },
+    });
+  } catch {
+    throw new NetworkError(path, method);
+  }
 
   if (!response.ok) {
     let body: unknown = null;

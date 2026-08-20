@@ -591,22 +591,25 @@ async def test_deeper_than_first_level_is_noop(embed_stub):
     assert result == ""
     assert session.graph.snapshot() == snap
     assert is_promotable_parent(kernel, None) is True
-    assert is_promotable_parent(first, kernel) is True
+    assert is_promotable_parent(first, kernel) is False
     assert is_promotable_parent(deeper, first) is False
 
 
 @pytest.mark.asyncio
-async def test_first_level_parent_is_allowed(embed_stub):
+async def test_first_level_parent_is_no_longer_allowed(embed_stub):
+    """Capped at exactly one Concept layer under each kernel vertex (no clustering
+    criterion yet — see is_promotable_parent's docstring). A first-level Concept
+    (already promoted once) can no longer itself be a parent for a further
+    promotion; this used to be allowed up to a second layer."""
     session = PromoteFakeSession()
     first = "genre-first"
     parent, ids = _seed_cluster(session.graph, parent_id=first)
+    snap = session.graph.snapshot()
 
-    s_id = await promote(session, parent, ids)
+    result = await promote(session, parent, ids)
 
-    assert s_id
-    assert session.graph.isa[s_id] == first
-    for nid in ids:
-        assert session.graph.member_of[nid] == s_id
+    assert result == ""
+    assert session.graph.snapshot() == snap
 
 
 @pytest.mark.asyncio
@@ -619,6 +622,7 @@ async def test_promote_clusters_publishes_and_respects_kill_switch(embed_stub, m
         )
 
     monkeypatch.setattr("app.pipeline.promote.event_bus.publish", spy_publish)
+    monkeypatch.setattr("app.pipeline.promote.settings.ENABLE_PROMOTE", True)
     session = PromoteFakeSession()
     _seed_cluster(session.graph)
 
@@ -697,8 +701,10 @@ def test_cypher_shapes_create_not_merge_and_skip_backbone():
     assert "NOT n:Concept" in members
 
 
-def test_enable_promote_setting_default_true():
-    assert Settings.model_fields["ENABLE_PROMOTE"].default is True
+def test_enable_promote_setting_default_false():
+    """Off by default: no clustering criterion exists yet to split a catch-all's
+    members into more than one sub-genre (see is_promotable_parent)."""
+    assert Settings.model_fields["ENABLE_PROMOTE"].default is False
 
 
 def test_update_bundle_is_create_lift_called_from_work():

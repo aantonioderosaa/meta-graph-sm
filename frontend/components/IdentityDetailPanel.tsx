@@ -8,36 +8,50 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, getIdentities, postUnlinkFacet } from "@/lib/api-client";
+import {
+  getIdentities,
+  getIdentity,
+  postUnlinkFacet,
+  userFacingApiError,
+} from "@/lib/api-client";
 import { useAppStore } from "@/lib/store";
 import type { IdentityItem } from "@/lib/types";
 
 type IdentityDetailPanelProps = {
   onHighlightChange?: (ids: Set<string> | null) => void;
   filterFacetNodeId?: string;
+  /** When set, fetch only these URIs — do not list the whole KB. */
+  identityUris?: string[];
 };
 
 export function IdentityDetailPanel(props: IdentityDetailPanelProps) {
-  const { onHighlightChange, filterFacetNodeId } = props;
+  const { onHighlightChange, filterFacetNodeId, identityUris } = props;
   const kbResetEpoch = useAppStore((s) => s.kbResetEpoch);
   const [items, setItems] = useState<IdentityItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const identityKey = identityUris ? identityUris.join("\0") : null;
 
   const refresh = useCallback(async () => {
     try {
-      const data = await getIdentities();
-      setItems(data.items);
+      if (identityUris && identityUris.length === 0) {
+        setItems([]);
+        setError(null);
+        return;
+      }
+      if (identityUris) {
+        const next = await Promise.all(identityUris.map((uri) => getIdentity(uri)));
+        setItems(next);
+      } else {
+        const data = await getIdentities();
+        setItems(data.items);
+      }
       setError(null);
     } catch (err) {
       setItems([]);
-      if (err instanceof ApiError) {
-        setError(`Identità non disponibili (${err.status})`);
-      } else {
-        setError(err instanceof Error ? err.message : "Errore sconosciuto");
-      }
+      setError(userFacingApiError(err, "Identità"));
     }
-  }, []);
+  }, [identityKey, identityUris]);
 
   useEffect(() => {
     void refresh();
@@ -56,11 +70,7 @@ export function IdentityDetailPanel(props: IdentityDetailPanelProps) {
         await postUnlinkFacet(uri, facetNodeId);
         await refresh();
       } catch (err) {
-        if (err instanceof ApiError) {
-          setError("Stacco fallito (" + String(err.status) + ")");
-        } else {
-          setError(err instanceof Error ? err.message : "Errore sconosciuto");
-        }
+        setError(userFacingApiError(err, "Stacco faccetta"));
       } finally {
         setBusy(null);
       }

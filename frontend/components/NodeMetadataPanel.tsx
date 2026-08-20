@@ -8,8 +8,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { IdentityDetailPanel } from "@/components/IdentityDetailPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, getNodeMetadata } from "@/lib/api-client";
-import { nodeTypeLabel } from "@/lib/domain-nav";
+import { getNodeMetadata, userFacingApiError } from "@/lib/api-client";
+import { nodeTypeLabel, shouldEmbedIdentityPanel } from "@/lib/domain-nav";
 import type { NodeMetadataResponse } from "@/lib/types";
 
 export function NodeMetadataPanel({
@@ -29,11 +29,7 @@ export function NodeMetadataPanel({
       setError(null);
     } catch (err) {
       setData(null);
-      if (err instanceof ApiError) {
-        setError(`Metadati non disponibili (${err.status})`);
-      } else {
-        setError(err instanceof Error ? err.message : "Errore sconosciuto");
-      }
+      setError(userFacingApiError(err, "Metadati"));
     }
   }, [nodeId]);
 
@@ -147,9 +143,10 @@ export function NodeMetadataPanel({
           ) : null}
         </CardContent>
       </Card>
-      {data?.kind === "node" ? (
+      {data && shouldEmbedIdentityPanel(data) ? (
         <IdentityDetailPanel
           filterFacetNodeId={nodeId}
+          identityUris={data.identity_uris}
           onHighlightChange={onHighlightChange}
         />
       ) : null}

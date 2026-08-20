@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"./.venv/Scripts/python.exe\" -m pytest -q tests/test_ingestion_integration.py tests/test_query_integration.py tests/test_schema.py --tb=short)"
+    ]
+  }
+}
