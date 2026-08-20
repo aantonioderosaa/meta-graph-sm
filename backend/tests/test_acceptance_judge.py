@@ -256,10 +256,12 @@ class JudgeGraph:
                         "name_a": a.get("name"),
                         "summary_a": a.get("summary"),
                         "kernel_a": a.get("kernel_category"),
+                        "created_a": a.get("created_at"),
                         "id_b": b.get("id"),
                         "name_b": b.get("name"),
                         "summary_b": b.get("summary"),
                         "kernel_b": b.get("kernel_category"),
+                        "created_b": b.get("created_at"),
                     }
                 )
             return FakeResult(rows)
@@ -268,7 +270,10 @@ class JudgeGraph:
             self._drop_famiglia(kwargs["src_id"], kwargs["dst_id"], "POSSIBLY_SAME_AS")
             return FakeResult([])
 
-        if cypher == FIND_MISSED_CONTRADICTIONS_CYPHER:
+        if cypher == FIND_MISSED_CONTRADICTIONS_CYPHER or (
+            "NOT (t1)-[:CONTRADICTS]-(t2)" in cypher and "$touched_ids" in cypher
+        ):
+            touched = {str(nid) for nid in (kwargs.get("touched_ids") or []) if nid}
             rows = []
             latest = [rel for rel in self.relations if rel.get("is_latest", True)]
             for i, left in enumerate(latest):
@@ -290,9 +295,14 @@ class JudgeGraph:
                         continue
                     if self._has_famiglia(t1, t2, "UPDATED_BY"):
                         continue
+                    head = first["src"]
+                    if touched and not (
+                        str(head) in touched or str(t1) in touched or str(t2) in touched
+                    ):
+                        continue
                     rows.append(
                         {
-                            "head_id": first["src"],
+                            "head_id": head,
                             "tail_a": t1,
                             "tail_b": t2,
                             "relation": first.get("relation") or "",
@@ -373,7 +383,7 @@ class JudgeGraph:
             existing = self.identity_nodes.get(uri)
             if existing is None:
                 self.identity_nodes[uri] = {"uri": uri, "canonical_summary": summary}
-            elif not (existing.get("canonical_summary") or "") and summary:
+            else:
                 existing["canonical_summary"] = summary
             return FakeResult([{"uri": uri}])
 

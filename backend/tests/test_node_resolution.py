@@ -10,11 +10,13 @@ from app.pipeline.node_resolution import (
     COLLAPSE_OUTGOING_RELATIONS_CYPHER,
     COPY_DERIVED_FROM_CYPHER,
     COPY_HAS_CONCEPT_CYPHER,
+    COPY_MISSING_KERNEL_CATEGORY_CYPHER,
     CREATE_OUTGOING_ON_CANON_CYPHER,
     DELETE_DUP_RELATIONS_CYPHER,
     FIND_EXACT_NAME_CYPHER,
     FIND_NODE_CANDIDATES_CYPHER,
     HIGH_CONFIDENCE_SCORE,
+    PROMOTE_NEWER_SUMMARY_CYPHER,
     SET_MERGED_INTO_CYPHER,
     NodeCandidate,
     classify_node_duplicate,
@@ -346,6 +348,8 @@ async def test_merge_nodes_redirects_relation_and_sets_merged_into():
     assert any(call[0] == COPY_DERIVED_FROM_CYPHER for call in session.calls)
     assert any(call[0] == COLLAPSE_OUTGOING_RELATIONS_CYPHER for call in session.calls)
     assert any(call[0] == COLLAPSE_INCOMING_RELATIONS_CYPHER for call in session.calls)
+    assert any(call[0] == PROMOTE_NEWER_SUMMARY_CYPHER for call in session.calls)
+    assert any(call[0] == COPY_MISSING_KERNEL_CATEGORY_CYPHER for call in session.calls)
 
 
 def test_merge_cypher_clears_dup_edges_and_collapses_duplicates():

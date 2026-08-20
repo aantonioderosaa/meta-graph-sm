@@ -427,7 +427,7 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
         existing = graph.identity_nodes.get(uri)
         if existing is None:
             graph.identity_nodes[uri] = {"uri": uri, "canonical_summary": summary}
-        elif not (existing.get("canonical_summary") or "") and summary:
+        else:
             existing["canonical_summary"] = summary
         return [{"uri": uri}]
     if cypher == LINK_SAME_AS_CYPHER:
@@ -557,7 +557,10 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
     if cypher == DELETE_POSSIBLY_SAME_AS_CYPHER:
         graph._drop_famiglia(kwargs["src_id"], kwargs["dst_id"], "POSSIBLY_SAME_AS")
         return []
-    if cypher == FIND_MISSED_CONTRADICTIONS_CYPHER:
+    if cypher == FIND_MISSED_CONTRADICTIONS_CYPHER or (
+        "NOT (t1)-[:CONTRADICTS]-(t2)" in cypher and "$touched_ids" in cypher
+    ):
+        touched = {str(nid) for nid in (kwargs.get("touched_ids") or []) if nid}
         rows = []
         latest = [rel for rel in graph.relations if rel.get("is_latest", True)]
         for i, left in enumerate(latest):
@@ -579,9 +582,14 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
                     continue
                 if graph._has_famiglia(t1, t2, "UPDATED_BY"):
                     continue
+                head = graph._src(first)
+                if touched and not (
+                    str(head) in touched or str(t1) in touched or str(t2) in touched
+                ):
+                    continue
                 rows.append(
                     {
-                        "head_id": graph._src(first),
+                        "head_id": head,
                         "tail_a": t1,
                         "tail_b": t2,
                         "relation": first.get("relation") or "",

@@ -215,7 +215,7 @@ class IdentityGraph:
             existing = self.identity_nodes.get(uri)
             if existing is None:
                 self.identity_nodes[uri] = {"uri": uri, "canonical_summary": summary}
-            elif not (existing.get("canonical_summary") or "") and summary:
+            else:
                 existing["canonical_summary"] = summary
             return FakeResult([{"uri": uri}])
 
@@ -670,7 +670,10 @@ async def test_ensure_identity_node_does_not_destroy_facets():
     assert nodes == before[0]
     assert ("Node", "facet-a", "Relation", "Node", "club", (("relation", "plays_for"),)) in edges
     await ensure_identity_node(graph, uri="identity:mario:Agente", canonical_summary="ignored")
-    assert graph.identity_nodes["identity:mario:Agente"]["canonical_summary"] == "Mario"
+    assert graph.identity_nodes["identity:mario:Agente"]["canonical_summary"] == "ignored"
+    after = graph.snapshot()
+    assert after[0] == before[0]
+    assert ("Node", "facet-a", "Relation", "Node", "club", (("relation", "plays_for"),)) in after[2]
 
 
 @pytest.mark.asyncio

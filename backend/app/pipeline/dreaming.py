@@ -263,6 +263,9 @@ async def _run_node_phases(
             _resolve_and_classify_events(event_session, job_id),
         )
         node_touched |= event_touched
+        await entity_relation_resolution.reconcile_different_tail_pairs(
+            rel_session, node_touched
+        )
     return node_touched
 
 
@@ -282,7 +285,10 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
     try:
         async with driver.session() as judge_session:
             judge_stats = await run_judge(
-                judge_session, job_id, promoted_parent_ids=promoted_parent_ids
+                judge_session,
+                job_id,
+                promoted_parent_ids=promoted_parent_ids,
+                touched_ids=list(node_touched),
             )
         await event_bus.publish(
             job_id,

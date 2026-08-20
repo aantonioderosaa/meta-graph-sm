@@ -38,12 +38,7 @@ NOT_SAME_AS = "NOT_SAME_AS"
 
 MERGE_IDENTITY_NODE_CYPHER = """
 MERGE (i:IdentityNode {uri: $uri})
-ON CREATE SET i.canonical_summary = $canonical_summary
-ON MATCH SET i.canonical_summary = CASE
-  WHEN i.canonical_summary IS NULL OR i.canonical_summary = ''
-  THEN $canonical_summary
-  ELSE i.canonical_summary
-END
+SET i.canonical_summary = $canonical_summary
 RETURN i.uri AS uri
 """
 
@@ -221,7 +216,7 @@ def generate_identity_candidates(
 async def ensure_identity_node(
     session: AsyncSession, *, uri: str, canonical_summary: str
 ) -> str:
-    """MERGE ``:IdentityNode {uri}``. Set summary only when empty. Facets untouched."""
+    """MERGE ``:IdentityNode {uri}``. Later calls overwrite the summary. Facets untouched."""
     result = await session.run(
         MERGE_IDENTITY_NODE_CYPHER,
         uri=uri,

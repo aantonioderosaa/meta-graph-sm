@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
 from neo4j import AsyncSession
@@ -360,6 +360,59 @@ CREATE (b)-[:UPDATED_BY {
 }]->(b)
 """
 
+FIND_DIFFERENT_TAIL_PAIRS_CYPHER = """
+MATCH (h:Node)-[r1:Relation]->(t1:Node)
+MATCH (h)-[r2:Relation]->(t2:Node)
+WHERE h.id IN $touched_ids
+  AND r1.is_latest = true AND r2.is_latest = true
+  AND t1.id < t2.id
+  AND coalesce(r1.kernel_parent, '') = coalesce(r2.kernel_parent, '')
+  AND NOT (t1)-[:CONTRADICTS]-(t2)
+  AND NOT (t1)-[:SUPERSEDES]-(t2)
+  AND NOT (t1)-[:UPDATED_BY]-(t2)
+RETURN h.id AS head_id,
+       t1.id AS tail_a, t2.id AS tail_b,
+       coalesce(r1.relation, '') AS relation_a,
+       coalesce(r2.relation, '') AS relation_b,
+       r1.created_at AS created_a,
+       r2.created_at AS created_b,
+       coalesce(r1.kernel_parent, '') AS kernel_parent
+"""
+
+APPLY_DIFFERENT_TAIL_SUPERSEDES_CYPHER = """
+MATCH (h:Node {id: $head_id})-[old:Relation]->(old_tail:Node {id: $old_tail_id})
+WHERE old.is_latest = true
+  AND coalesce(old.kernel_parent, '') = $kernel_parent
+  AND coalesce(old.relation, '') = $old_relation
+MATCH (h)-[neu:Relation]->(new_tail:Node {id: $new_tail_id})
+WHERE neu.is_latest = true
+  AND coalesce(neu.kernel_parent, '') = $kernel_parent
+  AND coalesce(neu.relation, '') = $new_relation
+SET old.is_latest = false
+WITH old_tail, new_tail
+CREATE (new_tail)-[:SUPERSEDES {
+  subject_id: $head_id,
+  created_at: datetime()
+}]->(old_tail)
+"""
+
+APPLY_DIFFERENT_TAIL_UPDATED_BY_CYPHER = """
+MATCH (h:Node {id: $head_id})-[old:Relation]->(old_tail:Node {id: $old_tail_id})
+WHERE old.is_latest = true
+  AND coalesce(old.kernel_parent, '') = $kernel_parent
+  AND coalesce(old.relation, '') = $old_relation
+MATCH (h)-[neu:Relation]->(new_tail:Node {id: $new_tail_id})
+WHERE neu.is_latest = true
+  AND coalesce(neu.kernel_parent, '') = $kernel_parent
+  AND coalesce(neu.relation, '') = $new_relation
+SET old.is_latest = false
+WITH old_tail, new_tail
+CREATE (new_tail)-[:UPDATED_BY {
+  subject_id: $head_id,
+  created_at: datetime()
+}]->(old_tail)
+"""
+
 
 @dataclass(frozen=True)
 class EntityRelationCandidate:
@@ -532,6 +585,108 @@ async def classify_and_apply_entity_relation(
         new_rel_id=rel_id,
     )
     return "none"
+
+
+def _stamp(value: object) -> str:
+    if value is None or value == "":
+        return ""
+    iso = getattr(value, "isoformat", None)
+    if callable(iso):
+        try:
+            return str(iso())
+        except TypeError:
+            pass
+    return str(value)
+
+
+def _b_is_newer(created_a: object, created_b: object) -> bool:
+    sa, sb = _stamp(created_a), _stamp(created_b)
+    if not sa:
+        return bool(sb)
+    if not sb:
+        return False
+    return sb > sa
+
+
+async def _apply_different_tail_temporal(
+    session: AsyncSession,
+    label: RelationLabel,
+    *,
+    head_id: str,
+    old_tail_id: str,
+    new_tail_id: str,
+    old_relation: str,
+    new_relation: str,
+    kernel_parent: str,
+) -> str | None:
+    """Famiglia B between *different* tails. Never DELETE a :Relation or :Node."""
+    if label == RelationLabel.contradicts:
+        await write_contradicts(
+            session,
+            left_id=old_tail_id,
+            right_id=new_tail_id,
+            subject_id=head_id,
+            relation=new_relation or old_relation or "contradicts",
+            kernel_parent=kernel_parent or "contradicts",
+        )
+        return "contradicts"
+    params = {
+        "head_id": head_id,
+        "old_tail_id": old_tail_id,
+        "new_tail_id": new_tail_id,
+        "old_relation": old_relation,
+        "new_relation": new_relation,
+        "kernel_parent": kernel_parent,
+    }
+    if label in (RelationLabel.supersedes, RelationLabel.replaces):
+        await session.run(APPLY_DIFFERENT_TAIL_SUPERSEDES_CYPHER, **params)
+        return "supersedes"
+    if label == RelationLabel.updated_by:
+        await session.run(APPLY_DIFFERENT_TAIL_UPDATED_BY_CYPHER, **params)
+        return "updated_by"
+    return None
+
+
+async def reconcile_different_tail_pairs(
+    session: AsyncSession,
+    touched_ids: Sequence[str] | set[str],
+) -> int:
+    """Classify same-head / different-tail latest pairs scoped to ``touched_ids``.
+
+    Reuses the missed-contradiction pairing (same ``kernel_parent``, no existing
+    Famiglia B link) but applies the three-way temporal map instead of always
+    writing CONTRADICTS. Same-endpoint classification is a different function
+    and is not used here. Empty ``touched_ids`` is a no-op (zero queries).
+    """
+    ids = [str(nid) for nid in touched_ids if str(nid)]
+    if not ids:
+        return 0
+    result = await session.run(FIND_DIFFERENT_TAIL_PAIRS_CYPHER, touched_ids=ids)
+    pairs: list[dict] = [dict(record) async for record in result]
+    count = 0
+    for row in pairs:
+        relation_a = str(row.get("relation_a") or "")
+        relation_b = str(row.get("relation_b") or "")
+        label = map_temporal_transition(relation_b, relation_a)
+        if _b_is_newer(row.get("created_a"), row.get("created_b")):
+            old_tail, new_tail = str(row["tail_a"]), str(row["tail_b"])
+            old_rel, new_rel = relation_a, relation_b
+        else:
+            old_tail, new_tail = str(row["tail_b"]), str(row["tail_a"])
+            old_rel, new_rel = relation_b, relation_a
+        outcome = await _apply_different_tail_temporal(
+            session,
+            label,
+            head_id=str(row["head_id"]),
+            old_tail_id=old_tail,
+            new_tail_id=new_tail,
+            old_relation=old_rel,
+            new_relation=new_rel,
+            kernel_parent=str(row.get("kernel_parent") or ""),
+        )
+        if outcome is not None:
+            count += 1
+    return count
 
 
 async def resolve_fresh_entity_relations(

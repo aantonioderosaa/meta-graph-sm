@@ -80,6 +80,36 @@ MATCH (dup:Node {id: $dup_id})
 SET dup.merged_into = $canon_id
 """
 
+READ_NODE_SNAPSHOT_CYPHER = """
+MATCH (n:Node {id: $node_id})
+RETURN n.id AS id, n.summary AS summary, n.created_at AS created_at
+"""
+
+FIND_MERGED_INTO_CYPHER = """
+MATCH (n:Node {merged_into: $canon_id})
+RETURN n.id AS id, n.summary AS summary, n.created_at AS created_at
+"""
+
+PROMOTE_NEWER_SUMMARY_CYPHER = """
+MATCH (canon:Node {id: $canon_id}), (dup:Node {id: $dup_id})
+WHERE dup.summary IS NOT NULL AND dup.summary <> ''
+  AND dup.created_at IS NOT NULL
+  AND (canon.created_at IS NULL OR dup.created_at > canon.created_at)
+WITH canon, dup, canon.summary AS previous, dup.summary AS newest
+SET canon.summary = newest,
+    dup.summary = CASE
+      WHEN previous IS NULL OR previous = '' THEN newest
+      ELSE previous
+    END
+"""
+
+COPY_MISSING_KERNEL_CATEGORY_CYPHER = """
+MATCH (canon:Node {id: $canon_id}), (dup:Node {id: $dup_id})
+WHERE (canon.kernel_category IS NULL OR canon.kernel_category = '')
+  AND dup.kernel_category IS NOT NULL AND dup.kernel_category <> ''
+SET canon.kernel_category = dup.kernel_category
+"""
+
 COLLAPSE_OUTGOING_RELATIONS_CYPHER = """
 MATCH (canon:Node {id: $canon_id})-[r:Relation]->(other:Node)
 WITH other, coalesce(r.normalized_relation, r.relation) AS key, r
@@ -121,6 +151,15 @@ class NodeCandidate:
     via: NodeCandidateVia = "embedding"
 
 
+@dataclass(frozen=True)
+class NodeSnapshot:
+    """One node in a ``merged_into`` history chain (Fase 18)."""
+
+    id: str
+    summary: str
+    created_at: Any = None
+
+
 def build_dedup_prompt(new_name: str, candidates: list[NodeCandidate]) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for node duplicate classification."""
     lines: list[str] = []
@@ -136,6 +175,97 @@ def build_dedup_prompt(new_name: str, candidates: list[NodeCandidate]) -> tuple[
         "Quale candidato (se esiste) è la stessa entità/lo stesso evento nel mondo reale?"
     )
     return DEDUP_SYSTEM_PROMPT, user_prompt
+
+
+def _snapshot_sort_key(snapshot: NodeSnapshot) -> tuple[int, str, str]:
+    """Oldest ``created_at`` first; missing timestamps sort last; id as tie-break."""
+    stamp = _as_sortable(snapshot.created_at)
+    missing = 1 if stamp is None else 0
+    return (missing, stamp or "", snapshot.id)
+
+
+def _as_sortable(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    iso = getattr(value, "isoformat", None)
+    if callable(iso):
+        try:
+            return str(iso())
+        except TypeError:
+            pass
+    to_native = getattr(value, "to_native", None)
+    if callable(to_native):
+        native = to_native()
+        native_iso = getattr(native, "isoformat", None)
+        if callable(native_iso):
+            try:
+                return str(native_iso())
+            except TypeError:
+                pass
+        return str(native)
+    return str(value)
+
+
+def _row_to_snapshot(row: Any) -> NodeSnapshot:
+    return NodeSnapshot(
+        id=str(row["id"]),
+        summary=str(row.get("summary") or ""),
+        created_at=row.get("created_at"),
+    )
+
+
+async def node_history(session: AsyncSession, canon_id: str) -> list[NodeSnapshot]:
+    """Walk the ``merged_into`` chain (any depth) and return snapshots oldest→newest.
+
+    ``merged_into`` is a node property, not an edge, so the walk is a BFS in
+    Python: start at ``canon_id``, then every ``:Node`` whose ``merged_into``
+    points at a visited id. Sorted by ``created_at`` ascending (missing last).
+    """
+    if not canon_id:
+        return []
+    snapshots: dict[str, NodeSnapshot] = {}
+    queued: set[str] = {canon_id}
+    queue: list[str] = [canon_id]
+    while queue:
+        current = queue.pop(0)
+        if current not in snapshots:
+            own = await session.run(READ_NODE_SNAPSHOT_CYPHER, node_id=current)
+            found = False
+            async for record in own:
+                snapshots[current] = _row_to_snapshot(record)
+                found = True
+                break
+            if not found and current == canon_id:
+                return []
+            if not found:
+                snapshots[current] = NodeSnapshot(id=current, summary="", created_at=None)
+        children = await session.run(FIND_MERGED_INTO_CYPHER, canon_id=current)
+        async for record in children:
+            child = _row_to_snapshot(record)
+            snapshots[child.id] = child
+            if child.id not in queued:
+                queued.add(child.id)
+                queue.append(child.id)
+    return sorted(snapshots.values(), key=_snapshot_sort_key)
+
+
+def prefer_recent_summary(
+    summary_a: str,
+    created_a: Any,
+    summary_b: str,
+    created_b: Any,
+) -> str:
+    """Most recent non-empty summary wins. Missing timestamps keep ``summary_a`` if set."""
+    a = str(summary_a or "")
+    b = str(summary_b or "")
+    if not a:
+        return b
+    if not b:
+        return a
+    ka, kb = _as_sortable(created_a), _as_sortable(created_b)
+    if kb is not None and (ka is None or kb > ka):
+        return b
+    return a
 
 
 def _relationship_properties(rel: object) -> dict[str, Any]:
@@ -238,7 +368,13 @@ def _fast_path_canonical(candidates: list[NodeCandidate]) -> str | None:
 
 
 async def merge_nodes(session: AsyncSession, dup_id: str, canon_id: str) -> None:
-    """Redirect dup edges onto canon, collapse parallel Relations, keep dup for audit."""
+    """Redirect dup edges onto canon, collapse parallel Relations, keep dup for audit.
+
+    After the edge move, if ``dup`` is newer it donates ``summary`` to ``canon``
+    (the previous surface summary is archived on ``dup``). ``kernel_category``
+    is copied from ``dup`` only when ``canon`` lacks one. The duplicate is
+    never DELETE'd.
+    """
     if dup_id == canon_id:
         return
 
@@ -281,6 +417,11 @@ async def merge_nodes(session: AsyncSession, dup_id: str, canon_id: str) -> None
     await session.run(SET_MERGED_INTO_CYPHER, dup_id=dup_id, canon_id=canon_id)
     await session.run(COLLAPSE_OUTGOING_RELATIONS_CYPHER, canon_id=canon_id)
     await session.run(COLLAPSE_INCOMING_RELATIONS_CYPHER, canon_id=canon_id)
+    # Most recent summary wins; previous surface text is archived on the fused node.
+    await session.run(PROMOTE_NEWER_SUMMARY_CYPHER, dup_id=dup_id, canon_id=canon_id)
+    await session.run(
+        COPY_MISSING_KERNEL_CATEGORY_CYPHER, dup_id=dup_id, canon_id=canon_id
+    )
 
 
 async def resolve_node(

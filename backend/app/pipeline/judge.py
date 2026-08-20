@@ -33,6 +33,7 @@ from app.pipeline.identity_resolution import (
     mark_not_same_as,
 )
 from app.pipeline.ingestion import write_contradicts
+from app.pipeline.node_resolution import prefer_recent_summary
 
 logger = logging.getLogger(__name__)
 
@@ -133,9 +134,9 @@ CREATE (n)-[:{_MEMBER_OF_REL}]->(child)
 FIND_POSSIBLY_SAME_AS_CYPHER = """
 MATCH (a:Node)-[r:POSSIBLY_SAME_AS]->(b:Node)
 RETURN a.id AS id_a, a.name AS name_a, a.summary AS summary_a,
-       a.kernel_category AS kernel_a,
+       a.kernel_category AS kernel_a, a.created_at AS created_a,
        b.id AS id_b, b.name AS name_b, b.summary AS summary_b,
-       b.kernel_category AS kernel_b
+       b.kernel_category AS kernel_b, b.created_at AS created_b
 """
 
 DELETE_POSSIBLY_SAME_AS_CYPHER = """
@@ -152,6 +153,12 @@ WHERE r1.is_latest = true AND r2.is_latest = true
   AND NOT (t1)-[:CONTRADICTS]-(t2)
   AND NOT (t1)-[:SUPERSEDES]-(t2)
   AND NOT (t1)-[:UPDATED_BY]-(t2)
+  AND (
+    size($touched_ids) = 0
+    OR h.id IN $touched_ids
+    OR t1.id IN $touched_ids
+    OR t2.id IN $touched_ids
+  )
 RETURN h.id AS head_id, t1.id AS tail_a, t2.id AS tail_b,
        coalesce(r1.relation, '') AS relation,
        coalesce(r1.kernel_parent, '') AS kernel_parent
@@ -415,7 +422,12 @@ async def _task_identity(session: AsyncSession, job_id: str) -> int:
                 uri = identity_uri_from_name(name_a, kernel_a)
             else:
                 uri = identity_uri_from_facet_ids([id_a, id_b])
-            summary = str(row.get("summary_a") or row.get("summary_b") or "")
+            summary = prefer_recent_summary(
+                str(row.get("summary_a") or ""),
+                row.get("created_a"),
+                str(row.get("summary_b") or ""),
+                row.get("created_b"),
+            )
             await ensure_identity_node(session, uri=uri, canonical_summary=summary)
             await link_as_facet(session, uri, id_a)
             await link_as_facet(session, uri, id_b)
@@ -429,8 +441,12 @@ async def _task_identity(session: AsyncSession, job_id: str) -> int:
     return count
 
 
-async def _task_missed_contradictions(session: AsyncSession) -> int:
-    result = await session.run(FIND_MISSED_CONTRADICTIONS_CYPHER)
+async def _task_missed_contradictions(
+    session: AsyncSession,
+    touched_ids: Sequence[str] | None = None,
+) -> int:
+    ids = [str(nid) for nid in (touched_ids or []) if str(nid)]
+    result = await session.run(FIND_MISSED_CONTRADICTIONS_CYPHER, touched_ids=ids)
     pairs: list[dict[str, Any]] = [dict(record) async for record in result]
     count = 0
     for row in pairs:
@@ -486,8 +502,13 @@ async def run_judge(
     *,
     promoted_parent_ids: list[str] | None = None,
     on_requeue: RequeuePair | None = None,
+    touched_ids: Sequence[str] | None = None,
 ) -> JudgeStats:
-    """Six post-batch tasks + ``:JudgeRun`` log. Always writes the log node."""
+    """Six post-batch tasks + ``:JudgeRun`` log. Always writes the log node.
+
+    ``touched_ids`` scopes missed-contradiction pairing to the current batch
+    when non-empty; omitted or empty keeps the full-scan (debug/manual).
+    """
     stats = JudgeStats()
     if not settings.ENABLE_JUDGE:
         await _log_judge_run(session, job_id, stats)
@@ -501,7 +522,9 @@ async def run_judge(
     stats.equivalent_to = await _task_equivalent_to(session, threshold)
     stats.reraffine = await _task_reraffine(session, parent_ids)
     stats.identity = await _task_identity(session, job_id)
-    stats.missed_contradictions = await _task_missed_contradictions(session)
+    stats.missed_contradictions = await _task_missed_contradictions(
+        session, touched_ids=touched_ids
+    )
     stats.temporal = await _task_temporal(session)
     await _log_judge_run(session, job_id, stats)
     logger.info("judge_complete job_id=%s stats=%s", job_id, asdict(stats))
