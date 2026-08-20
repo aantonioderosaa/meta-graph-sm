@@ -26,7 +26,7 @@ Manuale UI (su dati reali):
 
 ## Fase 15 — vista generale (nomi soli, un clic ai metadati)
 
-Toggle **Vista dettagliata** (default) ↔ **Vista generale**. La vista generale monta solo `MacroGraphPanel` (un canvas NVL). Le schede Fascio / Metadati sono liste, non canvas. Non montare mai MacroGraphPanel e EntityEventExplorer insieme (cap WebGL).
+Sostituisce l’interazione di Fase 15 (canvas piatto + solo metadati). Toggle **Vista dettagliata** (default) ↔ **Vista generale**. La vista generale monta solo `MacroGraphPanel` (un canvas NVL). Le schede Fascio / Metadati sono liste, non canvas. Non montare mai MacroGraphPanel e EntityEventExplorer insieme (cap WebGL). **Fase 17 ha sostituito questa interazione** (dashboard + grafo a scope); i test e il canvas montato sono quelli della sezione Fase 17 sotto.
 
 | Caso | Superficie attesa | Verificato in test |
 |------|-------------------|--------------------|
@@ -43,6 +43,30 @@ Manuale UI — Fase 15:
 - [ ] Click su un arco: il pannello Fascio elenca le relazioni individuali con badge **ASSERITO**; espandere mostra `kernel_parent`, testimoni, `valid_time`
 - [ ] Click su un nodo: Metadati (definizione/breadcrumb per un concetto; sommario/attributi per un `:Node`); le faccette riusano il pannello Identità
 - [ ] Tornando a **Vista dettagliata** i quattro pannelli Fase 12 si comportano come prima; MacroGraphPanel è smontato (niente secondo grafo NVL)
+
+## Fase 17 — dashboard sottodomini + grafo a scope annidato
+
+Sostituisce l’interazione di Fase 15 (canvas piatto + solo metadati). Toggle **Vista dettagliata** (default) ↔ **Vista generale**. La vista generale monta `DomainDashboard` (lista, non canvas) + `DomainDetailCard` (scheda, non modale) + `DomainGraphPanel` (un canvas NVL via `GraphPanel`). Non montare mai DomainGraphPanel e EntityEventExplorer insieme (cap WebGL). `GET /graph/macro` resta nel backend ma non è più la vista primaria.
+
+| Caso | Superficie attesa | Verificato in test |
+|------|-------------------|--------------------|
+| Lista completa dei domini | `GET /graph/domains` — promossi e catch-all, nessun `LIMIT` silenzioso | sì (`test_domain_dashboard.py`) |
+| Dizionario Σ_D + regole scoped | `GET /graph/domains/{id}/dictionary` e `/rules`; un clic dalla dashboard | sì (`test_domain_dashboard.py`, path API vitest) |
+| Figli diretti ricorsivi | Concept → seleziona il Concept; Node → `NodeMetadataPanel` (`node_type` Entità/Evento) | sì (path API + `domain-nav.test` via `domain-dashboard-api.test.ts`) |
+| Grafo radice senza `:Node` sciolti | `GET /graph/domains-graph` solo `:Concept` con almeno un `BUNDLE` | sì (`test_domain_dashboard.py`) |
+| Drill + freccia Indietro | stack `drillPath` in `DashboardShell`; `GET /graph/domains/{id}/children-graph`; pop = un click | sì (`domain-dashboard-api.test.ts`, `test_acceptance_solo_entita_eventi.py`) |
+| Lista MEMBER_OF testuale | nello scope, colonna «Dentro questo dominio» ridondante col grafo | sì (componente `DomainGraphPanel`) |
+| Toggle senza 5° canvas | default dettagliata; `{generale ? Domain* : EntityEventExplorer}` | sì (`test_acceptance_solo_entita_eventi.py`) |
+
+Manuale UI — Fase 17:
+
+- [ ] Default all’apertura: **Vista dettagliata**; tab laterali invariate
+- [ ] Toggle **Vista generale**: lista scrollabile di tutti i Concept; un clic su una riga apre dizionario e regole nella scheda (non un modale)
+- [ ] Dalla scheda si scende ai figli Concept fino alle foglie Node; ogni foglia apre i metadati (etichetta Entità o Evento)
+- [ ] Il grafo in radice mostra solo Concept legati da fasci (numeri in caption); nessun nodo foglia accanto ai Concept
+- [ ] Click su un Concept nel grafo sostituisce il canvas con i figli diretti; **Indietro** (sopra il canvas) torna allo scope precedente
+- [ ] Nello scope, la lista testuale elenca i `:Node` MEMBER_OF; click su un arco apre ancora il pannello Fascio
+- [ ] Tornando a **Vista dettagliata**, DomainGraphPanel è smontato (niente secondo grafo NVL)
 
 Manuale UI — sei casi-limite del §13 (Doc1), come li vede un umano nei pannelli Fase 12:
 

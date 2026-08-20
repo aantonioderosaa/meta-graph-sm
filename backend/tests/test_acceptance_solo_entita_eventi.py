@@ -84,7 +84,10 @@ def test_scenario_1_pipelines_never_publish_fact_stages():
 def test_scenario_2_dashboard_has_single_entity_event_explorer():
     shell = (FRONTEND_COMPONENTS / "DashboardShell.tsx").read_text(encoding="utf-8")
     assert shell.count("<EntityEventExplorer") == 1
-    assert shell.count("<MacroGraphPanel") == 1
+    assert shell.count("<DomainGraphPanel") == 1
+    assert "DomainDashboard" in shell
+    assert "DomainDetailCard" in shell
+    assert "drillPath" in shell
     assert '"dettagliata"' in shell
     assert "Vista dettagliata" in shell
     assert "Vista generale" in shell
@@ -110,6 +113,8 @@ def test_scenario_2b_metagraph_layer_panels_exist_as_list_not_nvl():
         "JudgeLogPanel.tsx",
         "BundleDetailPanel.tsx",
         "NodeMetadataPanel.tsx",
+        "DomainDashboard.tsx",
+        "DomainDetailCard.tsx",
     )
     for name in names:
         path = FRONTEND_COMPONENTS / name
@@ -119,16 +124,18 @@ def test_scenario_2b_metagraph_layer_panels_exist_as_list_not_nvl():
         assert "GraphPanel" not in text
 
 
-def test_scenario_2c_macro_reuses_graph_panel_not_a_fifth_canvas():
-    macro = (FRONTEND_COMPONENTS / "MacroGraphPanel.tsx").read_text(encoding="utf-8")
-    assert "GraphPanel" in macro
-    assert "getMacroGraph" in macro
-    assert "colorByKernelCategory" in macro
-    assert "InteractiveNvlWrapper" not in macro
+def test_scenario_2c_domain_graph_reuses_graph_panel_not_a_fifth_canvas():
+    panel = (FRONTEND_COMPONENTS / "DomainGraphPanel.tsx").read_text(encoding="utf-8")
+    assert "GraphPanel" in panel
+    assert "getDomainsGraph" in panel
+    assert "getDomainChildrenGraph" in panel
+    assert "colorByKernelCategory" in panel
+    assert "InteractiveNvlWrapper" not in panel
     shell = (FRONTEND_COMPONENTS / "DashboardShell.tsx").read_text(encoding="utf-8")
     assert "{generale ?" in shell
-    assert "<MacroGraphPanel" in shell
+    assert "<DomainGraphPanel" in shell
     assert "<EntityEventExplorer" in shell
+    assert "<MacroGraphPanel" not in shell
 
 
 def test_scenario_3_graph_panel_handles_nvl_init_error():

@@ -13,6 +13,12 @@ from neo4j import AsyncSession
 from app.api.schemas import (
     BundleRelation,
     BundleResponse,
+    ConnectivityRuleItem,
+    ConnectivityRuleListResponse,
+    DomainDictionaryItem,
+    DomainDictionaryResponse,
+    DomainListItem,
+    DomainListResponse,
     GraphNode,
     GraphRelationship,
     GraphResponse,
@@ -39,6 +45,11 @@ __all__ = [
     "facts_visible_in_subdomain",
     "get_concept_neighbors",
     "get_concept_overview",
+    "get_domain_children_graph",
+    "get_domain_dictionary",
+    "get_domain_rules",
+    "get_domains",
+    "get_domains_graph",
     "get_entity_graph",
     "get_event_graph",
     "get_graph_bundle",
@@ -621,6 +632,25 @@ def collapse_pair_counts(
     return counts
 
 
+def _bundle_relationships(
+    pairs: list[tuple[str, str]],
+    macro_ids: set[str],
+    homes: dict[str, str],
+) -> list[GraphRelationship]:
+    """Collapsed BUNDLE edges among ``macro_ids`` (same as ``get_macro_graph``)."""
+    counts = collapse_pair_counts(pairs, macro_ids, homes)
+    return [
+        _graph_relationship(
+            bundle_edge_id(left, right),
+            left,
+            right,
+            "BUNDLE",
+            str(count),
+        )
+        for (left, right), count in sorted(counts.items())
+    ]
+
+
 def _as_str_list(value: Any) -> list[str]:
     if value is None:
         return []
@@ -815,6 +845,8 @@ async def get_node_metadata(
             if uri:
                 uris.append(str(uri))
         nid = str(_get(node, "id"))
+        raw_type = _get(node, "type")
+        node_type = None if raw_type in (None, "") else str(raw_type)
         return NodeMetadataResponse(
             id=nid,
             kind="node",
@@ -823,6 +855,287 @@ async def get_node_metadata(
             summary=_get(node, "summary"),
             attributes=_node_attributes(node),
             identity_uris=uris,
+            node_type=node_type,
         )
     return None
+
+
+# --- Fase 17: domain dashboard + nested-scope graph ---
+
+DOMAINS_LIST_CYPHER = """
+MATCH (c:Concept)
+OPTIONAL MATCH (n:Node)-[:MEMBER_OF]->(c)
+WHERE n.merged_into IS NULL
+WITH c, count(n) AS direct_member_count
+RETURN c.id AS id,
+       coalesce(c.name, c.id) AS name,
+       c.kernel_category AS kernel_category,
+       c.definition AS definition,
+       coalesce(c.promoted, false) AS promoted,
+       direct_member_count
+ORDER BY name
+"""
+
+DOMAINS_GRAPH_CONCEPTS_CYPHER = """
+MATCH (c:Concept)
+RETURN c
+"""
+
+DOMAIN_DICTIONARY_RELS_CYPHER = """
+MATCH (member:Node)-[:MEMBER_OF]->(:Concept {id: $concept_id})
+WHERE member.merged_into IS NULL
+WITH collect(DISTINCT member.id) AS member_ids
+MATCH (a:Node)-[rel:Relation]->(b:Node)
+WHERE a.id IN member_ids AND b.id IN member_ids
+  AND rel.lifted_from IS NULL
+RETURN coalesce(rel.normalized_relation, rel.relation) AS name,
+       rel.kernel_parent AS kernel_parent,
+       count(*) AS count
+"""
+
+DOMAIN_DICTIONARY_ATTRS_CYPHER = """
+MATCH (n:Node)-[:MEMBER_OF]->(:Concept {id: $concept_id})
+WHERE n.merged_into IS NULL
+UNWIND keys(n) AS key
+WITH key, count(*) AS count
+WHERE NOT key IN $skip_keys AND count > 0
+RETURN key AS name, count
+ORDER BY name
+"""
+
+DOMAIN_MEMBER_IDS_CYPHER = """
+MATCH (n:Node)-[:MEMBER_OF]->(:Concept {id: $concept_id})
+WHERE n.merged_into IS NULL
+RETURN n.id AS id
+"""
+
+DOMAIN_RULES_CYPHER = """
+MATCH (r:ConnectivityRule)
+RETURN r.source_category AS source_category,
+       r.relation_type AS relation_type,
+       r.target_category AS target_category,
+       coalesce(r.generalization_level, 0) AS generalization_level,
+       size(coalesce(r.origin_fact_ids, [])) AS origin_count,
+       coalesce(r.origin_fact_ids, []) AS origin_fact_ids
+"""
+
+
+async def _resolve_concept(session: AsyncSession, concept_id: str) -> Any | None:
+    result = await session.run(CONCEPT_BY_ID_CYPHER, concept_id=concept_id)
+    record = await result.single()
+    if record is None:
+        return None
+    return record.get("c") if hasattr(record, "get") else record["c"]
+
+
+async def _load_member_homes_and_leaf_pairs(
+    session: AsyncSession,
+) -> tuple[dict[str, str], list[tuple[str, str]]]:
+    homes: dict[str, str] = {}
+    home_result = await session.run(MACRO_MEMBER_OF_CYPHER)
+    async for record in home_result:
+        homes[str(record["node_id"])] = str(record["concept_id"])
+    pairs: list[tuple[str, str]] = []
+    rel_result = await session.run(MACRO_LEAF_RELS_CYPHER)
+    async for record in rel_result:
+        pairs.append((str(record["from_id"]), str(record["to_id"])))
+    return homes, pairs
+
+
+def _origin_touches_members(origin_id: Any, member_ids: set[str]) -> bool:
+    text = str(origin_id or "")
+    if not text:
+        return False
+    if text in member_ids:
+        return True
+    for mid in member_ids:
+        if (
+            text.startswith(f"{mid}|")
+            or text.endswith(f"|{mid}")
+            or f"|{mid}|" in text
+        ):
+            return True
+    return False
+
+
+def _rule_matches_domain(
+    *,
+    source_category: str,
+    target_category: str,
+    origin_fact_ids: Any,
+    kernel_category: str | None,
+    concept_id: str,
+    member_ids: set[str],
+) -> bool:
+    if kernel_category and (
+        source_category == kernel_category or target_category == kernel_category
+    ):
+        return True
+    if source_category == concept_id or target_category == concept_id:
+        return True
+    origins = origin_fact_ids if isinstance(origin_fact_ids, list) else []
+    return any(_origin_touches_members(oid, member_ids) for oid in origins)
+
+
+async def get_domains(session: AsyncSession) -> DomainListResponse:
+    """Complete :Concept list (promoted and catch-all). No silent truncation."""
+    result = await session.run(DOMAINS_LIST_CYPHER)
+    items: list[DomainListItem] = []
+    async for row in result:
+        promoted = row["promoted"]
+        items.append(
+            DomainListItem(
+                id=str(row["id"]),
+                name=str(row["name"] or row["id"]),
+                kernel_category=_get(row, "kernel_category"),
+                definition=_get(row, "definition"),
+                promoted=bool(promoted),
+                direct_member_count=int(row["direct_member_count"] or 0),
+            )
+        )
+    return DomainListResponse(items=items)
+
+
+async def get_domains_graph(session: AsyncSession) -> GraphResponse:
+    """Root canvas: only :Concept nodes that share at least one BUNDLE.
+
+    Leaf :Relation endpoints are lifted onto Concept homes via MEMBER_OF.
+    Unpromoted leftover :Node never appear beside Concepts.
+    """
+    nodes_by_id: dict[str, GraphNode] = {}
+    result = await session.run(DOMAINS_GRAPH_CONCEPTS_CYPHER)
+    async for record in result:
+        node = _graph_node_from_node(record["c"], extra={"type": "concept"})
+        nodes_by_id[node.id] = node
+    if not nodes_by_id:
+        return GraphResponse(nodes=[], relationships=[])
+
+    homes, pairs = await _load_member_homes_and_leaf_pairs(session)
+    relationships = _bundle_relationships(pairs, set(nodes_by_id), homes)
+    connected: set[str] = set()
+    for rel in relationships:
+        connected.add(rel.from_id)
+        connected.add(rel.to)
+    return GraphResponse(
+        nodes=[node for node in nodes_by_id.values() if node.id in connected],
+        relationships=relationships,
+    )
+
+
+async def get_domain_dictionary(
+    session: AsyncSession, concept_id: str
+) -> DomainDictionaryResponse | None:
+    """Σ_D among direct MEMBER_OF members. None if the Concept is missing."""
+    concept = await _resolve_concept(session, concept_id)
+    if concept is None:
+        return None
+    items: list[DomainDictionaryItem] = []
+    rel_result = await session.run(
+        DOMAIN_DICTIONARY_RELS_CYPHER, concept_id=concept_id
+    )
+    async for row in rel_result:
+        name = _get(row, "name")
+        if not name:
+            continue
+        kernel_parent = _get(row, "kernel_parent")
+        items.append(
+            DomainDictionaryItem(
+                kind="relation",
+                name=str(name),
+                kernel_parent=None if kernel_parent in (None, "") else str(kernel_parent),
+                count=int(_get(row, "count") or 0),
+            )
+        )
+    attr_result = await session.run(
+        DOMAIN_DICTIONARY_ATTRS_CYPHER,
+        concept_id=concept_id,
+        skip_keys=list(_NODE_ATTR_SKIP),
+    )
+    async for row in attr_result:
+        name = _get(row, "name")
+        if not name:
+            continue
+        items.append(
+            DomainDictionaryItem(
+                kind="attribute",
+                name=str(name),
+                count=int(_get(row, "count") or 0),
+            )
+        )
+    return DomainDictionaryResponse(items=items)
+
+
+async def get_domain_rules(
+    session: AsyncSession, concept_id: str
+) -> ConnectivityRuleListResponse | None:
+    """ConnectivityRule rows scoped to a domain. None if the Concept is missing."""
+    concept = await _resolve_concept(session, concept_id)
+    if concept is None:
+        return None
+    kernel_category = _get(concept, "kernel_category")
+    kernel_category = None if kernel_category in (None, "") else str(kernel_category)
+
+    member_ids: set[str] = set()
+    members = await session.run(DOMAIN_MEMBER_IDS_CYPHER, concept_id=concept_id)
+    async for row in members:
+        nid = _get(row, "id")
+        if nid:
+            member_ids.add(str(nid))
+
+    result = await session.run(DOMAIN_RULES_CYPHER)
+    items: list[ConnectivityRuleItem] = []
+    async for row in result:
+        source = str(_get(row, "source_category") or "")
+        target = str(_get(row, "target_category") or "")
+        if not _rule_matches_domain(
+            source_category=source,
+            target_category=target,
+            origin_fact_ids=_get(row, "origin_fact_ids") or [],
+            kernel_category=kernel_category,
+            concept_id=concept_id,
+            member_ids=member_ids,
+        ):
+            continue
+        items.append(
+            ConnectivityRuleItem(
+                source_category=source,
+                relation_type=str(_get(row, "relation_type") or ""),
+                target_category=target,
+                generalization_level=int(_get(row, "generalization_level") or 0),
+                origin_count=int(_get(row, "origin_count") or 0),
+            )
+        )
+    return ConnectivityRuleListResponse(items=items)
+
+
+async def get_domain_children_graph(
+    session: AsyncSession, concept_id: str
+) -> GraphResponse | None:
+    """Direct IS_A / MEMBER_OF children plus collapsed BUNDLE edges among them."""
+    concept = await _resolve_concept(session, concept_id)
+    if concept is None:
+        return None
+
+    nodes_by_id: dict[str, GraphNode] = {}
+    child_result = await session.run(
+        CONCEPT_ISA_CHILDREN_CYPHER, concept_id=concept_id
+    )
+    async for rec in child_result:
+        node = _graph_node_from_node(rec["child"], extra={"type": "concept"})
+        nodes_by_id[node.id] = node
+
+    member_result = await session.run(CONCEPT_MEMBERS_CYPHER, concept_id=concept_id)
+    async for rec in member_result:
+        node = _neighbor_graph_node(rec)
+        nodes_by_id.setdefault(node.id, node)
+
+    if not nodes_by_id:
+        return GraphResponse(nodes=[], relationships=[])
+
+    homes, pairs = await _load_member_homes_and_leaf_pairs(session)
+    relationships = _bundle_relationships(pairs, set(nodes_by_id), homes)
+    return GraphResponse(
+        nodes=list(nodes_by_id.values()),
+        relationships=relationships,
+    )
 

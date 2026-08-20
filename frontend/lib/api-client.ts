@@ -9,6 +9,8 @@ import type {
   ContradictionListResponse,
   DocumentListResponse,
   DocumentRequest,
+  DomainDictionaryResponse,
+  DomainListResponse,
   DreamingRunRequest,
   GetEntityEventGraphParams,
   GetGraphLimitParams,
@@ -164,6 +166,36 @@ export function getMacroGraph(
   }
   const qs = search.toString();
   return request<GraphResponse>(`/graph/macro${qs ? `?${qs}` : ""}`);
+}
+
+export function getDomains(): Promise<DomainListResponse> {
+  return request<DomainListResponse>("/graph/domains");
+}
+
+export function getDomainsGraph(): Promise<GraphResponse> {
+  return request<GraphResponse>("/graph/domains-graph");
+}
+
+export function getDomainDictionary(
+  conceptId: string,
+): Promise<DomainDictionaryResponse> {
+  return request<DomainDictionaryResponse>(
+    `/graph/domains/${encodeURIComponent(conceptId)}/dictionary`,
+  );
+}
+
+export function getDomainRules(
+  conceptId: string,
+): Promise<ConnectivityRuleListResponse> {
+  return request<ConnectivityRuleListResponse>(
+    `/graph/domains/${encodeURIComponent(conceptId)}/rules`,
+  );
+}
+
+export function getDomainChildrenGraph(conceptId: string): Promise<GraphResponse> {
+  return request<GraphResponse>(
+    `/graph/domains/${encodeURIComponent(conceptId)}/children-graph`,
+  );
 }
 
 export function getGraphBundle(

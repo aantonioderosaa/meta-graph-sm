@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { IdentityDetailPanel } from "@/components/IdentityDetailPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, getNodeMetadata } from "@/lib/api-client";
+import { nodeTypeLabel } from "@/lib/domain-nav";
 import type { NodeMetadataResponse } from "@/lib/types";
 
 export function NodeMetadataPanel({
@@ -107,6 +108,14 @@ export function NodeMetadataPanel({
                 </>
               ) : (
                 <>
+                  {nodeTypeLabel(data.node_type) ? (
+                    <div>
+                      <dt className="text-[10px] uppercase text-muted-foreground">
+                        Tipo
+                      </dt>
+                      <dd>{nodeTypeLabel(data.node_type)}</dd>
+                    </div>
+                  ) : null}
                   {data.summary ? (
                     <div>
                       <dt className="text-[10px] uppercase text-muted-foreground">

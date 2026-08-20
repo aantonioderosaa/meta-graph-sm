@@ -17,7 +17,7 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 - Giudice (Fase 10): a fine di ogni batch di dreaming (dopo `reconcile`) gira `run_judge` — anti-blur, `EQUIVALENT_TO`, ri-raffinamento storico, conferma identità, `CONTRADICTS` mancate, smistamento temporale. Scrive solo primitive esistenti (INGEST/PROMOTE + Famiglia B / `MEMBER_OF`). Ogni passata è loggata in `:JudgeRun`. Flag `ENABLE_JUDGE` (default true); `BACKBONE_COLLAPSE_THRESHOLD=0.90`.
 - Query NL coarse-to-fine (Fase 11): `plan_connectivity_scope` interroga `:ConnectivityRule` sulle categorie kernel della domanda **prima** di `hybrid_seed`. `POST /graph/query` aggiunge `citations[]` con `epistemic_status` asserted/derived e `derivation_chain` (passi S0/S1) calcolata in Python, non dall'LLM. I salti S2 restano in memoria e non vengono mai scritti come `:Relation`.
 - Layer Metagraph in UI (Fase 12): tab laterali Dominio / Identità / Contraddizioni / Regole / Giudice (liste e albero, nessun canvas NVL extra). Badge ` · faccette` sui nodi multi-identità; citazioni query ASSERITO/DERIVATO.
-- Vista generale (Fase 15): `GET /graph/macro` (concetti promossi + nodi di primo livello, fasci collassati con `relation_count` in caption). Toggle **Vista dettagliata** (default, quattro pannelli) ↔ **Vista generale** (`MacroGraphPanel` riusa `GraphPanel`; mai due NVL extra). Drill-down: `GET /graph/bundle/{a}/{b}` e `GET /graph/metadata/{id}`.
+- Vista generale (Fase 15, storica): `GET /graph/macro` resta disponibile (concetti promossi + nodi di primo livello, fasci collassati). **Fase 17 sostituisce l'interazione UI**: dashboard scorrevole di tutti i `:Concept` (`GET /graph/domains`, nessun limit implicito), scheda dizionario/regole (`GET /graph/domains/{id}/dictionary`, `GET /graph/domains/{id}/rules`), grafo a scope annidato (`GET /graph/domains-graph` in radice — solo `:Concept` legati da `BUNDLE`; `GET /graph/domains/{id}/children-graph` al drill). Toggle **Vista dettagliata** (default, quattro pannelli) ↔ **Vista generale** (`DomainDashboard` + `DomainDetailCard` + `DomainGraphPanel` che riusa `GraphPanel`; mai due NVL extra). Freccia Indietro = pop dello stack `drillPath`. Drill-down foglia: `GET /graph/bundle/{a}/{b}` e `GET /graph/metadata/{id}` (`node_type` entity|event).
 - Backfill `kernel_category` (Fase 13): job idempotente [`backend/scripts/backfill_kernel_category.py`](./backend/scripts/backfill_kernel_category.py) (`--dry-run`, `--limit`) su `:Node` già ingeriti senza categoria. Non cancella nodi; non richiede dump/restore. `DERIVED_FROM` verso `:Chunk` è già Famiglia B — nessuna riscrittura archi.
 - Qualità e accettazione e-e (Fase 14): corpus fisso `tests/test_acceptance_metagraph_e2e.py` (FakeSession, no Docker/OpenAI) + sei stress kernel §13 in `tests/test_kernel_stress.py`; schema Fase 2 in CI Docker (`backend-integration-metagraph`); checklist UI estesa in [`frontend/docs/e12-metagraph-ui-checklist.md`](./frontend/docs/e12-metagraph-ui-checklist.md).
 - Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12 / F14.5](./frontend/docs/e12-metagraph-ui-checklist.md).
@@ -58,7 +58,8 @@ Policy di rollout: ogni flag resta spento finché la relativa suite di accettazi
 | 12 | Frontend — layer Metagraph | completata |
 | 13 | Migrazione e coesistenza | completata |
 | 14 | Qualità e accettazione e-e | completata |
-| 15 | Vista a grafo generale | completata |
+| 15 | Vista a grafo generale | completata (interazione sostituita da Fase 17) |
+| 17 | Dashboard sottodomini trasparente | completata |
 
 ## Prerequisiti
 

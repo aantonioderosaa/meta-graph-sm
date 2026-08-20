@@ -6,6 +6,9 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api.schemas import (
     BundleResponse,
+    ConnectivityRuleListResponse,
+    DomainDictionaryResponse,
+    DomainListResponse,
     GraphResetResponse,
     GraphResponse,
     NodeMetadataResponse,
@@ -81,6 +84,54 @@ async def get_macro_graph_endpoint(
 ) -> GraphResponse:
     """Aggregated Concept-domain view: names only, collapsed BUNDLE edges."""
     return await node_graph_engine.get_macro_graph(session, limit=limit)
+
+
+@router.get("/domains", response_model=DomainListResponse)
+async def get_domains_endpoint(session: Neo4jSessionDep) -> DomainListResponse:
+    """Complete :Concept list for the scrolling domain dashboard (no NVL limit)."""
+    return await node_graph_engine.get_domains(session)
+
+
+@router.get("/domains-graph", response_model=GraphResponse)
+async def get_domains_graph_endpoint(session: Neo4jSessionDep) -> GraphResponse:
+    """Root NVL canvas: Concepts linked by BUNDLE only — never leftover :Node."""
+    return await node_graph_engine.get_domains_graph(session)
+
+
+@router.get("/domains/{concept_id}/dictionary", response_model=DomainDictionaryResponse)
+async def get_domain_dictionary_endpoint(
+    concept_id: str,
+    session: Neo4jSessionDep,
+) -> DomainDictionaryResponse:
+    """Σ_D among direct members of a domain. 404 if the Concept is missing."""
+    data = await node_graph_engine.get_domain_dictionary(session, concept_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Dominio non trovato")
+    return data
+
+
+@router.get("/domains/{concept_id}/rules", response_model=ConnectivityRuleListResponse)
+async def get_domain_rules_endpoint(
+    concept_id: str,
+    session: Neo4jSessionDep,
+) -> ConnectivityRuleListResponse:
+    """ConnectivityRule rows scoped to a domain. 404 if the Concept is missing."""
+    data = await node_graph_engine.get_domain_rules(session, concept_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Dominio non trovato")
+    return data
+
+
+@router.get("/domains/{concept_id}/children-graph", response_model=GraphResponse)
+async def get_domain_children_graph_endpoint(
+    concept_id: str,
+    session: Neo4jSessionDep,
+) -> GraphResponse:
+    """Direct children of a domain plus collapsed BUNDLE edges among them."""
+    data = await node_graph_engine.get_domain_children_graph(session, concept_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Dominio non trovato")
+    return data
 
 
 @router.get("/bundle/{node_a_id}/{node_b_id}", response_model=BundleResponse)

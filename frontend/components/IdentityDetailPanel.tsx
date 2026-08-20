@@ -4,7 +4,7 @@
  * Identity facets list + non-destructive detach (F12.2). No merge, no node delete.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,14 +12,13 @@ import { ApiError, getIdentities, postUnlinkFacet } from "@/lib/api-client";
 import { useAppStore } from "@/lib/store";
 import type { IdentityItem } from "@/lib/types";
 
-export function IdentityDetailPanel({
-  onHighlightChange,
-  filterFacetNodeId,
-}: {
+type IdentityDetailPanelProps = {
   onHighlightChange?: (ids: Set<string> | null) => void;
-  /** When set, show only identities that include this facet `:Node`. */
   filterFacetNodeId?: string;
-} = {}) {
+};
+
+export function IdentityDetailPanel(props: IdentityDetailPanelProps) {
+  const { onHighlightChange, filterFacetNodeId } = props;
   const kbResetEpoch = useAppStore((s) => s.kbResetEpoch);
   const [items, setItems] = useState<IdentityItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -44,31 +43,39 @@ export function IdentityDetailPanel({
     void refresh();
   }, [refresh, kbResetEpoch]);
 
-  async function onUnlink(uri: string, facetNodeId: string) {
-    const ok = window.confirm(
-      "Staccare questa faccetta dall'identità? Il nodo :Node non viene eliminato.",
-    );
-    if (!ok) return;
-    setBusy(`${uri}:${facetNodeId}`);
-    try {
-      await postUnlinkFacet(uri, facetNodeId);
-      await refresh();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(`Stacco fallito (${err.status})`);
-      } else {
-        setError(err instanceof Error ? err.message : "Errore sconosciuto");
+  const onUnlink = useCallback(
+    async (uri: string, facetNodeId: string) => {
+      const ok = window.confirm(
+        "Staccare questa faccetta dall'identità? Il nodo non viene eliminato.",
+      );
+      if (!ok) {
+        return;
       }
-    } finally {
-      setBusy(null);
-    }
-  }
+      setBusy(uri + ":" + facetNodeId);
+      try {
+        await postUnlinkFacet(uri, facetNodeId);
+        await refresh();
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError("Stacco fallito (" + String(err.status) + ")");
+        } else {
+          setError(err instanceof Error ? err.message : "Errore sconosciuto");
+        }
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh],
+  );
 
-  const visibleItems = filterFacetNodeId
-    ? items.filter((identity) =>
-        identity.facets.some((facet) => facet.id === filterFacetNodeId),
-      )
-    : items;
+  const visibleItems = useMemo(() => {
+    if (!filterFacetNodeId) {
+      return items;
+    }
+    return items.filter((identity) =>
+      identity.facets.some((facet) => facet.id === filterFacetNodeId),
+    );
+  }, [filterFacetNodeId, items]);
 
   return (
     <Card
@@ -94,7 +101,9 @@ export function IdentityDetailPanel({
               key={identity.uri}
               className="rounded border border-border/70 bg-muted/30 px-2 py-1.5"
             >
-              <p className="font-mono text-[10px] text-muted-foreground">{identity.uri}</p>
+              <p className="font-mono text-[10px] text-muted-foreground">
+                {identity.uri}
+              </p>
               <p className="mb-1 text-[10px] text-muted-foreground">
                 {identity.facets.length} faccette
               </p>
@@ -121,7 +130,7 @@ export function IdentityDetailPanel({
                       variant="outline"
                       size="sm"
                       className="h-6 shrink-0 px-2 text-[10px]"
-                      disabled={busy === `${identity.uri}:${facet.id}`}
+                      disabled={busy === uriKey(identity.uri, facet.id)}
                       onClick={() => void onUnlink(identity.uri, facet.id)}
                     >
                       Stacca faccetta
@@ -130,9 +139,13 @@ export function IdentityDetailPanel({
                 ))}
               </ul>
             </li>
-          )}
+          ))}
         </ul>
       </CardContent>
     </Card>
   );
+}
+
+function uriKey(uri: string, facetId: string): string {
+  return uri + ":" + facetId;
 }

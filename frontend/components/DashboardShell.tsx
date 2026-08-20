@@ -2,9 +2,9 @@
 
 /**
  * Dashboard shell: toggle vista dettagliata (default, EntityEventExplorer) vs
- * generale (MacroGraphPanel). Never mount both (WebGL context cap). Tabbed
- * Pipeline / Query / Metagraph layer panels stay lists. Desktop sidebar at lg;
- * mobile uses Sheets — never a second graph.
+ * generale (DomainDashboard + DomainGraphPanel). Never mount both (WebGL cap).
+ * Tabbed Pipeline / Query / Metagraph layer panels stay lists. Desktop sidebar
+ * at lg; mobile uses Sheets — never a second graph.
  */
 
 import { useState } from "react";
@@ -14,10 +14,12 @@ import { BundleDetailPanel } from "@/components/BundleDetailPanel";
 import { ConceptDomainExplorer } from "@/components/ConceptDomainExplorer";
 import { ConnectivityRulesPanel } from "@/components/ConnectivityRulesPanel";
 import { ContradictionsPanel } from "@/components/ContradictionsPanel";
+import { DomainDashboard } from "@/components/DomainDashboard";
+import { DomainDetailCard } from "@/components/DomainDetailCard";
+import { DomainGraphPanel } from "@/components/DomainGraphPanel";
 import { EntityEventExplorer } from "@/components/EntityEventExplorer";
 import { IdentityDetailPanel } from "@/components/IdentityDetailPanel";
 import { JudgeLogPanel } from "@/components/JudgeLogPanel";
-import { MacroGraphPanel } from "@/components/MacroGraphPanel";
 import { NodeMetadataPanel } from "@/components/NodeMetadataPanel";
 import { NodeQueryPanel } from "@/components/NodeQueryPanel";
 import { PipelineEventBridge } from "@/components/PipelineEventBridge";
@@ -32,7 +34,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { endpointsFromBundleRel } from "@/lib/bundle";
-import type { GraphNode, GraphRelationship } from "@/lib/types";
+import { popDrill, pushDrill } from "@/lib/domain-nav";
+import type { DomainListItem, GraphNode, GraphRelationship } from "@/lib/types";
 
 function LayerTabs({
   highlightIds,
@@ -108,14 +111,46 @@ export function DashboardShell() {
     null,
   );
   const [metadataId, setMetadataId] = useState<string | null>(null);
+  const [drillPath, setDrillPath] = useState<string[]>([]);
+  const [domains, setDomains] = useState<DomainListItem[]>([]);
+  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
 
   const generale = graphView === "generale";
+  const selectedDomain =
+    domains.find((item) => item.id === selectedDomainId) ??
+    (selectedDomainId
+      ? {
+          id: selectedDomainId,
+          name: selectedDomainId,
+          promoted: false,
+          direct_member_count: 0,
+        }
+      : null);
 
-  function onMacroNodeClick(id: string, _node: GraphNode) {
+  function resetGeneraleSelection() {
+    setBundlePair(null);
+    setMetadataId(null);
+    setDrillPath([]);
+    setSelectedDomainId(null);
+  }
+
+  function selectDomain(id: string) {
+    setSelectedDomainId(id);
+    setMetadataId(null);
+  }
+
+  function onDomainGraphNodeClick(id: string, node: GraphNode) {
+    const type = String(node.properties?.type ?? "");
+    if (type === "concept") {
+      setSelectedDomainId(id);
+      setMetadataId(null);
+      setDrillPath((path) => pushDrill(path, id));
+      return;
+    }
     setMetadataId(id);
   }
 
-  function onMacroRelClick(rel: GraphRelationship) {
+  function onDomainRelClick(rel: GraphRelationship) {
     setBundlePair(endpointsFromBundleRel(rel));
   }
 
@@ -162,46 +197,70 @@ export function DashboardShell() {
                 checked={generale}
                 onCheckedChange={(checked) => {
                   setGraphView(checked ? "generale" : "dettagliata");
-                  setBundlePair(null);
-                  setMetadataId(null);
+                  resetGeneraleSelection();
                 }}
               />
               {generale ? "Vista generale" : "Vista dettagliata"}
             </label>
             <span className="text-[10px] text-muted-foreground">
               {generale
-                ? "Nomi soli · un clic per i metadati"
+                ? "Dashboard domini · grafo a scope annidato"
                 : "Quattro pannelli Entità / Concetti / Eventi / Partecipazione"}
             </span>
           </div>
           {generale ? (
-            <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)]">
-              <MacroGraphPanel
-                onNodeClick={onMacroNodeClick}
-                onRelationshipClick={onMacroRelClick}
-                selectedId={metadataId}
-              />
-              <div className="min-h-0 overflow-auto">
-                {!bundlePair && !metadataId ? (
-                  <p className="p-3 text-center text-xs text-muted-foreground">
-                    Clicca un collegamento per il fascio, o un nodo per i metadati.
-                  </p>
-                ) : null}
-                {bundlePair ? (
-                  <div className="mb-2">
-                    <BundleDetailPanel
-                      nodeAId={bundlePair.a}
-                      nodeBId={bundlePair.b}
+            <div className="grid min-h-0 flex-1 grid-rows-[minmax(11rem,32%)_minmax(0,1fr)] gap-2 overflow-hidden">
+              <div className="grid min-h-0 grid-cols-1 gap-2 overflow-hidden lg:grid-cols-[minmax(14rem,22rem)_minmax(0,1fr)]">
+                <DomainDashboard
+                  selectedId={selectedDomainId}
+                  onSelect={(item) => selectDomain(item.id)}
+                  onLoaded={setDomains}
+                />
+                <div className="min-h-0 overflow-auto">
+                  {selectedDomain ? (
+                    <DomainDetailCard
+                      domain={selectedDomain}
+                      onSelectConcept={selectDomain}
+                      onSelectNode={(id) => setMetadataId(id)}
                     />
-                  </div>
-                ) : null}
-                {metadataId ? (
-                  <NodeMetadataPanel
-                    nodeId={metadataId}
-                    onHighlightChange={setHighlightIds}
-                  />
-                ) : null}
+                  ) : (
+                    <p className="p-3 text-center text-xs text-muted-foreground">
+                      Clicca un dominio nella lista per dizionario e regole.
+                    </p>
+                  )}
+                  {bundlePair ? (
+                    <div className="mt-2">
+                      <BundleDetailPanel
+                        nodeAId={bundlePair.a}
+                        nodeBId={bundlePair.b}
+                      />
+                    </div>
+                  ) : null}
+                  {metadataId ? (
+                    <div className="mt-2">
+                      <NodeMetadataPanel
+                        nodeId={metadataId}
+                        onHighlightChange={setHighlightIds}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
+              <DomainGraphPanel
+                drillPath={drillPath}
+                onBack={() => {
+                  setDrillPath((path) => {
+                    const next = popDrill(path);
+                    setSelectedDomainId(
+                      next.length === 0 ? selectedDomainId : next[next.length - 1]!,
+                    );
+                    return next;
+                  });
+                }}
+                onNodeClick={onDomainGraphNodeClick}
+                onRelationshipClick={onDomainRelClick}
+                selectedId={selectedDomainId}
+              />
             </div>
           ) : (
             <EntityEventExplorer

@@ -282,6 +282,7 @@ async def test_metadata_node_summary_and_identities():
 
     assert meta is not None
     assert meta.kind == "node"
+    assert meta.node_type == "entity"
     assert meta.summary == "giocatrice"
     assert meta.kernel_category == "Agente"
     assert meta.identity_uris == ["identity:alice:Agente"]

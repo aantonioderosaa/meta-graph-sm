@@ -186,6 +186,35 @@ class NodeMetadataResponse(BaseModel):
     summary: str | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     identity_uris: list[str] = Field(default_factory=list)
+    node_type: str | None = None
+
+
+class DomainListItem(BaseModel):
+    """One :Concept for the Fase 17 scrolling dashboard (not NVL)."""
+
+    id: str
+    name: str
+    kernel_category: str | None = None
+    definition: str | None = None
+    promoted: bool = False
+    direct_member_count: int = 0
+
+
+class DomainListResponse(BaseModel):
+    items: list[DomainListItem] = Field(default_factory=list)
+
+
+class DomainDictionaryItem(BaseModel):
+    """One Σ_D entry: a relation or attribute type in use among direct members."""
+
+    kind: str
+    name: str
+    kernel_parent: str | None = None
+    count: int = 0
+
+
+class DomainDictionaryResponse(BaseModel):
+    items: list[DomainDictionaryItem] = Field(default_factory=list)
 
 
 __all__ = [
@@ -193,6 +222,10 @@ __all__ = [
     "ConnectivityRuleListResponse",
     "ContradictionItem",
     "ContradictionListResponse",
+    "DomainDictionaryItem",
+    "DomainDictionaryResponse",
+    "DomainListItem",
+    "DomainListResponse",
     "DocumentListResponse",
     "DocumentRequest",
     "DocumentSummary",

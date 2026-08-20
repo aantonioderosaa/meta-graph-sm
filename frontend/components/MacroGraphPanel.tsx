@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Vista generale: one NVL canvas (GraphPanel) on GET /graph/macro.
- * Captions are names (or relation_count on collapsed edges). Metadata is one click away.
+ * Vista generale (Fase 15, unused): one NVL canvas on GET /graph/macro.
+ * Successor mounted in DashboardShell is DomainGraphPanel (Fase 17).
  */
 
 import { GraphPanel } from "@/components/GraphPanel";

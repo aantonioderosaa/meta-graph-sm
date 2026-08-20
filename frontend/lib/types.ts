@@ -94,6 +94,31 @@ export interface NodeMetadataResponse {
   summary?: string | null;
   attributes?: Record<string, unknown>;
   identity_uris?: string[];
+  node_type?: "entity" | "event" | string | null;
+}
+
+export interface DomainListItem {
+  id: string;
+  name: string;
+  kernel_category?: string | null;
+  definition?: string | null;
+  promoted: boolean;
+  direct_member_count: number;
+}
+
+export interface DomainListResponse {
+  items: DomainListItem[];
+}
+
+export interface DomainDictionaryItem {
+  kind: "relation" | "attribute" | string;
+  name: string;
+  kernel_parent?: string | null;
+  count: number;
+}
+
+export interface DomainDictionaryResponse {
+  items: DomainDictionaryItem[];
 }
 
 export interface QueryHistoryEntry {
