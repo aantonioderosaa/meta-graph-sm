@@ -24,6 +24,7 @@ from app.pipeline.pending_hypothesis import (
     MERGE_HYPOTHESIS_CYPHER,
     READ_HYPOTHESIS_CYPHER,
     RESOLVE_HYPOTHESIS_CYPHER,
+    SET_EVIDENCE_GAP_CYPHER,
     create_or_reinforce_hypothesis,
     list_open_hypotheses,
     listen_open_hypotheses,
@@ -106,6 +107,12 @@ class HypothesisSession:
                 return FakeResult([])
             hyp["listen_count"] = int(hyp.get("listen_count") or 0) + 1
             return FakeResult([dict(hyp)])
+        if cypher == SET_EVIDENCE_GAP_CYPHER:
+            hyp = self.hypotheses.get(kwargs["id"])
+            if hyp is None:
+                return FakeResult([])
+            hyp["evidence_gap"] = kwargs["evidence_gap"]
+            return FakeResult([dict(hyp)])
         if cypher == FIND_DIFFERENT_TAIL_PAIRS_CYPHER:
             return FakeResult(list(self.comparables))
         return FakeResult([])
@@ -115,8 +122,12 @@ class HypothesisSession:
 def _stub_embed(monkeypatch):
     monkeypatch.setattr("app.pipeline.embeddings.embed", lambda _text: [0.0] * 768)
     event_bus.reset_event_bus()
+    from app.pipeline.pending_hypothesis import reset_promoted_queue
+
+    reset_promoted_queue()
     yield
     event_bus.reset_event_bus()
+    reset_promoted_queue()
 
 
 def _signal(text: str, **kwargs) -> FragmentSignal:

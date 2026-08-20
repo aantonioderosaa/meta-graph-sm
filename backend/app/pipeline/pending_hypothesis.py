@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 HypothesisStatus = Literal["open", "confirmed", "dismissed"]
 HypothesisConfidence = Literal["low", "medium", "high"]
 
+# In-memory promotion queue keyed by job_id. Fase 22 drains this after the
+# per-batch judge — a true subscribe, not a graph poll. Test-resettable.
+_promoted_by_job: dict[str, list[str]] = {}
+
 _TOKEN_RE = re.compile(r"[a-zàèéìòù0-9']+", re.IGNORECASE)
 _STOPWORDS = frozenset(
     {
@@ -181,6 +185,25 @@ RETURN h.id AS id,
 INCREMENT_LISTEN_CYPHER = """
 MATCH (h:PendingHypothesis {id: $id})
 SET h.listen_count = coalesce(h.listen_count, 0) + 1,
+    h.updated_at = datetime()
+RETURN h.id AS id,
+       h.claim_target AS claim_target,
+       h.evidence_span AS evidence_span,
+       h.witness_fragments AS witness_fragments,
+       h.evidence_gap AS evidence_gap,
+       h.confidence AS confidence,
+       h.status AS status,
+       h.marker_category AS marker_category,
+       h.kind AS kind,
+       h.origin_doc_id AS origin_doc_id,
+       h.origin_doc_count AS origin_doc_count,
+       h.listen_count AS listen_count,
+       h.promoted AS promoted
+"""
+
+SET_EVIDENCE_GAP_CYPHER = """
+MATCH (h:PendingHypothesis {id: $id})
+SET h.evidence_gap = $evidence_gap,
     h.updated_at = datetime()
 RETURN h.id AS id,
        h.claim_target AS claim_target,
@@ -372,10 +395,36 @@ def _confidence_and_promote(
     return "low", False
 
 
+def enqueue_promoted(job_id: str, hypothesis_id: str) -> None:
+    """Queue a promoted hypothesis id for the Fase 22 agent (per job)."""
+    hid = (hypothesis_id or "").strip()
+    if not hid:
+        return
+    key = job_id or ""
+    bucket = _promoted_by_job.setdefault(key, [])
+    if hid not in bucket:
+        bucket.append(hid)
+
+
+def drain_promoted_queue(job_id: str) -> list[str]:
+    """Pop and return unique hypothesis ids queued for ``job_id``."""
+    ids = _promoted_by_job.pop(job_id or "", [])
+    return list(dict.fromkeys(ids))
+
+
+def reset_promoted_queue(job_id: str | None = None) -> None:
+    """Test helper: clear one job's queue, or all queues."""
+    if job_id is None:
+        _promoted_by_job.clear()
+        return
+    _promoted_by_job.pop(job_id or "", None)
+
+
 async def _publish_promoted(
     job_id: str,
     record: PendingHypothesisRecord,
 ) -> None:
+    enqueue_promoted(job_id, record.id)
     await event_bus.publish(
         job_id,
         "context_layer",
@@ -512,6 +561,31 @@ async def create_or_reinforce_hypothesis(
     if should_promote and not already_promoted:
         await _publish_promoted(job_id, record)
     return record.as_dict()
+
+
+async def read_hypothesis(
+    session: AsyncSession, hypothesis_id: str
+) -> dict[str, Any] | None:
+    record = await _single_record(
+        await session.run(READ_HYPOTHESIS_CYPHER, id=hypothesis_id)
+    )
+    return record.as_dict() if record is not None else None
+
+
+async def update_evidence_gap(
+    session: AsyncSession,
+    hypothesis_id: str,
+    evidence_gap: str,
+) -> dict[str, Any] | None:
+    """F22.5: enrich the evidence-gap question. Never writes S0."""
+    record = await _single_record(
+        await session.run(
+            SET_EVIDENCE_GAP_CYPHER,
+            id=hypothesis_id,
+            evidence_gap=evidence_gap,
+        )
+    )
+    return record.as_dict() if record is not None else None
 
 
 async def list_open_hypotheses(session: AsyncSession) -> list[dict[str, Any]]:

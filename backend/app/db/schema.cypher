@@ -116,6 +116,12 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 // identity, missed_contradictions, temporal. No uniqueness constraint required;
 // pipeline MERGEs on id = job_id.
 
+// :AgentSearchRun (Fase 22) — structured log of one ReAct verification pass
+// per promoted :PendingHypothesis (including fallback). Same pattern as
+// :JudgeRun: pipeline MERGEs on id; no uniqueness constraint required.
+// Properties: id, hypothesis_id, steps (JSON: tool + reasoning), verdict,
+// turns_used, timestamp.
+
 // :PendingHypothesis (Fase 20) — open context hypotheses. Never an S0 fact.
 // Properties: id, claim_target, evidence_span, witness_fragments, evidence_gap,
 // confidence (low|medium|high), status (open|confirmed|dismissed),

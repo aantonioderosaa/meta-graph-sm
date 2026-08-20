@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     # Documents of listen-without-reinforcement before auto-promotion is abandoned
     # (hypothesis stays open; never ages into a fact).
     PENDING_HYPOTHESIS_LISTEN_WINDOW: int = 5
+    # Fase 22: ReAct turn cap around call_structured. Do not retune.
+    CONTEXT_AGENT_MAX_TURNS: int = 4
 
 
 settings = Settings()

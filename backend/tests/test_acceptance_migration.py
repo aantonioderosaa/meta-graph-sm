@@ -48,6 +48,7 @@ def test_metagraph_flag_defaults_locked():
     assert fields["ENABLE_DERIVES"].default is False
     assert fields["ENABLE_CONTEXT_LAYER"].default is False
     assert fields["PENDING_HYPOTHESIS_LISTEN_WINDOW"].default == 5
+    assert fields["CONTEXT_AGENT_MAX_TURNS"].default == 4
 
 
 def test_merge_nodes_still_present_and_called_when_facet_flag_off():

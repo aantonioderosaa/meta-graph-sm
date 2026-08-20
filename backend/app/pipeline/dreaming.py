@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from neo4j import AsyncSession
 
 from app.core import event_bus
+from app.core.config import settings
 from app.core.llm_client import LLMValidationError, get_token_usage
 from app.core.neo4j_client import get_driver
 from app.pipeline import (
@@ -19,6 +20,7 @@ from app.pipeline import (
     reconcile,
 )
 from app.pipeline.backbone import classify_and_grow_backbone
+from app.pipeline.context_agent import run_context_agent_for_job
 from app.pipeline.judge import run_judge
 from app.pipeline.promote import promote_clusters
 
@@ -311,6 +313,13 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
             "llm_call_failed",
             {"stage": "judge", "item_id": job_id, "error": str(exc)},
         )
+
+    if settings.ENABLE_CONTEXT_LAYER:
+        try:
+            async with driver.session() as agent_session:
+                await run_context_agent_for_job(agent_session, job_id)
+        except Exception:
+            logger.exception("context_agent_stage_failed")
 
     async with driver.session() as session:
         await node_ppr_projection.refresh_ppr_projection(session)
