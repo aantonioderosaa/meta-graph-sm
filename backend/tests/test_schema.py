@@ -20,7 +20,7 @@ from app.db.schema import (
 from app.models.kernel import IS_A, MEMBER_OF, SpecialRelationType
 from tests.neo4j_gds import GDS_PINNED_VERSION, neo4j_gds_container, wait_for_gds
 
-EXPECTED_SCHEMA_STATEMENTS = 23
+EXPECTED_SCHEMA_STATEMENTS = 26
 
 
 @pytest.fixture(scope="module")
@@ -61,10 +61,13 @@ def test_schema_file_has_expected_statements():
     assert "relation_is_latest" in joined
     assert "relation_normalized" in joined
     assert "node_embedding" in joined
+    assert "node_summary_embedding" in joined
     assert "concept_embedding" in joined
     assert "relation_embedding" in joined
     assert "node_concept_fulltext" in joined
     assert "relation_fulltext" in joined
+    assert "node_summary_fulltext" in joined
+    assert "relation_witness_fulltext" in joined
     assert "768" in joined
     assert "cosine" in joined
     assert "concept_kernel_category" in joined

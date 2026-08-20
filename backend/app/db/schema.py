@@ -37,8 +37,14 @@ REQUIRED_VECTOR_INDEXES = {
     "node_embedding",
     "concept_embedding",
     "relation_embedding",
+    "node_summary_embedding",
 }
-REQUIRED_FULLTEXT_INDEXES = {"node_concept_fulltext", "relation_fulltext"}
+REQUIRED_FULLTEXT_INDEXES = {
+    "node_concept_fulltext",
+    "relation_fulltext",
+    "node_summary_fulltext",
+    "relation_witness_fulltext",
+}
 
 # Dedicated Neo4j relationship types (no CREATE TYPE). Uppercased kernel values so
 # schema and kernel cannot drift. IS_A / MEMBER_OF must never share one rel type.

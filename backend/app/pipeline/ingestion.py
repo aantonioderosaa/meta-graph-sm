@@ -48,6 +48,7 @@ CREATE (n:Node {
   dreamed: false,
   merged_into: null,
   embedding: $emb,
+  summary_embedding: $summary_emb,
   summary: $summary,
   kernel_category: $kernel_category,
   created_at: datetime()
@@ -67,6 +68,7 @@ CREATE (h)-[:Relation {
   kernel_parent: $kernel_parent,
   witnesses_a: $witnesses_a,
   witnesses_b: $witnesses_b,
+  witness_text: $witness_text,
   valid_time: $valid_time,
   system_time: datetime(),
   provenance: $provenance,
@@ -198,14 +200,16 @@ async def write_node(
     kernel_category: str | None = None,
 ) -> None:
     """Create a raw :Node linked to its source chunk."""
+    summary_value = summary or ""
     await session.run(
         CREATE_NODE_CYPHER,
         id=node_id,
         name=name,
         type=node_type,
         emb=embedding,
+        summary_emb=embeddings.embed(summary_value),
         chunk_id=chunk_id,
-        summary=summary,
+        summary=summary_value,
         kernel_category=kernel_category,
     )
     event = "entity_extracted" if node_type == "entity" else "event_extracted"
@@ -255,6 +259,8 @@ async def write_node_relation(
     embedding = None
     if normalized_relation != "participates":
         embedding = embeddings.embed(f"{head_name} {relation} {tail_name}")
+    witnesses_a = [witness_source] if witness_source.strip() else []
+    witnesses_b = [witness_target] if witness_target.strip() else []
     await session.run(
         CREATE_NODE_RELATION_CYPHER,
         head_id=head_id,
@@ -263,8 +269,9 @@ async def write_node_relation(
         normalized_relation=normalized_relation,
         embedding=embedding,
         kernel_parent=parent_value,
-        witnesses_a=[witness_source] if witness_source.strip() else [],
-        witnesses_b=[witness_target] if witness_target.strip() else [],
+        witnesses_a=witnesses_a,
+        witnesses_b=witnesses_b,
+        witness_text=" ".join([*witnesses_a, *witnesses_b]),
         valid_time=valid_time,
         provenance=_provenance_value(provenance),
     )

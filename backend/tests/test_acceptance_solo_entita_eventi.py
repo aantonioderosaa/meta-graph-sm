@@ -8,6 +8,7 @@ from pathlib import Path
 from app.db.schema import (
     REQUIRED_BTREE_INDEXES,
     REQUIRED_CONSTRAINTS,
+    REQUIRED_FULLTEXT_INDEXES,
     REQUIRED_VECTOR_INDEXES,
     load_schema_statements,
 )
@@ -60,7 +61,12 @@ def test_scenario_2_fact_routes_are_gone_delete_graph_remains():
 
 
 def test_scenario_6_schema_has_no_fact_indexes():
-    names = REQUIRED_CONSTRAINTS | REQUIRED_BTREE_INDEXES | REQUIRED_VECTOR_INDEXES
+    names = (
+        REQUIRED_CONSTRAINTS
+        | REQUIRED_BTREE_INDEXES
+        | REQUIRED_VECTOR_INDEXES
+        | REQUIRED_FULLTEXT_INDEXES
+    )
     assert not any(name.startswith("fact_") for name in names)
     assert "query_log_id" not in names
     assert "query_log_created_at" not in names

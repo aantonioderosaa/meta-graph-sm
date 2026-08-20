@@ -6,6 +6,7 @@ import pytest
 
 from app.db.schema import (
     REQUIRED_CONSTRAINTS,
+    REQUIRED_FULLTEXT_INDEXES,
     REQUIRED_VECTOR_INDEXES,
     apply_schema_with_driver,
     fetch_constraint_names,
@@ -59,6 +60,16 @@ def test_fase2_constraints_indexes_and_merge_labels(neo4j_driver):
         if str(row.get("type") or "").upper() == "VECTOR"
     }
     assert vector_names == REQUIRED_VECTOR_INDEXES
+    assert "node_summary_embedding" in vector_names
+
+    fulltext_names = {
+        name
+        for name, row in by_name.items()
+        if str(row.get("type") or "").upper() == "FULLTEXT"
+    }
+    assert REQUIRED_FULLTEXT_INDEXES.issubset(fulltext_names)
+    assert "node_summary_fulltext" in fulltext_names
+    assert "relation_witness_fulltext" in fulltext_names
 
     with neo4j_driver.session() as session:
         session.run(

@@ -29,6 +29,15 @@ OPTIONS { indexConfig: {
   `vector.similarity_function`: 'cosine'
 }};
 
+// Fase 19: summary embedding (query text, not only node name). Backfill of
+// existing :Node rows is out of scope — write_node populates new ones.
+CREATE VECTOR INDEX node_summary_embedding IF NOT EXISTS
+FOR (n:Node) ON (n.summary_embedding)
+OPTIONS { indexConfig: {
+  `vector.dimensions`: 768,
+  `vector.similarity_function`: 'cosine'
+}};
+
 // Promoted Concept embeddings must be computed on `definition` (not `name`).
 // Re-embedding / backfill of existing :Concept nodes is Fase 13 (Fase 4 writes new ones).
 CREATE VECTOR INDEX concept_embedding IF NOT EXISTS
@@ -50,6 +59,13 @@ FOR (n:Node|Concept) ON EACH [n.name];
 
 CREATE FULLTEXT INDEX relation_fulltext IF NOT EXISTS
 FOR ()-[r:Relation]-() ON EACH [r.relation];
+
+// Fase 19: summary + denormalized witness text (Neo4j cannot index string lists).
+CREATE FULLTEXT INDEX node_summary_fulltext IF NOT EXISTS
+FOR (n:Node) ON EACH [n.summary];
+
+CREATE FULLTEXT INDEX relation_witness_fulltext IF NOT EXISTS
+FOR ()-[r:Relation]-() ON EACH [r.witness_text];
 
 // Cronologia query Node/Concept
 CREATE CONSTRAINT node_query_log_id IF NOT EXISTS FOR (q:NodeQueryLog) REQUIRE q.id IS UNIQUE;
