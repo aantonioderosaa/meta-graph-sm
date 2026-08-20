@@ -115,3 +115,11 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 // Properties: id, batch_id, timestamp, anti_blur, equivalent_to, reraffine,
 // identity, missed_contradictions, temporal. No uniqueness constraint required;
 // pipeline MERGEs on id = job_id.
+
+// :PendingHypothesis (Fase 20) — open context hypotheses. Never an S0 fact.
+// Properties: id, claim_target, evidence_span, witness_fragments, evidence_gap,
+// confidence (low|medium|high), status (open|confirmed|dismissed),
+// created_at, updated_at. Extra ingest fields (kind, marker_category,
+// origin_doc_id, origin_doc_count, listen_count, promoted) are optional.
+CREATE CONSTRAINT pending_hypothesis_id IF NOT EXISTS
+FOR (h:PendingHypothesis) REQUIRE h.id IS UNIQUE;

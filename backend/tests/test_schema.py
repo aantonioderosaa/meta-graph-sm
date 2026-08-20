@@ -20,7 +20,7 @@ from app.db.schema import (
 from app.models.kernel import IS_A, MEMBER_OF, SpecialRelationType
 from tests.neo4j_gds import GDS_PINNED_VERSION, neo4j_gds_container, wait_for_gds
 
-EXPECTED_SCHEMA_STATEMENTS = 26
+EXPECTED_SCHEMA_STATEMENTS = 27
 
 
 @pytest.fixture(scope="module")
@@ -76,6 +76,16 @@ def test_schema_file_has_expected_statements():
     assert "identity_node_uri" in joined
     assert "connectivity_rule_triple" in joined
     assert "corpus_context_id" in joined
+    assert "pending_hypothesis_id" in joined
+    assert "PendingHypothesis" in raw
+    for name in (
+        "claim_target",
+        "evidence_span",
+        "witness_fragments",
+        "evidence_gap",
+        "confidence",
+    ):
+        assert name in raw
     for name in ("kernel_category", "parent_uri", "definition", "aliases", "promoted"):
         assert name in raw
     assert "canonical_summary" in raw

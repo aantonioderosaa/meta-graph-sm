@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     ENABLE_JUDGE: bool = True
     # ϕ_collapse for equivalent_to between promoted sibling Concepts (doc4 §5).
     BACKBONE_COLLAPSE_THRESHOLD: float = 0.90
+    # Fase 20–22: agentic context layer (relevance gate, :PendingHypothesis, later
+    # quantifier/retraction/agent). Default off → Fase 0–18 ingest/dreaming unchanged.
+    ENABLE_CONTEXT_LAYER: bool = False
+    # Documents of listen-without-reinforcement before auto-promotion is abandoned
+    # (hypothesis stays open; never ages into a fact).
+    PENDING_HYPOTHESIS_LISTEN_WINDOW: int = 5
 
 
 settings = Settings()

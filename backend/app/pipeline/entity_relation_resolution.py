@@ -106,7 +106,8 @@ LEGACY_SYSTEM_PROMPT = (
     "Rispondi solo secondo lo schema fornito, senza aggiungere testo libero."
 )
 
-_ERROR_MARKERS = (
+# Public: Fase 20 relevance gate imports these so T2 stays one source of truth.
+ERROR_MARKERS = (
     "mi sono sbagliato",
     "mi ero sbagliato",
     "ho sbagliato",
@@ -117,7 +118,7 @@ _ERROR_MARKERS = (
     "ma nel ",
 )
 
-_SUCCESSION_MARKERS = (
+SUCCESSION_MARKERS = (
     "dal 20",
     "dal 19",
     "fino al",
@@ -170,7 +171,7 @@ def temporal_transitions_enabled() -> bool:
 
 def _has_error_marker(text: str) -> bool:
     folded = text.casefold()
-    return any(marker in folded for marker in _ERROR_MARKERS)
+    return any(marker in folded for marker in ERROR_MARKERS)
 
 
 def map_temporal_transition(new_text: str, old_text: str) -> RelationLabel:
@@ -185,7 +186,7 @@ def map_temporal_transition(new_text: str, old_text: str) -> RelationLabel:
     folded = blob.casefold()
     if _has_error_marker(folded):
         return RelationLabel.updated_by
-    if any(marker in folded for marker in _SUCCESSION_MARKERS):
+    if any(marker in folded for marker in SUCCESSION_MARKERS):
         return RelationLabel.supersedes
     years = set(re.findall(r"\b(?:19|20)\d{2}\b", folded))
     if len(years) >= 2:

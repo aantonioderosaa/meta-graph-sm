@@ -12,6 +12,7 @@ from itertools import combinations
 from neo4j import AsyncSession
 
 from app.core import event_bus
+from app.core.config import settings
 from app.core.llm_client import LLMValidationError, call_structured, get_token_usage
 from app.core.neo4j_client import get_driver
 from app.models.kernel import EntityKernelType, RelationKernelType
@@ -432,7 +433,6 @@ async def process_chunk_node_extraction(
     corpus_summary: str = "",
 ) -> int:
     """Two-pass entity extraction + events; write raw nodes; return node count."""
-    _ = doc_id
     raw_entities, raw_event_entity, raw_event_rel = await asyncio.gather(
         node_extraction.extract_entities(
             chunk.text, job_id=job_id, corpus_summary=corpus_summary
@@ -556,6 +556,19 @@ async def process_chunk_node_extraction(
 
     await _write_same_chunk_contradicts(session, written_facts)
 
+    if settings.ENABLE_CONTEXT_LAYER:
+        from app.pipeline.pending_hypothesis import route_chunk_signal
+
+        await route_chunk_signal(
+            session,
+            chunk_text=chunk.text,
+            pair_entities=pair_entities,
+            s0_written=bool(written_facts),
+            node_ids=[nid for nid, _ent in pair_entities],
+            doc_id=doc_id,
+            job_id=job_id,
+        )
+
     for triple in event_rel.triples:
         head = triple.head.strip()
         tail = triple.tail.strip()
@@ -643,6 +656,16 @@ async def run_ingestion_pipeline(doc_id: str, text: str, job_id: str) -> None:
         for chunk in chunks:
             total_nodes += await process_chunk_node_extraction(
                 session, chunk, doc_id, job_id, corpus_summary=corpus_summary
+            )
+
+        if settings.ENABLE_CONTEXT_LAYER:
+            from app.pipeline.pending_hypothesis import listen_open_hypotheses
+
+            await listen_open_hypotheses(
+                session,
+                doc_id=doc_id,
+                chunks=chunks,
+                job_id=job_id,
             )
 
     tokens = get_token_usage(job_id)

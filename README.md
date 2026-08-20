@@ -17,6 +17,7 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 - Giudice (Fase 10): a fine di ogni batch di dreaming (dopo `reconcile`) gira `run_judge` — anti-blur, `EQUIVALENT_TO`, ri-raffinamento storico, conferma identità, `CONTRADICTS` mancate, smistamento temporale. Scrive solo primitive esistenti (INGEST/PROMOTE + Famiglia B / `MEMBER_OF`). Ogni passata è loggata in `:JudgeRun`. Flag `ENABLE_JUDGE` (default true); `BACKBONE_COLLAPSE_THRESHOLD=0.90`. Dalla Fase 18 il compito 5 (`FIND_MISSED_CONTRADICTIONS_CYPHER`) è scoped a `touched_ids` del batch; lista vuota/assente resta full-scan.
 - Riconciliazione incrementale (Fase 18): su ingestioni successive, `merge_nodes` promuove il `summary` più recente sul nodo canonico (lo storico resta sulla catena `merged_into` via `node_history`); dopo la classificazione entity-relation, coppie stesso-head / tail diversi con marcatore temporale esplicito si risolvono nel batch (`SUPERSEDES`/`UPDATED_BY`, mai `DELETE` di nodo/arco). Nessun flag nuovo.
 - Retrieval con metadati (Fase 19): `backend/app/pipeline/context_retrieval.py` espone sei funzioni di sola lettura (`search_fulltext`, `search_vector` sul summary, `get_metadata`, `get_relations`, `get_domain_dictionary`, `facts_from_source`). Ogni `:Node` scritto da `write_node` porta `summary_embedding`; ogni `:Relation` porta `witness_text` cercabile. Nessun flag nuovo; nessuno stage pipeline li chiama ancora (Fase 22).
+- Filtro di rilevanza e ipotesi (Fase 20): gate lessicale T1/T2/T3 in `backend/app/pipeline/relevance_gate.py` (zero LLM). Un segnale apre o rinforza `:PendingHypothesis` (`pending_hypothesis.py`); nessuna scrittura S0. Promozione = evento SSE `hypothesis_promoted` (consumato da Fase 22). Flag `ENABLE_CONTEXT_LAYER` default **false** — a flag spento ingestione e dreaming restano identici alle Fasi 0–18. `PENDING_HYPOTHESIS_LISTEN_WINDOW=5`.
 - Query NL coarse-to-fine (Fase 11): `plan_connectivity_scope` interroga `:ConnectivityRule` sulle categorie kernel della domanda **prima** di `hybrid_seed`. `POST /graph/query` aggiunge `citations[]` con `epistemic_status` asserted/derived e `derivation_chain` (passi S0/S1) calcolata in Python, non dall'LLM. I salti S2 restano in memoria e non vengono mai scritti come `:Relation`.
 - Layer Metagraph in UI (Fase 12): tab laterali Dominio / Identità / Contraddizioni / Regole / Giudice (liste e albero, nessun canvas NVL extra). Badge ` · faccette` sui nodi multi-identità; citazioni query ASSERITO/DERIVATO.
 - Vista generale (Fase 15, storica): `GET /graph/macro` resta disponibile (concetti promossi + nodi di primo livello, fasci collassati). **Fase 17 sostituisce l'interazione UI**: dashboard scorrevole di tutti i `:Concept` (`GET /graph/domains`, nessun limit implicito), scheda dizionario/regole (`GET /graph/domains/{id}/dictionary`, `GET /graph/domains/{id}/rules`), grafo a scope annidato (`GET /graph/domains-graph` in radice — solo `:Concept` legati da `BUNDLE`; `GET /graph/domains/{id}/children-graph` al drill). Toggle **Vista dettagliata** (default, quattro pannelli) ↔ **Vista generale** (`DomainDashboard` + `DomainDetailCard` + `DomainGraphPanel` che riusa `GraphPanel`; mai due NVL extra). Freccia Indietro = pop dello stack `drillPath`. Drill-down foglia: `GET /graph/bundle/{a}/{b}` e `GET /graph/metadata/{id}` (`node_type` entity|event).
@@ -26,7 +27,7 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 
 ### Flag Metagraph (default in `Settings`)
 
-Policy di rollout: ogni flag resta spento finché la relativa suite di accettazione non è verde. Fasi 4–12 sono verdi salvo le faccette, quindi solo `ENABLE_FACET_IDENTITY` resta False.
+Policy di rollout: ogni flag resta spento finché la relativa suite di accettazione non è verde. Fasi 4–12 sono verdi salvo le faccette; `ENABLE_FACET_IDENTITY` e `ENABLE_CONTEXT_LAYER` restano False.
 
 | Flag | Default | Perché |
 |---|---|---|
@@ -36,6 +37,7 @@ Policy di rollout: ogni flag resta spento finché la relativa suite di accettazi
 | `ENABLE_JUDGE` | True | Fase 10 suite verde |
 | `ENABLE_FACET_IDENTITY` | **False** | `merge_nodes` resta il percorso di produzione (F13.4) |
 | `ENABLE_DERIVES` | False | kill switch preesistente |
+| `ENABLE_CONTEXT_LAYER` | **False** | Fase 20–22; spento → comportamento Fase 0–18 identico |
 
 ### Debito noto
 
@@ -64,6 +66,7 @@ Policy di rollout: ogni flag resta spento finché la relativa suite di accettazi
 | 17 | Dashboard sottodomini trasparente | completata |
 | 18 | Riconciliazione incrementale su ingestioni successive | completata |
 | 19 | Retrieval con metadati | completata |
+| 20 | Filtro di rilevanza strutturale / `:PendingHypothesis` | completata |
 
 ## Prerequisiti
 
