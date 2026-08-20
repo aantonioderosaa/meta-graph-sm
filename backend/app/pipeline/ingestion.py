@@ -558,6 +558,8 @@ async def process_chunk_node_extraction(
 
     if settings.ENABLE_CONTEXT_LAYER:
         from app.pipeline.pending_hypothesis import route_chunk_signal
+        from app.pipeline.quantifier_events import maybe_resolve_quantifier_scope
+        from app.pipeline.retraction import maybe_resolve_retraction_scope
 
         await route_chunk_signal(
             session,
@@ -568,6 +570,8 @@ async def process_chunk_node_extraction(
             doc_id=doc_id,
             job_id=job_id,
         )
+        await maybe_resolve_quantifier_scope(session, chunk)
+        await maybe_resolve_retraction_scope(session, chunk)
 
     for triple in event_rel.triples:
         head = triple.head.strip()
