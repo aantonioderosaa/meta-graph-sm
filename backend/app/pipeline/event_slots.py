@@ -1,4 +1,4 @@
-"""Slot assert/retract with per-fonte witness OR-Set (event triage Macrotask 1–3).
+"""Slot assert/retract with per-fonte witness OR-Set (event triage Macrotask 1–4).
 
 Writes reuse ``write_node_relation`` / ``write_contradicts`` plus parameterized
 queries defined as module constants. Supporting set is ``witness_source_ids``
@@ -7,6 +7,10 @@ Unsupported slots flip ``is_latest=false`` and keep the edge.
 
 Every edge this module stamps or updates carries ``caused_by_event_id`` and
 ``run_id``. Scalar node overwrites go through ``append_node_revision``.
+
+LLM proposals must pass ``validate_slot_proposal`` before any write. Invented or
+nearby ``kernel_parent`` values yield ``None`` (waiting/incomplete), never a
+coerced member of the closed R1–R6 / A1–A7 enums.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -27,7 +32,13 @@ from app.pipeline.reconcile import reconcile_scoped_attribute_slots
 
 _ATTRIBUTE_VALUES = frozenset(m.value for m in AttributeKernelType)
 _RELATION_VALUES = frozenset(m.value for m in RelationKernelType)
+_KERNEL_PARENT_BY_VALUE: dict[str, AttributeKernelType | RelationKernelType] = {
+    **{m.value: m for m in AttributeKernelType},
+    **{m.value: m for m in RelationKernelType},
+}
+_VALID_VERBS = frozenset({"assert", "retract"})
 _IDENTITY_PROPERTIES = frozenset({"id", "merged_into"})
+_MISSING = object()
 
 FIND_SLOT_RELATIONS_CYPHER = """
 MATCH (h:Node {id: $head_id})-[r:Relation]->(t:Node)
@@ -113,6 +124,21 @@ class Slot:
     tail_id: str | None = None
 
 
+@dataclass(frozen=True)
+class ValidatedSlot:
+    """A proposal accepted against the closed R1–R6 / A1–A7 kernel.
+
+    ``kernel_parent`` is the enum member (not a free string). Macrotask 5 can
+    pass ``slot`` to ``assert_slot`` / ``retract_slot`` without re-interpreting it.
+    """
+
+    verb: str
+    fonte_id: str
+    kernel_parent: AttributeKernelType | RelationKernelType
+    slot: Slot
+    tail_id: str | None = None
+
+
 def _kernel_value(kernel_parent: AttributeKernelType | RelationKernelType | str) -> str:
     if isinstance(kernel_parent, Enum):
         return str(kernel_parent.value)
@@ -168,6 +194,165 @@ def slot_id_for(slot: Slot, tail_id: str | None = None) -> str:
         tail_id if tail_id is not None else slot.tail_id,
     )
     return slot_id(slot.head_id, slot.kernel_parent, disc)
+
+
+def _proposal_get(proposal: Any, *names: str) -> Any:
+    if isinstance(proposal, Mapping):
+        for name in names:
+            if name in proposal:
+                return proposal[name]
+        return _MISSING
+    for name in names:
+        if hasattr(proposal, name):
+            return getattr(proposal, name)
+    return _MISSING
+
+
+def _nonempty_str(value: Any) -> str | None:
+    if type(value) is not str:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _exact_kernel_parent(raw: Any) -> AttributeKernelType | RelationKernelType | None:
+    """Exact closed-enum member only. No strip, no case fold, no nearby match."""
+    if isinstance(raw, AttributeKernelType):
+        return raw
+    if isinstance(raw, RelationKernelType):
+        return raw
+    if isinstance(raw, Enum):
+        return None
+    if type(raw) is not str:
+        return None
+    return _KERNEL_PARENT_BY_VALUE.get(raw)
+
+
+def validate_slot_proposal(proposal: Any) -> ValidatedSlot | None:
+    """Return a ``ValidatedSlot`` or ``None``. Never raises. Never coerces kernel.
+
+    ``kernel_parent`` must be an exact ``RelationKernelType`` or
+    ``AttributeKernelType`` member (enum or value string). Invented names,
+    nearby spellings, Famiglia B, ``EntityKernelType``, backbone relations, and
+    empty values are ``None``. Missing write fields (head, fonte, verb, or
+    relation tail) are also ``None`` — waiting/incomplete, not a write.
+    """
+    try:
+        if isinstance(proposal, ValidatedSlot):
+            return proposal
+        if proposal is None:
+            return None
+
+        kernel = _exact_kernel_parent(_proposal_get(proposal, "kernel_parent"))
+        if kernel is None:
+            return None
+
+        head_id = _nonempty_str(_proposal_get(proposal, "head_id", "head"))
+        if head_id is None:
+            return None
+
+        fonte_id = _nonempty_str(_proposal_get(proposal, "fonte_id", "fonte"))
+        if fonte_id is None:
+            return None
+
+        verb_raw = _proposal_get(proposal, "verb", "verbo")
+        if type(verb_raw) is not str:
+            return None
+        verb = verb_raw.strip()
+        if verb not in _VALID_VERBS:
+            return None
+
+        rel_raw = _proposal_get(proposal, "normalized_relation", "relation")
+        if rel_raw is _MISSING or rel_raw is None:
+            normalized = kernel.value
+        elif type(rel_raw) is not str:
+            return None
+        else:
+            normalized = rel_raw.strip() or kernel.value
+
+        tail_raw = _proposal_get(proposal, "tail_id", "tail")
+        if tail_raw is _MISSING or tail_raw is None:
+            tail_id = None
+        else:
+            tail_id = _nonempty_str(tail_raw)
+            if tail_id is None:
+                return None
+
+        is_relation = kernel.value in _RELATION_VALUES
+        if is_relation and tail_id is None:
+            return None
+        if verb == "assert" and tail_id is None:
+            return None
+
+        slot = Slot(
+            head_id=head_id,
+            kernel_parent=kernel.value,
+            normalized_relation=normalized,
+            tail_id=tail_id,
+        )
+        return ValidatedSlot(
+            verb=verb,
+            fonte_id=fonte_id,
+            kernel_parent=kernel,
+            slot=slot,
+            tail_id=tail_id,
+        )
+    except Exception:
+        return None
+
+
+async def apply_validated_slot(
+    session: AsyncSession,
+    validated: ValidatedSlot | None,
+    *,
+    caused_by_event_id: str,
+    run_id: str,
+    relation: str | None = None,
+    head_name: str = "",
+    tail_name: str = "",
+    witness_source: str = "",
+    witness_target: str = "",
+    provenance: dict | str | None = None,
+) -> bool:
+    """Apply one ``ValidatedSlot``. ``None`` / invalid input is a no-op (no write).
+
+    Raw proposals are validated first; only an accepted slot reaches
+    ``assert_slot`` / ``retract_slot``. Macrotask 5 should call this helper
+    rather than the writers directly.
+    """
+    if not isinstance(validated, ValidatedSlot):
+        if validated is None:
+            return False
+        validated = validate_slot_proposal(validated)
+        if validated is None:
+            return False
+    if validated.verb == "assert":
+        tail_id = validated.tail_id
+        if not tail_id:
+            return False
+        await assert_slot(
+            session,
+            slot=validated.slot,
+            tail_id_or_value=tail_id,
+            fonte_id=validated.fonte_id,
+            caused_by_event_id=caused_by_event_id,
+            run_id=run_id,
+            relation=relation,
+            head_name=head_name,
+            tail_name=tail_name,
+            witness_source=witness_source,
+            witness_target=witness_target,
+            provenance=provenance,
+        )
+        return True
+    await retract_slot(
+        session,
+        slot=validated.slot,
+        fonte_id=validated.fonte_id,
+        caused_by_event_id=caused_by_event_id,
+        run_id=run_id,
+    )
+    return True
 
 
 def _require_nonempty(name: str, value: str | None, *, context: str) -> str:
