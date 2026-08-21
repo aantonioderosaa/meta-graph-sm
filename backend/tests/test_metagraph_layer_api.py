@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.schemas import (
     ConnectivityRuleListResponse,
+    ContextLayerRunsResponse,
     ContradictionListResponse,
     IdentityItem,
     IdentityListResponse,
@@ -28,6 +29,7 @@ from app.pipeline.metagraph_layer import (
     LIST_JUDGE_RUNS_CYPHER,
     get_identity,
     list_connectivity_rules,
+    list_context_layer_runs,
     list_contradictions,
     list_identities,
     list_judge_runs,
@@ -214,6 +216,80 @@ async def test_list_judge_runs_newest_first_shape():
 
 
 @pytest.mark.asyncio
+async def test_list_context_layer_runs_empty_graph():
+    session = FakeSession()
+
+    body = await list_context_layer_runs(session)
+
+    assert body.agent_runs == []
+    assert body.open_hypotheses == []
+    assert body.gate_runs == []
+    assert len(session.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_list_context_layer_runs_shape():
+    session = FakeSession()
+    session.enqueue(
+        [
+            {
+                "id": "agentrun:job:hyp-1",
+                "hypothesis_id": "hyp-1",
+                "verdict": "confirmed",
+                "turns_used": 2,
+                "timestamp": "2026-08-21T12:00:00",
+                "steps": '[{"action":"conclude"}]',
+            }
+        ]
+    )
+    session.enqueue(
+        [
+            {
+                "id": "hyp-open",
+                "claim_target": "cani",
+                "confidence": "low",
+                "status": "open",
+                "marker_category": "quantifier",
+                "kind": "t2",
+                "origin_doc_id": "doc-a",
+                "listen_count": 0,
+                "promoted": False,
+                "evidence_gap": "quantifier scope not closed",
+            }
+        ]
+    )
+    session.enqueue(
+        [
+            {
+                "id": "job-1",
+                "job_id": "job-1",
+                "timestamp": "2026-08-21T12:00:00",
+                "t1": 1,
+                "t2": 2,
+                "t3": 0,
+                "model_fallback": 1,
+                "promotions": 1,
+                "agent_runs": 1,
+                "agent_turns_used": 2,
+            }
+        ]
+    )
+
+    body = await list_context_layer_runs(session)
+
+    assert body.agent_runs[0].hypothesis_id == "hyp-1"
+    assert body.agent_runs[0].verdict == "confirmed"
+    assert body.agent_runs[0].turns_used == 2
+    assert body.open_hypotheses[0].id == "hyp-open"
+    assert body.open_hypotheses[0].status == "open"
+    assert body.gate_runs[0].t1 == 1
+    assert body.gate_runs[0].t2 == 2
+    assert body.gate_runs[0].model_fallback == 1
+    assert body.gate_runs[0].promotions == 1
+    assert body.gate_runs[0].agent_runs == 1
+
+
+@pytest.mark.asyncio
 async def test_http_identities_and_unlink(client: AsyncClient):
     async def mock_list(session) -> IdentityListResponse:
         _ = session
@@ -287,6 +363,28 @@ async def test_http_contradictions_rules_judge(client: AsyncClient):
         assert judge.json() == {"items": []}
 
 
+@pytest.mark.asyncio
+async def test_http_context_layer_runs(client: AsyncClient):
+    async def mock_runs(session) -> ContextLayerRunsResponse:
+        _ = session
+        return ContextLayerRunsResponse(
+            agent_runs=[],
+            open_hypotheses=[],
+            gate_runs=[],
+        )
+
+    with patch(
+        "app.api.metagraph.metagraph_layer.list_context_layer_runs", mock_runs
+    ):
+        listed = await client.get("/graph/context-layer/runs")
+        assert listed.status_code == 200
+        assert listed.json() == {
+            "agent_runs": [],
+            "open_hypotheses": [],
+            "gate_runs": [],
+        }
+
+
 def test_openapi_registers_metagraph_routes():
     paths = app.openapi()["paths"]
     assert "/graph/identities" in paths
@@ -295,5 +393,7 @@ def test_openapi_registers_metagraph_routes():
     assert "/graph/contradictions" in paths
     assert "/graph/connectivity-rules" in paths
     assert "/graph/judge-runs" in paths
+    assert "/graph/context-layer/runs" in paths
     assert "get" in paths["/graph/identities"]
+    assert "get" in paths["/graph/context-layer/runs"]
     assert "post" in paths["/graph/identities/{uri}/unlink"]

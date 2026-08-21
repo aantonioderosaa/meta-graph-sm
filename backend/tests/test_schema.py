@@ -78,6 +78,8 @@ def test_schema_file_has_expected_statements():
     assert "corpus_context_id" in joined
     assert "pending_hypothesis_id" in joined
     assert "PendingHypothesis" in raw
+    assert "ContextLayerRun" in raw
+    assert "AgentSearchRun" in raw
     for name in (
         "claim_target",
         "evidence_span",

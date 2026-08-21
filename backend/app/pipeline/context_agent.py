@@ -273,6 +273,9 @@ async def _log_agent_run(
         verdict=verdict,
         turns_used=turns_used,
     )
+    from app.pipeline.context_layer_observability import record_agent_run
+
+    await record_agent_run(session, job_id, turns_used=turns_used)
 
 
 async def _keep_open_with_question(

@@ -127,6 +127,55 @@ class JudgeRunListResponse(BaseModel):
     items: list[JudgeRunItem]
 
 
+class AgentSearchRunItem(BaseModel):
+    id: str
+    hypothesis_id: str = ""
+    verdict: str | None = None
+    turns_used: int = 0
+    timestamp: str | None = None
+    steps: str | None = None
+
+
+class PendingHypothesisItem(BaseModel):
+    id: str
+    claim_target: str = ""
+    confidence: str = "low"
+    status: str = "open"
+    marker_category: str | None = None
+    kind: str | None = None
+    origin_doc_id: str = ""
+    listen_count: int = 0
+    promoted: bool = False
+    evidence_gap: str = ""
+
+
+class ContextLayerRunItem(BaseModel):
+    """Per-job gate/promotion/agent counters on ``:ContextLayerRun`` (F25.1)."""
+
+    id: str
+    job_id: str | None = None
+    timestamp: str | None = None
+    t1: int = 0
+    t2: int = 0
+    t3: int = 0
+    model_fallback: int = 0
+    promotions: int = 0
+    agent_runs: int = 0
+    agent_turns_used: int = 0
+
+
+class ContextLayerRunsResponse(BaseModel):
+    """Read-only inspection surface for the agentic context layer.
+
+    Gate counters live on ``gate_runs`` (``:ContextLayerRun`` log nodes,
+    same idea as ``:JudgeRun``), not a separate ``/stats`` endpoint.
+    """
+
+    agent_runs: list[AgentSearchRunItem]
+    open_hypotheses: list[PendingHypothesisItem]
+    gate_runs: list[ContextLayerRunItem]
+
+
 class NodeQueryRequest(BaseModel):
     text: str
 
@@ -244,8 +293,12 @@ __all__ = [
     "IdentityItem",
     "IdentityListResponse",
     "JobResponse",
+    "AgentSearchRunItem",
+    "ContextLayerRunItem",
+    "ContextLayerRunsResponse",
     "JudgeRunItem",
     "JudgeRunListResponse",
+    "PendingHypothesisItem",
     "NodeQueryRequest",
     "QueryHistoryEntry",
     "QueryHistoryResponse",

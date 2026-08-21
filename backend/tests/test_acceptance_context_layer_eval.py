@@ -8,6 +8,8 @@ import pytest
 
 from app.models.structural_signal import StructuralSignalVerdict
 from app.pipeline.context_layer_eval import (
+    estimate_extra_llm_calls,
+    estimate_extra_llm_calls_from_corpus,
     evaluate_relevance_gate,
     evaluate_thresholds,
     gate_only_classify,
@@ -57,6 +59,34 @@ async def test_harness_with_stub_fallback_recovers_paraphrases():
     paraphrase_ids = {item.id for item in CONTEXT_LAYER_EVAL_CORPUS if item.class_ == "c"}
     wrong_ids = {case.id for case in report.wrong}
     assert paraphrase_ids.isdisjoint(wrong_ids)
+
+
+def test_estimate_extra_llm_calls_formula_and_corpus_mix():
+    typical = estimate_extra_llm_calls(
+        weak_gate_chunks_with_relation=1,
+        promoted_hypotheses=0,
+    )
+    assert typical.fallback_calls == 1
+    assert typical.agent_calls_max == 0
+    assert typical.total_max == 1
+    worst = estimate_extra_llm_calls(
+        weak_gate_chunks_with_relation=1,
+        promoted_hypotheses=1,
+        max_turns=4,
+    )
+    assert worst.total_max == 5
+    zero = estimate_extra_llm_calls(
+        weak_gate_chunks_with_relation=0,
+        promoted_hypotheses=0,
+        t2_or_t3_chunks=1,
+    )
+    assert zero.total_max == 0
+    from_corpus = estimate_extra_llm_calls_from_corpus(CONTEXT_LAYER_EVAL_CORPUS)
+    assert from_corpus.fallback_calls + from_corpus.t2_or_t3_chunks == sum(
+        1 for item in CONTEXT_LAYER_EVAL_CORPUS if item.relation_written
+    )
+    assert "fallback" in from_corpus.formula
+    assert "CONTEXT_AGENT_MAX_TURNS" in from_corpus.format_markdown()
 
 
 def test_thresholds_confirmed_on_frozen_corpus():

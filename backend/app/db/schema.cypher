@@ -126,6 +126,11 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 // :JudgeRun: pipeline MERGEs on id; no uniqueness constraint required.
 // Properties: id, hypothesis_id, steps (JSON: tool + reasoning), verdict,
 // turns_used, timestamp.
+//
+// :ContextLayerRun (Fase 25) — per-job counters for the agentic context
+// layer (T1/T2/T3/model-fallback, promotions, agent_runs, agent_turns_used).
+// Same pattern as :JudgeRun: pipeline MERGEs on id = job_id; no uniqueness
+// constraint. Read via GET /graph/context-layer/runs (not a frontend panel).
 
 // :PendingHypothesis (Fase 20) — open context hypotheses. Never an S0 fact.
 // Properties: id, claim_target, evidence_span, witness_fragments, evidence_gap,

@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.api.schemas import (
     ConnectivityRuleListResponse,
+    ContextLayerRunsResponse,
     ContradictionListResponse,
     IdentityItem,
     IdentityListResponse,
@@ -58,3 +59,11 @@ async def list_connectivity_rules_endpoint(
 @router.get("/judge-runs", response_model=JudgeRunListResponse)
 async def list_judge_runs_endpoint(session: Neo4jSessionDep) -> JudgeRunListResponse:
     return await metagraph_layer.list_judge_runs(session)
+
+
+@router.get("/context-layer/runs", response_model=ContextLayerRunsResponse)
+async def list_context_layer_runs_endpoint(
+    session: Neo4jSessionDep,
+) -> ContextLayerRunsResponse:
+    """Read-only: ``:AgentSearchRun`` + open ``:PendingHypothesis`` + gate counters."""
+    return await metagraph_layer.list_context_layer_runs(session)

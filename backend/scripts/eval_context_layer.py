@@ -3,11 +3,14 @@
 Standalone, same pattern as ``backfill_kernel_category.py``. No Neo4j.
 ``--gate-only`` is fully deterministic. ``--with-model-fallback`` uses a cue
 stub unless ``--live-llm`` is passed *and* ``OPENAI_API_KEY`` is set.
+``--count-calls`` prints the F25.2 extra-LLM-call formula from the corpus mix
+(no OpenAI).
 
 Usage (from backend/):
   python scripts/eval_context_layer.py --gate-only
   python scripts/eval_context_layer.py --with-model-fallback
   python scripts/eval_context_layer.py --with-model-fallback --live-llm
+  python scripts/eval_context_layer.py --count-calls
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.core.config import settings  # noqa: E402
 from app.pipeline.context_layer_eval import (  # noqa: E402
+    estimate_extra_llm_calls_from_corpus,
     evaluate_relevance_gate,
     evaluate_thresholds,
     gate_only_classify,
@@ -50,6 +54,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Gate plus model fallback (stub by default; --live-llm for OpenAI).",
     )
+    group.add_argument(
+        "--count-calls",
+        action="store_true",
+        help="Print extra LLM call estimate from the corpus mix (no OpenAI).",
+    )
     parser.add_argument(
         "--live-llm",
         action="store_true",
@@ -65,6 +74,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def _run(args: argparse.Namespace) -> str:
     corpus = CONTEXT_LAYER_EVAL_CORPUS
+    if args.count_calls:
+        estimate = estimate_extra_llm_calls_from_corpus(corpus)
+        return estimate.format_markdown()
     if args.gate_only:
         report = await evaluate_relevance_gate(corpus, gate_only_classify, mode="gate-only")
     else:

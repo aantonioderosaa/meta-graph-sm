@@ -128,6 +128,84 @@ class ThresholdReport:
         )
 
 
+EXTRA_LLM_CALL_FORMULA = (
+    "worst case approx 1 fallback/chunk-with-new-relation whose deterministic "
+    "gate is T1 or None + CONTEXT_AGENT_MAX_TURNS (default 4) per promoted "
+    "hypothesis; T2/T3 -> +0 fallback; empty promotion queue -> +0 agent. "
+    "Quantifier/retraction/hypothesis create add no LLM beyond the fallback."
+)
+
+
+@dataclass(frozen=True)
+class ExtraLlmCallEstimate:
+    """F25.2: extra ``call_structured`` counts with the context layer on."""
+
+    fallback_calls: int
+    agent_calls_max: int
+    total_max: int
+    t2_or_t3_chunks: int
+    weak_gate_with_relation: int
+    formula: str = EXTRA_LLM_CALL_FORMULA
+
+    def format_markdown(self) -> str:
+        return (
+            "## Extra LLM calls with ENABLE_CONTEXT_LAYER on (F25.2)\n"
+            f"- formula: {self.formula}\n"
+            f"- fallback calls (T1/None + relation written) = {self.fallback_calls}\n"
+            f"- T2/T3 chunks (no fallback) = {self.t2_or_t3_chunks}\n"
+            f"- agent calls max (promoted * CONTEXT_AGENT_MAX_TURNS) = "
+            f"{self.agent_calls_max}\n"
+            f"- total extra calls (worst case) = {self.total_max}\n"
+            "- live LLM on a production corpus was not run (no large real "
+            "corpus in sm/; OPENAI may be unset). Gate-only P/R on the frozen "
+            "F24.1 corpus: P=1.000 R=0.571; with fallback stub P=1.000 R=1.000.\n"
+        )
+
+
+def estimate_extra_llm_calls(
+    *,
+    weak_gate_chunks_with_relation: int,
+    promoted_hypotheses: int,
+    max_turns: int | None = None,
+    t2_or_t3_chunks: int = 0,
+) -> ExtraLlmCallEstimate:
+    cap = int(max_turns if max_turns is not None else settings.CONTEXT_AGENT_MAX_TURNS)
+    fallback = max(0, int(weak_gate_chunks_with_relation))
+    agent = max(0, int(promoted_hypotheses)) * max(0, cap)
+    return ExtraLlmCallEstimate(
+        fallback_calls=fallback,
+        agent_calls_max=agent,
+        total_max=fallback + agent,
+        t2_or_t3_chunks=max(0, int(t2_or_t3_chunks)),
+        weak_gate_with_relation=fallback,
+    )
+
+
+def estimate_extra_llm_calls_from_corpus(
+    corpus: Sequence[EvalCase],
+    *,
+    promoted_hypotheses: int = 0,
+    max_turns: int | None = None,
+) -> ExtraLlmCallEstimate:
+    """Static mix: count fallback-eligible items without calling a model."""
+    t2_t3 = 0
+    weak = 0
+    for item in corpus:
+        signal = classify_fragment_relevance(
+            item.text, pair_for_item(item), s0_for_item(item)
+        )
+        if signal is not None and signal.kind in {"t2", "t3"}:
+            t2_t3 += 1
+        elif item.relation_written:
+            weak += 1
+    return estimate_extra_llm_calls(
+        weak_gate_chunks_with_relation=weak,
+        promoted_hypotheses=promoted_hypotheses,
+        max_turns=max_turns,
+        t2_or_t3_chunks=t2_t3,
+    )
+
+
 def eval_pair_entities() -> list[tuple[str, ExtractedEntity]]:
     return [
         (
