@@ -23,6 +23,7 @@ from tests.test_event_slots import (
     OK,
     OTHER,
     PLACE,
+    PROV,
     FakeSession,
     _attr_slot,
     _rel_slot,
@@ -90,8 +91,8 @@ async def test_two_attribute_asserts_lww_and_updates_link(stub_ingestion_side_ef
     graph = _seed(FAILED, OK)
     session = FakeSession(graph)
     slot = _attr_slot()
-    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE)
-    await assert_slot(session, slot=slot, tail_id_or_value=OK, fonte_id="fonte-other")
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
+    await assert_slot(session, slot=slot, tail_id_or_value=OK, fonte_id="fonte-other", **PROV)
 
     assert len(graph.relations) == 2
     latest = [rel for rel in graph.relations if rel["is_latest"] is True]
@@ -160,7 +161,7 @@ async def test_single_latest_edge_is_noop(stub_ingestion_side_effects):
     graph = _seed(FAILED)
     session = FakeSession(graph)
     await assert_slot(
-        session, slot=_attr_slot(FAILED), tail_id_or_value=FAILED, fonte_id=FONTE
+        session, slot=_attr_slot(FAILED), tail_id_or_value=FAILED, fonte_id=FONTE, **PROV
     )
     set_latest = sum(1 for cy, _ in session.calls if cy is SET_ATTRIBUTE_SLOT_IS_LATEST_CYPHER)
     set_updates = sum(1 for cy, _ in session.calls if cy is SET_ATTRIBUTE_SLOT_UPDATES_CYPHER)
@@ -179,6 +180,7 @@ async def test_relation_kernel_slots_are_not_collapsed(stub_ingestion_side_effec
         tail_id_or_value=PLACE,
         fonte_id=FONTE,
         relation="located_in",
+        **PROV,
     )
     await assert_slot(
         session,
@@ -186,6 +188,7 @@ async def test_relation_kernel_slots_are_not_collapsed(stub_ingestion_side_effec
         tail_id_or_value=OTHER,
         fonte_id=FONTE,
         relation="located_in",
+        **PROV,
     )
     drift = await reconcile_scoped_attribute_slots(session, head_ids=[HEAD])
 
@@ -206,8 +209,8 @@ async def test_scoped_relations_reconcile_does_not_see_attribute_value_change(
     graph = _seed(FAILED, OK)
     session = FakeSession(graph)
     slot = _attr_slot()
-    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE)
-    await assert_slot(session, slot=slot, tail_id_or_value=OK, fonte_id="fonte-other")
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
+    await assert_slot(session, slot=slot, tail_id_or_value=OK, fonte_id="fonte-other", **PROV)
 
     recorded: list[tuple[str, dict]] = []
 

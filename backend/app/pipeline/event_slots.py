@@ -1,9 +1,12 @@
-"""Slot assert/retract with per-fonte witness OR-Set (event triage Macrotask 1).
+"""Slot assert/retract with per-fonte witness OR-Set (event triage Macrotask 1–3).
 
 Writes reuse ``write_node_relation`` / ``write_contradicts`` plus parameterized
 queries defined as module constants. Supporting set is ``witness_source_ids``
 (unique ``fonte_id`` strings); ``witnesses_a`` / ``witnesses_b`` stay UI-only.
 Unsupported slots flip ``is_latest=false`` and keep the edge.
+
+Every edge this module stamps or updates carries ``caused_by_event_id`` and
+``run_id``. Scalar node overwrites go through ``append_node_revision``.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -23,6 +27,7 @@ from app.pipeline.reconcile import reconcile_scoped_attribute_slots
 
 _ATTRIBUTE_VALUES = frozenset(m.value for m in AttributeKernelType)
 _RELATION_VALUES = frozenset(m.value for m in RelationKernelType)
+_IDENTITY_PROPERTIES = frozenset({"id", "merged_into"})
 
 FIND_SLOT_RELATIONS_CYPHER = """
 MATCH (h:Node {id: $head_id})-[r:Relation]->(t:Node)
@@ -53,7 +58,9 @@ SET r.slot_id = $slot_id,
     r.witness_target_ids = $witness_target_ids,
     r.witness_add_tags = $witness_add_tags,
     r.witnesses_a = $witnesses_a,
-    r.witnesses_b = $witnesses_b
+    r.witnesses_b = $witnesses_b,
+    r.caused_by_event_id = $caused_by_event_id,
+    r.run_id = $run_id
 """
 
 UPDATE_SLOT_EDGE_CYPHER = """
@@ -64,7 +71,9 @@ SET r.witness_source_ids = $witness_source_ids,
     r.witness_add_tags = $witness_add_tags,
     r.witnesses_a = $witnesses_a,
     r.witnesses_b = $witnesses_b,
-    r.is_latest = $is_latest
+    r.is_latest = $is_latest,
+    r.caused_by_event_id = $caused_by_event_id,
+    r.run_id = $run_id
 """
 
 FIND_CONFLICTING_LATEST_CYPHER = """
@@ -76,6 +85,21 @@ RETURN t.id AS tail_id,
        r.relation AS relation,
        r.kernel_parent AS kernel_parent
 LIMIT 1
+"""
+
+READ_NODE_SCALAR_CYPHER = """
+MATCH (n:Node {id: $node_id})
+RETURN n[$property_name] AS current_value,
+       n.revisions AS revisions
+"""
+
+APPEND_NODE_REVISION_CYPHER = """
+MATCH (n:Node {id: $node_id})
+SET n.revisions = CASE
+    WHEN n.revisions IS NULL THEN [$revision]
+    ELSE n.revisions + [$revision]
+  END,
+    n[$property_name] = $new_value
 """
 
 
@@ -146,10 +170,25 @@ def slot_id_for(slot: Slot, tail_id: str | None = None) -> str:
     return slot_id(slot.head_id, slot.kernel_parent, disc)
 
 
+def _require_nonempty(name: str, value: str | None, *, context: str) -> str:
+    if value is None or not str(value).strip():
+        raise ValueError(f"{name} is required for {context}")
+    return str(value).strip()
+
+
 def _require_fonte_id(fonte_id: str | None) -> str:
-    if fonte_id is None or not str(fonte_id).strip():
-        raise ValueError("fonte_id is required for slot assert/retract")
-    return str(fonte_id).strip()
+    return _require_nonempty("fonte_id", fonte_id, context="slot assert/retract")
+
+
+def _require_provenance(
+    caused_by_event_id: str | None,
+    run_id: str | None,
+    *,
+    context: str,
+) -> tuple[str, str]:
+    event = _require_nonempty("caused_by_event_id", caused_by_event_id, context=context)
+    rid = _require_nonempty("run_id", run_id, context=context)
+    return event, rid
 
 
 def _unique_ids(values: list[Any] | None) -> list[str]:
@@ -232,6 +271,8 @@ async def _update_slot_edge(
     witnesses_a: list[str],
     witnesses_b: list[str],
     is_latest: bool,
+    caused_by_event_id: str,
+    run_id: str,
 ) -> None:
     await session.run(
         UPDATE_SLOT_EDGE_CYPHER,
@@ -244,6 +285,8 @@ async def _update_slot_edge(
         witnesses_a=_unique_ids(witnesses_a),
         witnesses_b=_unique_ids(witnesses_b),
         is_latest=is_latest,
+        caused_by_event_id=caused_by_event_id,
+        run_id=run_id,
     )
 
 
@@ -260,6 +303,8 @@ async def _stamp_new_edge(
     witness_source: str,
     witness_target: str,
     provenance: dict | str | None,
+    caused_by_event_id: str,
+    run_id: str,
 ) -> None:
     kernel = _kernel_value(slot.kernel_parent)
     ui_source = (witness_source or fonte_id).strip()
@@ -290,6 +335,8 @@ async def _stamp_new_edge(
         witness_add_tags=tags,
         witnesses_a=_unique_ids([ui_source]),
         witnesses_b=_unique_ids([ui_target] if ui_target else []),
+        caused_by_event_id=caused_by_event_id,
+        run_id=run_id,
     )
 
 
@@ -299,6 +346,8 @@ async def assert_slot(
     slot: Slot,
     tail_id_or_value: str,
     fonte_id: str,
+    caused_by_event_id: str,
+    run_id: str,
     relation: str | None = None,
     head_name: str = "",
     tail_name: str = "",
@@ -308,11 +357,15 @@ async def assert_slot(
 ) -> None:
     """Assert ``tail_id_or_value`` on ``slot`` with provenance ``fonte_id``.
 
-    Empty ``fonte_id`` is a programming error. Duplicate ``(slot, fonte_id)``
-    is idempotent (one id in the supporting set). A retracted slot is brought
-    back to supported when the same fonte re-asserts (resurrection).
+    Empty ``fonte_id`` / ``caused_by_event_id`` / ``run_id`` is a programming
+    error. Duplicate ``(slot, fonte_id)`` is idempotent (one id in the
+    supporting set). A retracted slot is brought back to supported when the
+    same fonte re-asserts (resurrection).
     """
     fonte = _require_fonte_id(fonte_id)
+    event_id, rid = _require_provenance(
+        caused_by_event_id, run_id, context="slot assert/retract"
+    )
     tail_id = str(tail_id_or_value).strip()
     if not tail_id:
         raise ValueError("tail_id_or_value is required for slot assert")
@@ -349,6 +402,8 @@ async def assert_slot(
             witnesses_a=_unique_ids([*(_row_get(row, "witnesses_a") or []), ui_source]),
             witnesses_b=_unique_ids(witnesses_b),
             is_latest=True,
+            caused_by_event_id=event_id,
+            run_id=rid,
         )
     else:
         await _stamp_new_edge(
@@ -363,6 +418,8 @@ async def assert_slot(
             witness_source=ui_source,
             witness_target=ui_target,
             provenance=provenance,
+            caused_by_event_id=event_id,
+            run_id=rid,
         )
 
     if is_attribute_kernel(slot.kernel_parent):
@@ -373,13 +430,24 @@ async def assert_slot(
         )
 
 
-async def retract_slot(session: AsyncSession, *, slot: Slot, fonte_id: str) -> None:
+async def retract_slot(
+    session: AsyncSession,
+    *,
+    slot: Slot,
+    fonte_id: str,
+    caused_by_event_id: str,
+    run_id: str,
+) -> None:
     """Remove ``fonte_id`` from the slot's supporting set.
 
     Unknown ``(slot, fonte_id)`` is a no-op. Empty supporting set sets
-    ``is_latest=false`` and leaves the edge in place.
+    ``is_latest=false`` and leaves the edge in place. A true no-op does not
+    write the edge; every edge that is updated still gets provenance.
     """
     fonte = _require_fonte_id(fonte_id)
+    event_id, rid = _require_provenance(
+        caused_by_event_id, run_id, context="slot assert/retract"
+    )
     sid = slot_id_for(slot)
     rows = await _find_slot_rows(session, head_id=slot.head_id, sid=sid)
     for row in rows:
@@ -406,6 +474,8 @@ async def retract_slot(session: AsyncSession, *, slot: Slot, fonte_id: str) -> N
             witnesses_a=_unique_ids(_row_get(row, "witnesses_a") or []),
             witnesses_b=_unique_ids(_row_get(row, "witnesses_b") or []),
             is_latest=still_latest,
+            caused_by_event_id=event_id,
+            run_id=rid,
         )
         if empty and is_relation_kernel(slot.kernel_parent):
             conflict = await session.run(
@@ -430,3 +500,53 @@ async def retract_slot(session: AsyncSession, *, slot: Slot, fonte_id: str) -> N
                         ),
                         kernel_parent=_kernel_value(slot.kernel_parent),
                     )
+
+
+async def append_node_revision(
+    session: AsyncSession,
+    node_id: str,
+    *,
+    property: str,
+    new_value: Any,
+    event_id: str,
+    run_id: str,
+) -> None:
+    """Read the current scalar, append a revision, then SET the new value.
+
+    ``revisions[-1].old_value`` is the value the property had before this
+    write. Previous entries are never dropped. Identity properties are
+    refused. Callers (tests now; later assert/summary) pass ``new_value``;
+    the pre-write scalar is always captured from the node.
+    """
+    nid = str(node_id or "").strip()
+    if not nid:
+        raise ValueError("node_id is required for append_node_revision")
+    prop = _require_nonempty("property", property, context="append_node_revision")
+    if prop in _IDENTITY_PROPERTIES:
+        raise ValueError(f"cannot revise identity property {prop!r}")
+    event = _require_nonempty("event_id", event_id, context="append_node_revision")
+    rid = _require_nonempty("run_id", run_id, context="append_node_revision")
+
+    result = await session.run(
+        READ_NODE_SCALAR_CYPHER,
+        node_id=nid,
+        property_name=prop,
+    )
+    rows = await _fetch_all(result)
+    if not rows:
+        raise ValueError(f"node_id not found: {nid}")
+    old_value = _row_get(rows[0], "current_value")
+    revision = {
+        "property": prop,
+        "old_value": old_value,
+        "event_id": event,
+        "run_id": rid,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    await session.run(
+        APPEND_NODE_REVISION_CYPHER,
+        node_id=nid,
+        property_name=prop,
+        new_value=new_value,
+        revision=revision,
+    )

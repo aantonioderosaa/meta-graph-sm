@@ -1,4 +1,4 @@
-"""Macrotask 1: slot_id + witness OR-Set. FakeSession, no Neo4j, no OpenAI."""
+"""Macrotask 1–3: slot OR-Set, provenance, node revisions. FakeSession, no Neo4j."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ import pytest
 
 from app.models.kernel import AttributeKernelType, RelationKernelType
 from app.pipeline.event_slots import (
+    APPEND_NODE_REVISION_CYPHER,
     FIND_CONFLICTING_LATEST_CYPHER,
     FIND_SLOT_RELATIONS_CYPHER,
+    READ_NODE_SCALAR_CYPHER,
     STAMP_SLOT_ON_LATEST_CYPHER,
     UPDATE_SLOT_EDGE_CYPHER,
     Slot,
@@ -32,7 +34,11 @@ FAILED = "tail-failed"
 OK = "tail-ok"
 PLACE = "tail-lab"
 OTHER = "tail-home"
+EVENT_ID = "evento-1"
+RUN_ID = "run-1"
+PROV = {"caused_by_event_id": EVENT_ID, "run_id": RUN_ID}
 MODULE_PATH = Path(assert_slot.__code__.co_filename)
+PIPELINE = MODULE_PATH.parent
 
 
 class FakeResult:
@@ -60,8 +66,10 @@ class SlotGraph:
         self.contradicts: list[dict] = []
         self._clock = 0
 
-    def add_node(self, node_id: str, name: str = "") -> None:
-        self.nodes[node_id] = {"id": node_id, "name": name or node_id}
+    def add_node(self, node_id: str, name: str = "", **extra) -> None:
+        node = {"id": node_id, "name": name or node_id, "revisions": []}
+        node.update(extra)
+        self.nodes[node_id] = node
 
     def next_clock(self) -> int:
         self._clock += 1
@@ -99,6 +107,8 @@ def _dispatch(graph: SlotGraph, cypher: str, kwargs: dict) -> list[dict]:
                 "witness_add_tags": [],
                 "slot_id": None,
                 "updates": None,
+                "caused_by_event_id": None,
+                "run_id": None,
                 "created_at": graph.next_clock(),
             }
         )
@@ -123,6 +133,8 @@ def _dispatch(graph: SlotGraph, cypher: str, kwargs: dict) -> list[dict]:
             rel["witness_add_tags"] = list(kwargs.get("witness_add_tags") or [])
             rel["witnesses_a"] = list(kwargs.get("witnesses_a") or [])
             rel["witnesses_b"] = list(kwargs.get("witnesses_b") or [])
+            rel["caused_by_event_id"] = kwargs.get("caused_by_event_id")
+            rel["run_id"] = kwargs.get("run_id")
         return []
     if cypher is FIND_SLOT_RELATIONS_CYPHER:
         return [
@@ -154,6 +166,8 @@ def _dispatch(graph: SlotGraph, cypher: str, kwargs: dict) -> list[dict]:
                 rel["witnesses_a"] = list(kwargs.get("witnesses_a") or [])
                 rel["witnesses_b"] = list(kwargs.get("witnesses_b") or [])
                 rel["is_latest"] = bool(kwargs["is_latest"])
+                rel["caused_by_event_id"] = kwargs.get("caused_by_event_id")
+                rel["run_id"] = kwargs.get("run_id")
         return []
     if cypher is FIND_ATTRIBUTE_SLOT_EDGES_CYPHER:
         slot_id_filter = kwargs.get("slot_id")
@@ -195,6 +209,29 @@ def _dispatch(graph: SlotGraph, cypher: str, kwargs: dict) -> list[dict]:
                 and (slot_id_filter is None or rel.get("slot_id") == slot_id_filter)
             ):
                 rel["updates"] = kwargs.get("updates")
+        return []
+    if cypher is READ_NODE_SCALAR_CYPHER:
+        node = graph.nodes.get(kwargs["node_id"])
+        if not node:
+            return []
+        prop = kwargs["property_name"]
+        revisions = node.get("revisions")
+        return [
+            {
+                "current_value": node.get(prop),
+                "revisions": list(revisions) if revisions is not None else None,
+            }
+        ]
+    if cypher is APPEND_NODE_REVISION_CYPHER:
+        node = graph.nodes.get(kwargs["node_id"])
+        if not node:
+            return []
+        prop = kwargs["property_name"]
+        revisions = list(node.get("revisions") or [])
+        revision = dict(kwargs["revision"])
+        revisions.append(revision)
+        node["revisions"] = revisions
+        node[prop] = kwargs["new_value"]
         return []
     if cypher is FIND_CONFLICTING_LATEST_CYPHER:
         for rel in graph.relations:
@@ -250,6 +287,16 @@ def _seed(*node_ids: str) -> SlotGraph:
     for node_id in node_ids:
         graph.add_node(node_id)
     return graph
+
+
+def _edges_missing_provenance(graph: SlotGraph) -> list[dict]:
+    missing: list[dict] = []
+    for rel in graph.relations:
+        event = rel.get("caused_by_event_id")
+        rid = rel.get("run_id")
+        if event is None or not str(event).strip() or rid is None or not str(rid).strip():
+            missing.append(rel)
+    return missing
 
 
 @pytest.fixture
@@ -313,6 +360,8 @@ def test_d2_cypher_is_parameterized_constants():
         ("STAMP_SLOT_ON_LATEST_CYPHER", STAMP_SLOT_ON_LATEST_CYPHER),
         ("UPDATE_SLOT_EDGE_CYPHER", UPDATE_SLOT_EDGE_CYPHER),
         ("FIND_CONFLICTING_LATEST_CYPHER", FIND_CONFLICTING_LATEST_CYPHER),
+        ("READ_NODE_SCALAR_CYPHER", READ_NODE_SCALAR_CYPHER),
+        ("APPEND_NODE_REVISION_CYPHER", APPEND_NODE_REVISION_CYPHER),
     ):
         assert "$" in query, name
         assert query.count("{") == query.count("}")
@@ -323,8 +372,8 @@ async def test_double_assert_same_slot_fonte_one_witness_id(stub_ingestion_side_
     graph = _seed(FAILED)
     session = FakeSession(graph)
     slot = _attr_slot(FAILED)
-    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE)
-    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE)
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
 
     assert len(graph.relations) == 1
     ids = graph.relations[0]["witness_source_ids"]
@@ -340,12 +389,12 @@ async def test_retract_never_asserted_is_noop(stub_ingestion_side_effects):
     graph = _seed(FAILED)
     session = FakeSession(graph)
     slot = _attr_slot(FAILED)
-    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE)
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
     before = graph.relations[0]["is_latest"]
     before_ids = list(graph.relations[0]["witness_source_ids"])
     updates_before = sum(1 for cy, _ in session.calls if cy is UPDATE_SLOT_EDGE_CYPHER)
 
-    await retract_slot(session, slot=slot, fonte_id="fonte-never-seen")
+    await retract_slot(session, slot=slot, fonte_id="fonte-never-seen", **PROV)
 
     assert graph.relations[0]["is_latest"] is before
     assert graph.relations[0]["witness_source_ids"] == before_ids
@@ -356,7 +405,7 @@ async def test_retract_never_asserted_is_noop(stub_ingestion_side_effects):
 @pytest.mark.asyncio
 async def test_retract_unknown_slot_is_noop_no_exception(stub_ingestion_side_effects):
     session = FakeSession(_seed(FAILED))
-    await retract_slot(session, slot=_attr_slot(FAILED), fonte_id=FONTE)
+    await retract_slot(session, slot=_attr_slot(FAILED), fonte_id=FONTE, **PROV)
     assert session.graph.relations == []
 
 
@@ -365,14 +414,14 @@ async def test_retract_then_reassert_resurrects_slot(stub_ingestion_side_effects
     graph = _seed(FAILED)
     session = FakeSession(graph)
     slot = _attr_slot(FAILED)
-    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE)
-    await retract_slot(session, slot=slot, fonte_id=FONTE)
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
+    await retract_slot(session, slot=slot, fonte_id=FONTE, **PROV)
 
     assert len(graph.relations) == 1
     assert graph.relations[0]["is_latest"] is False
     assert FONTE not in graph.relations[0]["witness_source_ids"]
 
-    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE)
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
 
     assert len(graph.relations) == 1
     assert graph.relations[0]["is_latest"] is True
@@ -386,13 +435,13 @@ async def test_empty_fonte_id_raises_on_assert_and_retract(stub_ingestion_side_e
     session = FakeSession(_seed(FAILED))
     slot = _attr_slot(FAILED)
     with pytest.raises(ValueError, match="fonte_id"):
-        await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id="")
+        await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id="", **PROV)
     with pytest.raises(ValueError, match="fonte_id"):
-        await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id="   ")
+        await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id="   ", **PROV)
     with pytest.raises(ValueError, match="fonte_id"):
-        await retract_slot(session, slot=slot, fonte_id="")
+        await retract_slot(session, slot=slot, fonte_id="", **PROV)
     with pytest.raises(ValueError, match="fonte_id"):
-        await retract_slot(session, slot=slot, fonte_id=None)  # type: ignore[arg-type]
+        await retract_slot(session, slot=slot, fonte_id=None, **PROV)  # type: ignore[arg-type]
     assert session.graph.relations == []
 
 
@@ -403,8 +452,8 @@ async def test_attribute_different_tails_share_slot_id_and_may_create(
     graph = _seed(FAILED, OK)
     session = FakeSession(graph)
     slot = _attr_slot()
-    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE)
-    await assert_slot(session, slot=slot, tail_id_or_value=OK, fonte_id="fonte-other")
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
+    await assert_slot(session, slot=slot, tail_id_or_value=OK, fonte_id="fonte-other", **PROV)
 
     assert len(graph.relations) == 2
     slot_ids = {rel["slot_id"] for rel in graph.relations}
@@ -429,6 +478,7 @@ async def test_relation_different_tails_are_two_slots(stub_ingestion_side_effect
         tail_id_or_value=PLACE,
         fonte_id=FONTE,
         relation="located_in",
+        **PROV,
     )
     await assert_slot(
         session,
@@ -436,6 +486,7 @@ async def test_relation_different_tails_are_two_slots(stub_ingestion_side_effect
         tail_id_or_value=OTHER,
         fonte_id=FONTE,
         relation="located_in",
+        **PROV,
     )
 
     assert len(graph.relations) == 2
@@ -448,7 +499,9 @@ async def test_relation_different_tails_are_two_slots(stub_ingestion_side_effect
 async def test_assert_queries_are_known_constants(stub_ingestion_side_effects):
     graph = _seed(FAILED)
     session = FakeSession(graph)
-    await assert_slot(session, slot=_attr_slot(FAILED), tail_id_or_value=FAILED, fonte_id=FONTE)
+    await assert_slot(
+        session, slot=_attr_slot(FAILED), tail_id_or_value=FAILED, fonte_id=FONTE, **PROV
+    )
     allowed = {
         FIND_SLOT_RELATIONS_CYPHER,
         CREATE_NODE_RELATION_CYPHER,
@@ -461,3 +514,91 @@ async def test_assert_queries_are_known_constants(stub_ingestion_side_effects):
         SET_ATTRIBUTE_SLOT_UPDATES_CYPHER,
     }
     assert all(cypher in allowed for cypher, _ in session.calls)
+
+
+def test_fase_path_does_not_call_slot_writes_or_revisions():
+    for name in (
+        "dreaming.py",
+        "ingestion.py",
+        "judge.py",
+        "quantifier_events.py",
+        "retraction.py",
+    ):
+        text = (PIPELINE / name).read_text(encoding="utf-8")
+        assert "assert_slot" not in text
+        assert "retract_slot" not in text
+        assert "append_node_revision" not in text
+
+
+@pytest.mark.asyncio
+async def test_assert_and_retract_stamp_non_null_provenance(stub_ingestion_side_effects):
+    graph = _seed(FAILED)
+    session = FakeSession(graph)
+    slot = _attr_slot(FAILED)
+    await assert_slot(session, slot=slot, tail_id_or_value=FAILED, fonte_id=FONTE, **PROV)
+
+    assert graph.relations[0]["caused_by_event_id"] == EVENT_ID
+    assert graph.relations[0]["run_id"] == RUN_ID
+    assert _edges_missing_provenance(graph) == []
+
+    await retract_slot(
+        session,
+        slot=slot,
+        fonte_id=FONTE,
+        caused_by_event_id="evento-retract",
+        run_id="run-retract",
+    )
+    assert graph.relations[0]["caused_by_event_id"] == "evento-retract"
+    assert graph.relations[0]["run_id"] == "run-retract"
+    assert _edges_missing_provenance(graph) == []
+
+
+@pytest.mark.asyncio
+async def test_empty_caused_by_event_id_and_run_id_raise(stub_ingestion_side_effects):
+    session = FakeSession(_seed(FAILED))
+    slot = _attr_slot(FAILED)
+    with pytest.raises(ValueError, match="caused_by_event_id"):
+        await assert_slot(
+            session,
+            slot=slot,
+            tail_id_or_value=FAILED,
+            fonte_id=FONTE,
+            caused_by_event_id="",
+            run_id=RUN_ID,
+        )
+    with pytest.raises(ValueError, match="caused_by_event_id"):
+        await assert_slot(
+            session,
+            slot=slot,
+            tail_id_or_value=FAILED,
+            fonte_id=FONTE,
+            caused_by_event_id="   ",
+            run_id=RUN_ID,
+        )
+    with pytest.raises(ValueError, match="run_id"):
+        await assert_slot(
+            session,
+            slot=slot,
+            tail_id_or_value=FAILED,
+            fonte_id=FONTE,
+            caused_by_event_id=EVENT_ID,
+            run_id="",
+        )
+    with pytest.raises(ValueError, match="caused_by_event_id"):
+        await retract_slot(
+            session,
+            slot=slot,
+            fonte_id=FONTE,
+            caused_by_event_id=None,  # type: ignore[arg-type]
+            run_id=RUN_ID,
+        )
+    with pytest.raises(ValueError, match="run_id"):
+        await retract_slot(
+            session,
+            slot=slot,
+            fonte_id=FONTE,
+            caused_by_event_id=EVENT_ID,
+            run_id="  ",
+        )
+    assert session.graph.relations == []
+
