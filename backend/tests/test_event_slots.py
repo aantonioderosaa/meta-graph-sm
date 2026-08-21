@@ -512,6 +512,8 @@ async def test_assert_queries_are_known_constants(stub_ingestion_side_effects):
         FIND_ATTRIBUTE_SLOT_EDGES_CYPHER,
         SET_ATTRIBUTE_SLOT_IS_LATEST_CYPHER,
         SET_ATTRIBUTE_SLOT_UPDATES_CYPHER,
+        READ_NODE_SCALAR_CYPHER,
+        APPEND_NODE_REVISION_CYPHER,
     }
     assert all(cypher in allowed for cypher, _ in session.calls)
 

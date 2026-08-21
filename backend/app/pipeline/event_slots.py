@@ -613,6 +613,55 @@ async def assert_slot(
             head_ids=[slot.head_id],
             slot_id=sid,
         )
+        # Attribute value change can imply a node-text change (e.g. Stato →
+        # summary). Archive the previous scalar; do not invent a kernel type.
+        implied_text = (tail_name or "").strip() or tail_id
+        await _archive_head_summary_if_present(
+            session,
+            head_id=slot.head_id,
+            new_value=implied_text,
+            event_id=event_id,
+            run_id=rid,
+        )
+
+
+async def _archive_head_summary_if_present(
+    session: AsyncSession,
+    *,
+    head_id: str,
+    new_value: str,
+    event_id: str,
+    run_id: str,
+) -> None:
+    """Version ``summary`` when it already exists and the new text differs.
+
+    Missing node / empty summary / identical text is a no-op. Identity
+    properties stay refused by ``append_node_revision``.
+    """
+    text = (new_value or "").strip()
+    if not text:
+        return
+    result = await session.run(
+        READ_NODE_SCALAR_CYPHER,
+        node_id=head_id,
+        property_name="summary",
+    )
+    rows = await _fetch_all(result)
+    if not rows:
+        return
+    old_value = _row_get(rows[0], "current_value")
+    if old_value is None:
+        return
+    if str(old_value) == text:
+        return
+    await append_node_revision(
+        session,
+        head_id,
+        property="summary",
+        new_value=text,
+        event_id=event_id,
+        run_id=run_id,
+    )
 
 
 async def retract_slot(
