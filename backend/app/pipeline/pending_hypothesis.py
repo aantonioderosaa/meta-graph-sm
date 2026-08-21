@@ -23,7 +23,7 @@ from app.pipeline.relevance_gate import (
     RETRACTION_MARKERS,
     FragmentSignal,
     S0Outcome,
-    classify_fragment_relevance,
+    classify_fragment_relevance_with_model_fallback,
     extract_named_witnesses,
     has_different_tail_comparables,
     has_t2_marker,
@@ -616,21 +616,25 @@ async def route_chunk_signal(
     doc_id: str = "",
     job_id: str = "",
     origin_doc_count: int = 0,
+    relation_text: str = "",
 ) -> dict[str, Any] | None:
     """F20.2: classify then maybe MERGE a hypothesis. Never writes S0.
 
     Flag off → immediate no-op (zero queries). ``None`` from the gate → no
-    ``:PendingHypothesis``.
+    ``:PendingHypothesis``. When the layer is on, classification uses the
+    F24.4 model fallback (deterministic T2/T3 still short-circuit).
     """
     if not settings.ENABLE_CONTEXT_LAYER:
         return None
     has_comp = False
     if s0_written and has_t2_marker(chunk_text) and node_ids:
         has_comp = await has_different_tail_comparables(session, node_ids)
-    signal = classify_fragment_relevance(
+    signal = await classify_fragment_relevance_with_model_fallback(
         chunk_text,
         pair_entities,
         S0Outcome(relation_written=s0_written, has_comparables=has_comp),
+        relation_text=relation_text or chunk_text,
+        job_id=job_id,
     )
     if signal is None:
         return None

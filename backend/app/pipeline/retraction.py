@@ -98,9 +98,10 @@ def _retraction_label(chunk_text: str, fact_text: str) -> RelationLabel:
     """Retraction is disagreement, not succession.
 
     ``map_temporal_transition`` is reused only for the error/correction →
-    ``updated_by`` branch. Succession markers are ignored here: the Italian
-    deictic «finora è» contains the T1 marker ``ora è`` as a substring, and a
-    global retraction is never a state succession on the source's claims.
+    ``updated_by`` branch. Succession markers are ignored here: a global
+    retraction is never a state succession on the source's claims (F24.3
+    kept this policy; the old ``ora è``/``finora è`` substring bug is
+    fixed in ``contains_lexical_marker`` and is no longer the reason).
     """
     label = map_temporal_transition(chunk_text, fact_text)
     if label == RelationLabel.updated_by:

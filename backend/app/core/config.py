@@ -77,9 +77,11 @@ class Settings(BaseSettings):
     # quantifier/retraction/agent). Default off → Fase 0–18 ingest/dreaming unchanged.
     ENABLE_CONTEXT_LAYER: bool = False
     # Documents of listen-without-reinforcement before auto-promotion is abandoned
-    # (hypothesis stays open; never ages into a fact).
+    # (hypothesis stays open; never ages into a fact). Verified on the F24.1
+    # corpus (F24.5): keep 5 — silence never promotes; late reinforcement still does.
     PENDING_HYPOTHESIS_LISTEN_WINDOW: int = 5
-    # Fase 22: ReAct turn cap around call_structured. Do not retune.
+    # Fase 22: ReAct turn cap around call_structured. Verified on the F24.1
+    # corpus (F24.5): longest planned trace is 3; keep 4 for one extra retrieval.
     CONTEXT_AGENT_MAX_TURNS: int = 4
 
 
