@@ -1,10 +1,15 @@
-"""Per-event judge triage: LLM proposes slots, primitives write (Macrotask 5).
+"""Per-event judge triage: LLM proposes slots, primitives write (Macrotasks 5–6).
 
 ``run_event_triage`` is the body of ``judge._task_event_triage``. Slot mutations
 go only through ``validate_slot_proposal`` / ``apply_validated_slot``. Audit
 nodes use parameterized module-constant Cypher (same pattern as
 ``MERGE_AGENT_SEARCH_RUN_CYPHER``). Timeout or LLM error on one event logs and
 continues; this function never raises to ``run_judge``.
+
+Waiting events reuse ``PENDING_HYPOTHESIS_LISTEN_WINDOW`` as the hard cap on
+``checks_without_progress`` (no parallel threshold). Zero slots past that
+window become ``incomplete``; a later pass that applies ≥1 slot becomes
+``confirmed`` on that same pass.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from typing import Any, Literal
 from neo4j import AsyncSession
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.core.llm_client import call_structured
 from app.models.kernel import AttributeKernelType, RelationKernelType
 from app.pipeline.context_retrieval import get_metadata, get_relations
@@ -28,6 +34,9 @@ logger = logging.getLogger(__name__)
 # Hard cap on LLM-proposed slots per event (same spirit as
 # CONNECTIVITY_MAX_GENERALIZATION_HOPS). Module constant, not a Settings flag.
 EVENT_TRIAGE_MAX_SLOT_FANOUT = 8
+
+# UI fallback when the LLM returns zero slots and empty reasoning.
+_DEFAULT_MISSING_CONTEXT = "no resolvable slots"
 
 FIND_BATCH_EVENTS_CYPHER = """
 MATCH (e:Node)
@@ -70,8 +79,11 @@ SET r.event_id = $event_id,
 MERGE_PENDING_EVENT_CONTEXT_CYPHER = """
 MERGE (p:PendingEventContext {event_id: $event_id})
 SET p.event_id = $event_id,
+    p.missing_context = $missing_context,
     p.first_seen_run_id = coalesce(p.first_seen_run_id, $run_id),
-    p.last_checked_run_id = $run_id
+    p.last_checked_run_id = $run_id,
+    p.checks_without_progress = coalesce(p.checks_without_progress, 0) + 1
+RETURN p.checks_without_progress AS checks_without_progress
 """
 
 _KERNEL_VALUES = tuple(
@@ -210,25 +222,49 @@ async def _load_events(
     return events
 
 
+def _missing_context_text(proposal: EventSlotProposal | None) -> str:
+    if proposal is None:
+        return _DEFAULT_MISSING_CONTEXT
+    text = (proposal.reasoning or "").strip()
+    return text or _DEFAULT_MISSING_CONTEXT
+
+
 async def _record_verdict(
     session: AsyncSession,
     *,
     event_id: str,
-    verdict: str,
+    applied: int,
     run_id: str,
-) -> None:
+    missing_context: str,
+) -> str:
+    """Write audit + pending. ``incomplete`` iff empty checks hit the listen window."""
+    if applied >= 1:
+        verdict = "confirmed"
+    else:
+        result = await session.run(
+            MERGE_PENDING_EVENT_CONTEXT_CYPHER,
+            event_id=event_id,
+            run_id=run_id,
+            missing_context=missing_context or _DEFAULT_MISSING_CONTEXT,
+        )
+        rows = await _fetch_all(result)
+        checks = 0
+        if rows:
+            raw = _row_get(rows[0], "checks_without_progress", 0)
+            try:
+                checks = int(raw or 0)
+            except (TypeError, ValueError):
+                checks = 0
+        # Same comparison as pending_hypothesis.listen_count >= window.
+        window = int(settings.PENDING_HYPOTHESIS_LISTEN_WINDOW)
+        verdict = "incomplete" if checks >= window else "waiting"
     await session.run(
         MERGE_EVENT_TRIAGE_RUN_CYPHER,
         event_id=event_id,
         verdict=verdict,
         run_id=run_id,
     )
-    if verdict == "waiting":
-        await session.run(
-            MERGE_PENDING_EVENT_CONTEXT_CYPHER,
-            event_id=event_id,
-            run_id=run_id,
-        )
+    return verdict
 
 
 async def _apply_proposal(
@@ -258,7 +294,7 @@ async def _triage_one_event(
     session: AsyncSession,
     event: dict[str, Any],
     run_id: str,
-) -> str:
+) -> tuple[int, str]:
     event_id = str(event["event_id"])
     context_block = await _load_readonly_context(session, event_id)
     proposal = await call_structured(
@@ -273,7 +309,7 @@ async def _triage_one_event(
     applied = await _apply_proposal(
         session, proposal, event_id=event_id, run_id=run_id
     )
-    return "confirmed" if applied >= 1 else "waiting"
+    return applied, _missing_context_text(proposal)
 
 
 async def run_event_triage(
@@ -282,15 +318,18 @@ async def run_event_triage(
     *,
     touched_ids: Sequence[str] | None = None,
 ) -> int:
-    """Triage batch (and waiting) events. Never raises to the caller."""
+    """Triage waiting events first, then the batch. Never raises to the caller."""
     triaged = 0
     try:
         events = await _load_events(session, touched_ids)
         for event in events:
             event_id = str(event.get("event_id") or "")
-            verdict = "waiting"
+            applied = 0
+            missing_context = _DEFAULT_MISSING_CONTEXT
             try:
-                verdict = await _triage_one_event(session, event, run_id)
+                applied, missing_context = await _triage_one_event(
+                    session, event, run_id
+                )
                 triaged += 1
             except Exception:
                 logger.exception(
@@ -298,14 +337,16 @@ async def run_event_triage(
                     event_id,
                     run_id,
                 )
-                verdict = "waiting"
+                applied = 0
+                missing_context = _DEFAULT_MISSING_CONTEXT
             try:
                 if event_id:
                     await _record_verdict(
                         session,
                         event_id=event_id,
-                        verdict=verdict,
+                        applied=applied,
                         run_id=run_id,
+                        missing_context=missing_context,
                     )
             except Exception:
                 logger.exception(

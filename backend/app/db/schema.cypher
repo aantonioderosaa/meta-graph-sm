@@ -95,7 +95,7 @@ CREATE CONSTRAINT identity_node_uri IF NOT EXISTS FOR (i:IdentityNode) REQUIRE i
 // :Relation additive properties (do not drop relation, normalized_relation, is_latest, embedding):
 //   witnesses_a, witnesses_b, provenance, valid_time, system_time
 // Event triage (ENABLE_EVENT_TRIAGE) — schema-optional free properties, no
-// CREATE CONSTRAINT / INDEX in this phase (YAGNI; Macrotask 6 may add an index
+// CREATE CONSTRAINT / INDEX in this phase (YAGNI; Macrotask 7 may add an index
 // on caused_by_event_id/verdict if the read endpoint needs it):
 //   :Relation.caused_by_event_id, :Relation.run_id (plus existing created_at)
 //   :Node.revisions — list of {property, old_value, event_id, run_id, at}
@@ -134,9 +134,12 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 // Properties: id, event_id, verdict (confirmed|waiting|incomplete), run_id,
 // timestamp.
 
-// :PendingEventContext — thin wait-state record when triage verdict is
-// waiting (Macrotask 5 MERGE so waiting events are queryable; Macrotask 6
-// adds listen-window fields). Pipeline MERGEs on event_id; no constraint.
+// :PendingEventContext — wait-state when triage cannot yet apply a slot.
+// Pipeline MERGEs on event_id; the node is left in place after a terminal
+// verdict (skip via EventTriageRun.verdict). No constraint/index (YAGNI;
+// Macrotask 7 may add an index if the read endpoint needs it).
+// Properties: event_id, missing_context, first_seen_run_id,
+// last_checked_run_id, checks_without_progress.
 
 // :PendingHypothesis (Fase 20) — open context hypotheses. Never an S0 fact.
 // Properties: id, claim_target, evidence_span, witness_fragments, evidence_gap,

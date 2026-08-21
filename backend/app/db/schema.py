@@ -52,6 +52,8 @@ REQUIRED_FULLTEXT_INDEXES = {
 # created_at); :Node.revisions — list of {property, old_value, event_id, run_id, at}
 # (additive, same pattern as origin_fact_ids). :EventTriageRun / :PendingEventContext
 # are comment-only in schema.cypher (pipeline MERGE, no constraint/index).
+# :PendingEventContext properties: event_id, missing_context, first_seen_run_id,
+# last_checked_run_id, checks_without_progress.
 
 # Dedicated Neo4j relationship types (no CREATE TYPE). Uppercased kernel values so
 # schema and kernel cannot drift. IS_A / MEMBER_OF must never share one rel type.

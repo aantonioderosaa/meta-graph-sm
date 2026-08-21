@@ -1,4 +1,4 @@
-"""Macrotask 5: _task_event_triage in the judge. FakeSession, no Neo4j/OpenAI."""
+"""Macrotasks 5–6: event triage + listen-window. FakeSession, no Neo4j/OpenAI."""
 
 from __future__ import annotations
 
@@ -162,12 +162,15 @@ def _dispatch(graph: TriageGraph, cypher: str, kwargs: dict) -> list[dict]:
     ):
         event_id = str(kwargs["event_id"])
         existing = graph.pending.get(event_id) or {}
+        checks = int(existing.get("checks_without_progress") or 0) + 1
         graph.pending[event_id] = {
             "event_id": event_id,
+            "missing_context": kwargs.get("missing_context") or "",
             "first_seen_run_id": existing.get("first_seen_run_id") or kwargs["run_id"],
             "last_checked_run_id": kwargs["run_id"],
+            "checks_without_progress": checks,
         }
-        return []
+        return [{"checks_without_progress": checks}]
     return []
 
 
@@ -353,3 +356,123 @@ def test_task_event_triage_has_no_adhoc_mutating_cypher():
     _RunVisitor().visit(tree)
     assert "MERGE_EVENT_TRIAGE_RUN_CYPHER" in source
     assert "EventTriageRun" in source
+    assert "PENDING_HYPOTHESIS_LISTEN_WINDOW" in source
+    assert "EVENT_TRIAGE_LISTEN_WINDOW" not in source
+    assert "checks_without_progress" in source
+    assert "incomplete" in source
+
+
+@pytest.mark.asyncio
+async def test_waiting_event_confirms_on_later_pass_when_slot_applies(monkeypatch):
+    _stub_apply_success(monkeypatch)
+    passes = {"n": 0}
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        passes["n"] += 1
+        if passes["n"] == 1:
+            return EventSlotProposal(
+                slots=[], reasoning="need more context about experiment 5"
+            )
+        return EventSlotProposal(slots=[_valid_item()], reasoning="stato fallato")
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+    assert graph.pending[EVENT_ONE]["checks_without_progress"] == 1
+    assert graph.pending[EVENT_ONE]["missing_context"] == (
+        "need more context about experiment 5"
+    )
+    assert graph.pending[EVENT_ONE]["first_seen_run_id"] == "run-1"
+
+    await run_event_triage(session, "run-2", touched_ids=[EVENT_ONE])
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "confirmed"
+    assert EVENT_ONE in graph.pending
+    assert graph.pending[EVENT_ONE]["checks_without_progress"] == 1
+    assert passes["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_listen_window_empty_checks_become_incomplete_and_are_not_retried(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.pipeline.event_triage.settings.PENDING_HYPOTHESIS_LISTEN_WINDOW", 2
+    )
+    llm_calls: list[str] = []
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        llm_calls.append(user)
+        return EventSlotProposal(slots=[], reasoning="cannot resolve yet")
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="evento irrisolvibile")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+    assert graph.pending[EVENT_ONE]["checks_without_progress"] == 1
+
+    await run_event_triage(session, "run-2", touched_ids=[EVENT_ONE])
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "incomplete"
+    assert graph.pending[EVENT_ONE]["checks_without_progress"] == 2
+    assert graph.pending[EVENT_ONE]["missing_context"] == "cannot resolve yet"
+    assert EVENT_ONE in graph.pending
+
+    llm_calls.clear()
+    await run_event_triage(session, "run-3", touched_ids=[EVENT_ONE])
+    assert llm_calls == []
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "incomplete"
+    assert EVENT_ONE in graph.pending
+
+
+@pytest.mark.asyncio
+async def test_waiting_events_are_attempted_before_new_batch_events(monkeypatch):
+    _stub_apply_success(monkeypatch)
+    llm_order: list[str] = []
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        if f"event_id={EVENT_A}" in user:
+            llm_order.append(EVENT_A)
+        elif f"event_id={EVENT_B}" in user:
+            llm_order.append(EVENT_B)
+        return EventSlotProposal(slots=[], reasoning="still waiting")
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_A, summary="evento in attesa")
+    graph.add_event(EVENT_B, summary="evento nuovo del batch")
+    graph.pending[EVENT_A] = {
+        "event_id": EVENT_A,
+        "missing_context": "prior gap",
+        "first_seen_run_id": "run-0",
+        "last_checked_run_id": "run-0",
+        "checks_without_progress": 1,
+    }
+    graph.triage_runs[EVENT_A] = {
+        "id": EVENT_A,
+        "event_id": EVENT_A,
+        "verdict": "waiting",
+        "run_id": "run-0",
+    }
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_B])
+
+    assert llm_order == [EVENT_A, EVENT_B]
+    find_calls = [
+        call[0]
+        for call in graph.calls
+        if call[0] in {FIND_WAITING_EVENTS_CYPHER, FIND_BATCH_EVENTS_CYPHER}
+    ]
+    assert find_calls[:2] == [FIND_WAITING_EVENTS_CYPHER, FIND_BATCH_EVENTS_CYPHER]
