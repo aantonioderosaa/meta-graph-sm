@@ -20,6 +20,7 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 - Filtro di rilevanza e ipotesi (Fase 20): gate lessicale T1/T2/T3 in `backend/app/pipeline/relevance_gate.py` (zero LLM). Un segnale apre o rinforza `:PendingHypothesis` (`pending_hypothesis.py`); nessuna scrittura S0. Promozione = evento SSE `hypothesis_promoted` **e** coda in-memory per job, consumata da Fase 22 dopo il giudice. Flag `ENABLE_CONTEXT_LAYER` default **false** — a flag spento ingestione e dreaming restano identici alle Fasi 0–18. `PENDING_HYPOTHESIS_LISTEN_WINDOW=5`.
 - Quantificatori e ritrattazioni (Fase 21): un marcatore-quantificatore T2 diventa un `:Node` evento + R5 `participates` sui membri **in scena** (stesso documento / testimoni / luogo), mai un'entità collettiva e mai tutta l'estensione `MEMBER_OF` del genere. Scope non chiuso → `:PendingHypothesis`, zero S0. Una ritrattazione T2 usa `facts_from_source` e applica Famiglia B solo ai claim di quella fonte; fonte non identificabile → ipotesi `evidence_gap="fonte non identificata"`, zero fan-out. Mai `DELETE`. Stesso flag `ENABLE_CONTEXT_LAYER` (nessun flag nuovo).
 - Orchestrazione agentica (Fase 22): `backend/app/pipeline/context_agent.py` — ciclo ReAct su `call_structured` (niente tool-calling nativo OpenAI), cap `CONTEXT_AGENT_MAX_TURNS=4`. Innesco = coda delle ipotesi promosse (medium/high) dopo `run_judge`, mai uno scan globale e mai su ogni chunk. Scritture solo via primitive esistenti (`write_node_relation` con testimoni, Famiglia B, `resolve_quantifier_scope` / `resolve_retraction_scope`). Timeout/errore/turni esauriti → fallback silenzioso, ipotesi `open`, `:AgentSearchRun` comunque scritto. Le Fasi **19–22** sono lo stato di produzione. **Le Fasi 23–25 sono sbagliate e revertite** (vedi sotto): non reintrodurle.
+- Event triage (pianificato, gated): giudice assert/retract su nodi `:Evento` con provenienza (`caused_by_event_id`, `run_id`, `revisions`). Flag `ENABLE_EVENT_TRIAGE` default **false**, indipendente da `ENABLE_CONTEXT_LAYER` — a flag spento Fase 0–22 identico.
 - Query NL coarse-to-fine (Fase 11): `plan_connectivity_scope` interroga `:ConnectivityRule` sulle categorie kernel della domanda **prima** di `hybrid_seed`. `POST /graph/query` aggiunge `citations[]` con `epistemic_status` asserted/derived e `derivation_chain` (passi S0/S1) calcolata in Python, non dall'LLM. I salti S2 restano in memoria e non vengono mai scritti come `:Relation`.
 - Layer Metagraph in UI (Fase 12): tab laterali Dominio / Identità / Contraddizioni / Regole / Giudice (liste e albero, nessun canvas NVL extra). Badge ` · faccette` sui nodi multi-identità; citazioni query ASSERITO/DERIVATO.
 - Vista generale (Fase 15, storica): `GET /graph/macro` resta disponibile (concetti promossi + nodi di primo livello, fasci collassati). **Fase 17 sostituisce l'interazione UI**: dashboard scorrevole di tutti i `:Concept` (`GET /graph/domains`, nessun limit implicito), scheda dizionario/regole (`GET /graph/domains/{id}/dictionary`, `GET /graph/domains/{id}/rules`), grafo a scope annidato (`GET /graph/domains-graph` in radice — solo `:Concept` legati da `BUNDLE`; `GET /graph/domains/{id}/children-graph` al drill). Toggle **Vista dettagliata** (default, quattro pannelli) ↔ **Vista generale** (`DomainDashboard` + `DomainDetailCard` + `DomainGraphPanel` che riusa `GraphPanel`; mai due NVL extra). Freccia Indietro = pop dello stack `drillPath`. Drill-down foglia: `GET /graph/bundle/{a}/{b}` e `GET /graph/metadata/{id}` (`node_type` entity|event).
@@ -29,7 +30,7 @@ Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query 
 
 ### Flag Metagraph (default in `Settings`)
 
-Policy di rollout: ogni flag resta spento finché la relativa suite di accettazione non è verde. Fasi 4–12 sono verdi salvo le faccette; `ENABLE_FACET_IDENTITY` e `ENABLE_CONTEXT_LAYER` restano False.
+Policy di rollout: ogni flag resta spento finché la relativa suite di accettazione non è verde. Fasi 4–12 sono verdi salvo le faccette; `ENABLE_FACET_IDENTITY` e `ENABLE_CONTEXT_LAYER` restano False. `ENABLE_EVENT_TRIAGE` resta False finché Macrotask 8 non è verde.
 
 | Flag | Default | Perché |
 |---|---|---|
@@ -40,6 +41,7 @@ Policy di rollout: ogni flag resta spento finché la relativa suite di accettazi
 | `ENABLE_FACET_IDENTITY` | **False** | `merge_nodes` resta il percorso di produzione (F13.4) |
 | `ENABLE_DERIVES` | False | kill switch preesistente |
 | `ENABLE_CONTEXT_LAYER` | **False** | Fase 20–22 (spento → comportamento Fase 0–18 identico) |
+| `ENABLE_EVENT_TRIAGE` | **False** | giudice assert/retract su `:Evento` (spento → Fase 0–22 identico; indipendente da `ENABLE_CONTEXT_LAYER`) |
 | `CONTEXT_AGENT_MAX_TURNS` | 4 | Fase 22: cap turni ReAct (non ritoccare) |
 
 ### Debito noto

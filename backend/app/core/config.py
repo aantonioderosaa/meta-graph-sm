@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # Fase 20–22: agentic context layer (relevance gate, :PendingHypothesis, later
     # quantifier/retraction/agent). Default off → Fase 0–18 ingest/dreaming unchanged.
     ENABLE_CONTEXT_LAYER: bool = False
+    # Event triage (assert/retract with provenance) in the judge. Independent of
+    # ENABLE_CONTEXT_LAYER: must be able to run with Fasi 20–22 off, because it
+    # inspects :Evento nodes, not the lexical chunk gate.
+    ENABLE_EVENT_TRIAGE: bool = False
     # Documents of listen-without-reinforcement before auto-promotion is abandoned
     # (hypothesis stays open; never ages into a fact).
     PENDING_HYPOTHESIS_LISTEN_WINDOW: int = 5

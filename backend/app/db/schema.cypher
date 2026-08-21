@@ -94,6 +94,12 @@ CREATE CONSTRAINT identity_node_uri IF NOT EXISTS FOR (i:IdentityNode) REQUIRE i
 
 // :Relation additive properties (do not drop relation, normalized_relation, is_latest, embedding):
 //   witnesses_a, witnesses_b, provenance, valid_time, system_time
+// Event triage (ENABLE_EVENT_TRIAGE) — schema-optional free properties, no
+// CREATE CONSTRAINT / INDEX in this phase (YAGNI; Macrotask 6 may add an index
+// on caused_by_event_id/verdict if the read endpoint needs it):
+//   :Relation.caused_by_event_id, :Relation.run_id (plus existing created_at)
+//   :Node.revisions — list of {property, old_value, event_id, run_id, at}
+//     (additive, same pattern as origin_fact_ids)
 
 // Backbone relationship types — two spaces must never share one relationship type:
 //   IS_A (Concept→Concept type lattice)
