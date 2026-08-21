@@ -24,6 +24,11 @@ from app.models.kernel import IS_A, MEMBER_OF, EntityKernelType
 from app.models.relations import RelationLabel
 from app.pipeline.concepts import compute_hash_id, genre_concept_id
 from app.pipeline.entity_relation_resolution import map_temporal_transition
+from app.pipeline.generic_instances import (
+    SET_GENERIC_OBSERVATION_COUNT_CYPHER,
+    ensure_generic_instance,
+    redirect_to_generic,
+)
 from app.pipeline.identity_resolution import (
     cosine,
     ensure_identity_node,
@@ -53,6 +58,7 @@ class JudgeStats:
     identity: int = 0
     missed_contradictions: int = 0
     temporal: int = 0
+    generic_instances: int = 0
 
 
 class IdentityVerdict(BaseModel):
@@ -60,6 +66,14 @@ class IdentityVerdict(BaseModel):
 
     decision: Literal["same_as", "not_same_as", "defer"] = Field(
         description="same_as, not_same_as, or defer if evidence is insufficient"
+    )
+
+
+class SpecificityVerdict(BaseModel):
+    """LLM verdict for a catch-all member with no matching promoted child (F23.4)."""
+
+    decision: Literal["specifico", "generico"] = Field(
+        description="specifico = leave as an individual; generico = background instance"
     )
 
 
@@ -120,7 +134,10 @@ RETURN child.id AS child_id, child.name AS name,
 FIND_PARENT_MEMBERS_CYPHER = f"""
 MATCH (n:Node)-[:{_MEMBER_OF_REL}]->(parent:Concept {{id: $parent_id}})
 RETURN n.id AS id, n.name AS name, n.summary AS summary,
-       n.kernel_category AS kernel_category
+       n.kernel_category AS kernel_category,
+       n.is_generic AS is_generic,
+       n.merged_into AS merged_into,
+       n.generic_observation_count AS generic_observation_count
 """
 
 MOVE_MEMBER_OF_TO_CHILD_CYPHER = f"""
@@ -206,7 +223,8 @@ SET j.batch_id = $batch_id,
     j.reraffine = $reraffine,
     j.identity = $identity,
     j.missed_contradictions = $missed_contradictions,
-    j.temporal = $temporal
+    j.temporal = $temporal,
+    j.generic_instances = $generic_instances
 """
 
 _IDENTITY_SYSTEM_PROMPT = (
@@ -214,6 +232,15 @@ _IDENTITY_SYSTEM_PROMPT = (
     "stessa identità (same_as), omonimi distinti (not_same_as), o se l'evidenza "
     "non basta (defer). Non fondere i nodi: same_as significa solo confermare "
     "le faccette. Rispondi solo secondo lo schema."
+)
+
+_SPECIFICITY_SYSTEM_PROMPT = (
+    "Classifica un nodo membro di un catch-all che non corrisponde a nessun "
+    "genere figlio già promosso. Decidi specifico se è un individuo plausibile "
+    "(personaggio nominato, luogo proprio, oggetto distinto) che merita un'identità "
+    "propria in futuro. Decidi generico se è un elemento di sfondo senza identità "
+    "individuale (una strada, un passante, un oggetto innominato). Una sola "
+    "decisione; non inventare un genere. Rispondi solo secondo lo schema."
 )
 
 
@@ -289,6 +316,7 @@ async def _log_judge_run(session: AsyncSession, job_id: str, stats: JudgeStats) 
         identity=stats.identity,
         missed_contradictions=stats.missed_contradictions,
         temporal=stats.temporal,
+        generic_instances=stats.generic_instances,
     )
 
 
@@ -369,6 +397,120 @@ async def _task_reraffine(
                 parent_id=parent_id,
                 child_id=target["child_id"],
             )
+            count += 1
+    return count
+
+
+async def classify_node_specificity(
+    job_id: str,
+    name: str,
+    summary: str,
+    kernel_category: str,
+    children: Sequence[Mapping[str, Any]],
+) -> SpecificityVerdict:
+    """One LLM call per candidate: specifico (leave) vs generico (maybe redirect)."""
+    child_lines = []
+    for child in children:
+        child_name = str(child.get("name") or child.get("child_id") or "")
+        child_def = str(child.get("definition") or child.get("summary") or "")
+        child_lines.append(f'- nome="{child_name}" definition="{child_def}"')
+    listed = "\n".join(child_lines) if child_lines else "(nessun figlio promosso)"
+    user_prompt = (
+        f'NODO: nome="{name}" summary="{summary}" kernel_category="{kernel_category}"\n'
+        f"FIGLI PROMOSSI GIÀ ESISTENTI (nessuno corrisponde a questo nodo):\n{listed}\n"
+        "Decidi specifico o generico."
+    )
+    return await call_structured(
+        _SPECIFICITY_SYSTEM_PROMPT,
+        user_prompt,
+        SpecificityVerdict,
+        temperature=0,
+        job_id=job_id,
+    )
+
+
+def _as_observation_count(raw: object) -> int:
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _task_generic_instances(
+    session: AsyncSession,
+    promoted_parent_ids: Sequence[str],
+    job_id: str,
+) -> int:
+    """Seventh judge task: catch-all members with no matching child → generic.
+
+    Runs after ``_task_reraffine`` so members already moved to a child are
+    not reconsidered. Gate is the dedicated sub-flag: the other six tasks
+    still run when ``ENABLE_JUDGE`` is on.
+    """
+    if not settings.ENABLE_GENERIC_INSTANCES:
+        return 0
+    if not promoted_parent_ids:
+        return 0
+    min_obs = int(settings.GENERIC_INSTANCE_MIN_OBSERVATIONS)
+    count = 0
+    seen_parents = list(dict.fromkeys(promoted_parent_ids))
+    for parent_id in seen_parents:
+        children_result = await session.run(
+            FIND_PROMOTED_CHILDREN_CYPHER, parent_id=parent_id
+        )
+        children = [dict(record) async for record in children_result]
+        children.sort(key=lambda row: str(row.get("child_id") or ""))
+        if not children:
+            continue
+        members_result = await session.run(FIND_PARENT_MEMBERS_CYPHER, parent_id=parent_id)
+        members = [dict(record) async for record in members_result]
+        for node in members:
+            if node.get("is_generic"):
+                continue
+            if node.get("merged_into"):
+                continue
+            if any(_instance_matches_child(node, child) for child in children):
+                continue
+            node_id = str(node["id"])
+            category_raw = str(node.get("kernel_category") or "")
+            try:
+                category = EntityKernelType(category_raw) if category_raw else None
+            except ValueError:
+                category = None
+            if category is None:
+                continue
+            try:
+                verdict = await classify_node_specificity(
+                    job_id,
+                    str(node.get("name") or ""),
+                    str(node.get("summary") or ""),
+                    category_raw,
+                    children,
+                )
+            except Exception:
+                logger.exception("judge_generic_instances_llm_failed %s", node_id)
+                continue
+            if verdict.decision == "specifico":
+                await session.run(
+                    SET_GENERIC_OBSERVATION_COUNT_CYPHER,
+                    node_id=node_id,
+                    count=0,
+                )
+                continue
+            if verdict.decision != "generico":
+                continue
+            new_count = _as_observation_count(node.get("generic_observation_count")) + 1
+            await session.run(
+                SET_GENERIC_OBSERVATION_COUNT_CYPHER,
+                node_id=node_id,
+                count=new_count,
+            )
+            if new_count < min_obs:
+                continue
+            generic_id = await ensure_generic_instance(session, parent_id, category)
+            if generic_id == node_id:
+                continue
+            await redirect_to_generic(session, node_id, generic_id)
             count += 1
     return count
 
@@ -504,10 +646,12 @@ async def run_judge(
     on_requeue: RequeuePair | None = None,
     touched_ids: Sequence[str] | None = None,
 ) -> JudgeStats:
-    """Six post-batch tasks + ``:JudgeRun`` log. Always writes the log node.
+    """Seven post-batch tasks + ``:JudgeRun`` log. Always writes the log node.
 
     ``touched_ids`` scopes missed-contradiction pairing to the current batch
     when non-empty; omitted or empty keeps the full-scan (debug/manual).
+    The seventh task (generic instances) is a no-op unless
+    ``ENABLE_GENERIC_INSTANCES`` is on.
     """
     stats = JudgeStats()
     if not settings.ENABLE_JUDGE:
@@ -521,6 +665,9 @@ async def run_judge(
     stats.anti_blur = await _task_anti_blur(session, requeue=requeue)
     stats.equivalent_to = await _task_equivalent_to(session, threshold)
     stats.reraffine = await _task_reraffine(session, parent_ids)
+    stats.generic_instances = await _task_generic_instances(
+        session, parent_ids, job_id
+    )
     stats.identity = await _task_identity(session, job_id)
     stats.missed_contradictions = await _task_missed_contradictions(
         session, touched_ids=touched_ids

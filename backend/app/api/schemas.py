@@ -120,6 +120,7 @@ class JudgeRunItem(BaseModel):
     identity: int = 0
     missed_contradictions: int = 0
     temporal: int = 0
+    generic_instances: int = 0
 
 
 class JudgeRunListResponse(BaseModel):

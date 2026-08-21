@@ -7,7 +7,7 @@ per client.beta.chat.completions.parse (vedi app/core/llm_client.py)."""
 from __future__ import annotations
 
 from app.models.kernel import EntityKernelType, RelationKernelType
-from app.pipeline.domain_book import GENRE_NOT_TOPIC_PROMPT
+from app.pipeline.domain_book import CATEGORY_CARDS, GENRE_NOT_TOPIC_PROMPT
 
 JSON_SYSTEM_PROMPT = (
     "Sei un assistente che risponde sempre con un oggetto JSON valido, senza spiegazioni."
@@ -22,7 +22,8 @@ EVENT_CONCEPT_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
 ENTITY_CONCEPT_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
 
 _ENTITY_KERNEL_LINES = "\n".join(
-    f"- {member.value}" for member in EntityKernelType
+    f"- {member.value}: {CATEGORY_CARDS[member].criterio_appartenenza}"
+    for member in EntityKernelType
 )
 _RELATION_KERNEL_LINES = "\n".join(
     f"- {member.value}" for member in RelationKernelType
@@ -32,7 +33,9 @@ ENTITY_LIST_USER_PROMPT_TEMPLATE = (
     "{genre_not_topic}\n\n"
     "Macro-riassunto del corpus (contesto; non elencare sottodomini):\n"
     '"""{corpus_summary}"""\n\n'
-    "Dal passaggio sotto, estrai SOLO le entità importanti. Non estrarre relazioni. "
+    "Dal passaggio sotto, estrai le entità importanti e anche gli elementi di sfondo "
+    "che testimoniano un fatto (es. «la strada» in «camminava lungo la strada»), anche "
+    "se non sono personaggi importanti. Non estrarre relazioni. "
     "Ogni entità ha un nome, un breve summary in linguaggio naturale (chi/che cosa è, "
     "nel contesto del passaggio), e kernel_category pari a esattamente una delle "
     "categorie fondazionali E1–E8:\n"

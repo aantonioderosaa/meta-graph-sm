@@ -14,6 +14,7 @@ from app.pipeline.node_resolution import (
     CREATE_OUTGOING_ON_CANON_CYPHER,
     DELETE_DUP_RELATIONS_CYPHER,
     FIND_EXACT_NAME_CYPHER,
+    FIND_NODE_CANDIDATES_BY_SUMMARY_CYPHER,
     FIND_NODE_CANDIDATES_CYPHER,
     HIGH_CONFIDENCE_SCORE,
     PROMOTE_NEWER_SUMMARY_CYPHER,
@@ -255,6 +256,104 @@ async def test_vector_query_passes_requested_entity_type():
     assert vector_cypher == FIND_NODE_CANDIDATES_CYPHER
     assert vector_kwargs["type"] == "entity"
     assert "candidate.type = $type" in vector_cypher
+
+
+@pytest.mark.asyncio
+async def test_summary_embedding_finds_candidate_missed_by_name_search():
+    """A same-referent mention under a different name only surfaces via summary."""
+    session = FakeSession()
+    session.enqueue([])  # exact name: none
+    session.enqueue([])  # name-embedding vector: none
+    session.enqueue(
+        [
+            {
+                "id": "wanderer-1",
+                "name": "il viandante",
+                "summary": "un uomo stanco in cammino lungo la strada",
+                "score": 0.88,
+            }
+        ]
+    )  # summary-embedding vector: found
+
+    candidates = await find_node_candidates(
+        session,
+        node_id="new-1",
+        node_type="entity",
+        embedding=EMBEDDING,
+        name="lo straniero",
+        summary_embedding=EMBEDDING,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].id == "wanderer-1"
+    assert candidates[0].via == "summary_embedding"
+    assert candidates[0].summary == "un uomo stanco in cammino lungo la strada"
+    summary_cypher, summary_kwargs = session.calls[2]
+    assert summary_cypher == FIND_NODE_CANDIDATES_BY_SUMMARY_CYPHER
+    assert summary_kwargs["type"] == "entity"
+
+
+@pytest.mark.asyncio
+async def test_no_summary_embedding_skips_summary_search():
+    session = FakeSession()
+    session.enqueue([])
+    session.enqueue([])
+
+    candidates = await find_node_candidates(
+        session,
+        node_id="new-1",
+        node_type="entity",
+        embedding=EMBEDDING,
+        name="lo straniero",
+    )
+
+    assert candidates == []
+    assert len(session.calls) == 2
+    assert not any(call[0] == FIND_NODE_CANDIDATES_BY_SUMMARY_CYPHER for call in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_resolve_node_passes_summaries_to_llm_verdict_not_fast_path(monkeypatch):
+    """High score via summary_embedding alone must not skip the LLM verdict."""
+    session = FakeSession()
+    session.enqueue([])  # exact
+    session.enqueue([])  # name vector
+    session.enqueue(
+        [
+            {
+                "id": "wanderer-1",
+                "name": "il viandante",
+                "summary": "un uomo stanco in cammino lungo la strada",
+                "score": 0.95,  # above HIGH_CONFIDENCE_SCORE, but via=summary_embedding
+            }
+        ]
+    )
+
+    captured: dict[str, str] = {}
+
+    async def fake_llm(_system, user, model, temperature=0, job_id=None):
+        assert model is NodeDedupResult
+        captured["user"] = user
+        return NodeDedupResult(duplicate_of="wanderer-1")
+
+    monkeypatch.setattr("app.pipeline.node_resolution.call_structured", fake_llm)
+    merges = _spy_merge(monkeypatch)
+
+    result = await resolve_node(
+        session,
+        node_id="new-1",
+        node_type="entity",
+        name="lo straniero",
+        embedding=EMBEDDING,
+        job_id=JOB_ID,
+        summary="un uomo che cammina da solo, non nomina il proprio nome",
+        summary_embedding=EMBEDDING,
+    )
+
+    assert result == "wanderer-1"
+    assert merges == [("new-1", "wanderer-1")]
+    assert "un uomo che cammina da solo, non nomina il proprio nome" in captured["user"]
+    assert "un uomo stanco in cammino lungo la strada" in captured["user"]
 
 
 def test_no_full_graph_scan_in_candidate_queries():

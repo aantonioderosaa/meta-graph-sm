@@ -277,7 +277,7 @@ async def test_scenario6_dreaming_skips_already_dreamed_nodes(monkeypatch):
     session.enqueue([{"id": "fresh-alice", "name": "Alice", "embedding": EMBEDDING}])
     resolve_ids: list[str] = []
 
-    async def spy_resolve(_session, node_id, node_type, name, embedding, job_id):
+    async def spy_resolve(_session, node_id, node_type, name, embedding, job_id, **_kwargs):
         _ = node_type, name, embedding, job_id
         resolve_ids.append(node_id)
         return node_id

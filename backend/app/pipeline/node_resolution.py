@@ -14,7 +14,7 @@ from app.pipeline.identity_resolution import link_possibly_same_as
 
 HIGH_CONFIDENCE_SCORE = 0.90  # identity, not mere similarity
 
-NodeCandidateVia = Literal["exact_name", "embedding", "high_confidence"]
+NodeCandidateVia = Literal["exact_name", "embedding", "summary_embedding", "high_confidence"]
 
 FIND_NODE_CANDIDATES_CYPHER = """
 CALL db.index.vector.queryNodes('node_embedding', $k, $embedding)
@@ -22,14 +22,27 @@ YIELD node AS candidate, score
 WHERE candidate.type = $type
   AND candidate.merged_into IS NULL
   AND candidate.id <> $node_id
-RETURN candidate.id AS id, candidate.name AS name, score
+RETURN candidate.id AS id, candidate.name AS name, candidate.summary AS summary, score
+ORDER BY score DESC
+"""
+
+# Fase 19 wrote ``summary_embedding`` on every node; the name index alone misses
+# a same-referent mention introduced under a different name/description (e.g. a
+# role or title instead of the name used at first mention).
+FIND_NODE_CANDIDATES_BY_SUMMARY_CYPHER = """
+CALL db.index.vector.queryNodes('node_summary_embedding', $k, $summary_embedding)
+YIELD node AS candidate, score
+WHERE candidate.type = $type
+  AND candidate.merged_into IS NULL
+  AND candidate.id <> $node_id
+RETURN candidate.id AS id, candidate.name AS name, candidate.summary AS summary, score
 ORDER BY score DESC
 """
 
 FIND_EXACT_NAME_CYPHER = """
 MATCH (c:Node {type: $type, name: $name})
 WHERE c.merged_into IS NULL AND c.id <> $node_id
-RETURN c.id AS id, c.name AS name
+RETURN c.id AS id, c.name AS name, c.summary AS summary
 """
 
 READ_OUTGOING_RELATIONS_CYPHER = """
@@ -134,7 +147,10 @@ DELETE r
 
 DEDUP_SYSTEM_PROMPT = (
     "Confronta il NODO NUOVO con i CANDIDATI e decidi se si riferiscono alla stessa "
-    "entità o allo stesso evento nel mondo reale.\n"
+    "entità o allo stesso evento nel mondo reale. Usa sia il nome sia il summary: "
+    "nomi diversi con descrizioni compatibili (un ruolo, un titolo, una perifrasi "
+    "per la stessa persona/cosa) possono essere la stessa entità; nomi simili con "
+    "descrizioni incompatibili possono essere entità diverse.\n"
     "Se il nodo nuovo è un duplicato di uno dei candidati, imposta `duplicate_of` "
     "all'id di quel candidato. Se è un nodo nuovo, distinto da tutti i candidati, "
     "imposta `duplicate_of` a null.\n"
@@ -147,6 +163,7 @@ DEDUP_SYSTEM_PROMPT = (
 class NodeCandidate:
     id: str
     name: str
+    summary: str | None = None
     score: float | None = None
     via: NodeCandidateVia = "embedding"
 
@@ -160,17 +177,27 @@ class NodeSnapshot:
     created_at: Any = None
 
 
-def build_dedup_prompt(new_name: str, candidates: list[NodeCandidate]) -> tuple[str, str]:
+def build_dedup_prompt(
+    new_name: str,
+    candidates: list[NodeCandidate],
+    *,
+    new_summary: str = "",
+) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for node duplicate classification."""
     lines: list[str] = []
     for candidate in candidates:
         line = f'- id="{candidate.id}", nome="{candidate.name}"'
+        if candidate.summary:
+            line += f', summary="{candidate.summary}"'
         if candidate.score is not None:
             line += f", score={candidate.score:.3f}"
         lines.append(line)
     listed = "\n".join(lines) if lines else "(nessun candidato)"
+    new_line = f'NODO NUOVO: nome="{new_name}"'
+    if new_summary:
+        new_line += f', summary="{new_summary}"'
     user_prompt = (
-        f'NODO NUOVO: "{new_name}"\n'
+        f"{new_line}\n"
         f"CANDIDATI:\n{listed}\n\n"
         "Quale candidato (se esiste) è la stessa entità/lo stesso evento nel mondo reale?"
     )
@@ -289,8 +316,16 @@ async def find_node_candidates(
     embedding: list[float],
     name: str,
     k: int = 10,
+    *,
+    summary_embedding: list[float] | None = None,
 ) -> list[NodeCandidate]:
-    """Find same-type candidates via exact name, else vector top-k. Never a full scan."""
+    """Find same-type candidates via exact name, else vector top-k. Never a full scan.
+
+    When ``summary_embedding`` is given, also searches ``node_summary_embedding``
+    (Fase 19) and merges the results with the name-based search — a same-referent
+    mention introduced under a different name/description (a role, a title, a
+    perifrasi) can score low on the name index but high on the summary index.
+    """
     exact_result = await session.run(
         FIND_EXACT_NAME_CYPHER,
         type=node_type,
@@ -303,6 +338,7 @@ async def find_node_candidates(
             NodeCandidate(
                 id=record["id"],
                 name=record["name"],
+                summary=record.get("summary") or None,
                 score=None,
                 via="exact_name",
             )
@@ -317,29 +353,53 @@ async def find_node_candidates(
         type=node_type,
         node_id=node_id,
     )
-    candidates: list[NodeCandidate] = []
+    by_id: dict[str, NodeCandidate] = {}
     async for record in vector_result:
-        candidates.append(
-            NodeCandidate(
-                id=record["id"],
-                name=record["name"],
-                score=float(record["score"]),
-                via="embedding",
-            )
+        by_id[record["id"]] = NodeCandidate(
+            id=record["id"],
+            name=record["name"],
+            summary=record.get("summary") or None,
+            score=float(record["score"]),
+            via="embedding",
         )
-    return candidates
+
+    if summary_embedding:
+        summary_result = await session.run(
+            FIND_NODE_CANDIDATES_BY_SUMMARY_CYPHER,
+            k=k,
+            summary_embedding=summary_embedding,
+            type=node_type,
+            node_id=node_id,
+        )
+        async for record in summary_result:
+            candidate_id = record["id"]
+            if candidate_id in by_id:
+                continue
+            by_id[candidate_id] = NodeCandidate(
+                id=candidate_id,
+                name=record["name"],
+                summary=record.get("summary") or None,
+                score=float(record["score"]),
+                via="summary_embedding",
+            )
+
+    return list(by_id.values())
 
 
 async def classify_node_duplicate(
     new_name: str,
     candidates: list[NodeCandidate],
     job_id: str | None = None,
+    *,
+    new_summary: str = "",
 ) -> NodeDedupResult:
     """Ask the LLM which candidate (if any) is the same real-world entity/event."""
     if not candidates:
         return NodeDedupResult(duplicate_of=None)
 
-    system_prompt, user_prompt = build_dedup_prompt(new_name, candidates)
+    system_prompt, user_prompt = build_dedup_prompt(
+        new_name, candidates, new_summary=new_summary
+    )
     result = await call_structured(
         system_prompt,
         user_prompt,
@@ -354,13 +414,22 @@ async def classify_node_duplicate(
 
 
 def _fast_path_canonical(candidates: list[NodeCandidate]) -> str | None:
+    """Zero-LLM merge only on a name signal (exact or high-confidence embedding).
+
+    ``summary_embedding`` candidates never skip the LLM verdict: summary-text
+    similarity is a weaker, blurrier identity signal than a name match — two
+    different real-world referents can have generically similar descriptions.
+    They still reach ``classify_node_duplicate`` as regular candidates.
+    """
     exact = [c for c in candidates if c.via == "exact_name"]
     if exact:
         return exact[0].id
     high = [
         c
         for c in candidates
-        if c.score is not None and c.score >= HIGH_CONFIDENCE_SCORE
+        if c.via == "embedding"
+        and c.score is not None
+        and c.score >= HIGH_CONFIDENCE_SCORE
     ]
     if len(high) == 1:
         return high[0].id
@@ -431,11 +500,19 @@ async def resolve_node(
     name: str,
     embedding: list[float],
     job_id: str | None = None,
+    *,
+    summary: str = "",
+    summary_embedding: list[float] | None = None,
 ) -> str:
     """Return the canonical node id, merging into a duplicate when one is found.
 
     With ``ENABLE_FACET_IDENTITY``, a candidate becomes ``POSSIBLY_SAME_AS``
     (never ``SAME_AS``, never ``merge_nodes``) and this node keeps its own id.
+
+    ``summary``/``summary_embedding`` widen candidate search and give the LLM
+    verdict descriptive context beyond bare names — without them, two mentions
+    of the same referent under different names/descriptions are indistinguishable
+    from two different referents (name-only signal, Fase 8's original gap).
     """
     candidates = await find_node_candidates(
         session,
@@ -443,13 +520,16 @@ async def resolve_node(
         node_type,
         embedding,
         name,
+        summary_embedding=summary_embedding,
     )
     if not candidates:
         return node_id
 
     canon_id = _fast_path_canonical(candidates)
     if canon_id is None:
-        verdict = await classify_node_duplicate(name, candidates, job_id)
+        verdict = await classify_node_duplicate(
+            name, candidates, job_id, new_summary=summary
+        )
         canon_id = verdict.duplicate_of
 
     if canon_id is None or canon_id == node_id:

@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     IDENTITY_BLOCK_THRESHOLD: float = 0.82
     # Fase 10: post-batch judge (doc4 §5). Default on so every batch logs :JudgeRun.
     ENABLE_JUDGE: bool = True
+    # Fase 23: seventh judge task (generic subdomain instances). First judge
+    # sub-flag besides ENABLE_JUDGE — default off so the other six tasks stay
+    # unchanged until this rollout is flipped.
+    ENABLE_GENERIC_INSTANCES: bool = False
+    # Consecutive judge passes classified "generico" before redirect. A genuine
+    # individual observed once is never made generic prematurely.
+    GENERIC_INSTANCE_MIN_OBSERVATIONS: int = 2
     # ϕ_collapse for equivalent_to between promoted sibling Concepts (doc4 §5).
     BACKBONE_COLLAPSE_THRESHOLD: float = 0.90
     # Fase 20–22: agentic context layer (relevance gate, :PendingHypothesis, later
