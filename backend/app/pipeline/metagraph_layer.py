@@ -8,11 +8,8 @@ from typing import Any
 from neo4j import AsyncSession
 
 from app.api.schemas import (
-    AgentSearchRunItem,
     ConnectivityRuleItem,
     ConnectivityRuleListResponse,
-    ContextLayerRunItem,
-    ContextLayerRunsResponse,
     ContradictionItem,
     ContradictionListResponse,
     IdentityFacet,
@@ -20,15 +17,9 @@ from app.api.schemas import (
     IdentityListResponse,
     JudgeRunItem,
     JudgeRunListResponse,
-    PendingHypothesisItem,
     UnlinkFacetResponse,
 )
-from app.pipeline.context_layer_observability import (
-    LIST_AGENT_SEARCH_RUNS_CYPHER,
-    LIST_CONTEXT_LAYER_RUNS_CYPHER,
-)
 from app.pipeline.identity_resolution import unlink_facet
-from app.pipeline.pending_hypothesis import LIST_OPEN_HYPOTHESES_CYPHER
 
 LIST_IDENTITIES_CYPHER = """
 MATCH (i:IdentityNode)
@@ -245,82 +236,3 @@ async def list_judge_runs(session: AsyncSession) -> JudgeRunListResponse:
             )
         )
     return JudgeRunListResponse(items=items)
-
-
-def _as_opt_str(value: Any) -> str | None:
-    if value in (None, ""):
-        return None
-    return str(value)
-
-
-def _as_bool(value: Any, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes"}
-    return bool(value)
-
-
-async def list_context_layer_runs(session: AsyncSession) -> ContextLayerRunsResponse:
-    """F25.1: ``:AgentSearchRun`` + open ``:PendingHypothesis`` + ``:ContextLayerRun``.
-
-    Empty graph → three empty lists. Read-only; never CREATE/DELETE hypotheses.
-    """
-    agent_result = await session.run(LIST_AGENT_SEARCH_RUNS_CYPHER)
-    agent_runs: list[AgentSearchRunItem] = []
-    async for row in agent_result:
-        steps = _get(row, "steps")
-        agent_runs.append(
-            AgentSearchRunItem(
-                id=_as_str(_get(row, "id")),
-                hypothesis_id=_as_str(_get(row, "hypothesis_id")),
-                verdict=_as_opt_str(_get(row, "verdict")),
-                turns_used=_as_int(_get(row, "turns_used")),
-                timestamp=_as_opt_str(_get(row, "timestamp")),
-                steps=None if steps in (None, "") else str(steps),
-            )
-        )
-
-    hyp_result = await session.run(LIST_OPEN_HYPOTHESES_CYPHER)
-    open_hypotheses: list[PendingHypothesisItem] = []
-    async for row in hyp_result:
-        open_hypotheses.append(
-            PendingHypothesisItem(
-                id=_as_str(_get(row, "id")),
-                claim_target=_as_str(_get(row, "claim_target")),
-                confidence=_as_str(_get(row, "confidence"), "low") or "low",
-                status=_as_str(_get(row, "status"), "open") or "open",
-                marker_category=_as_opt_str(_get(row, "marker_category")),
-                kind=_as_opt_str(_get(row, "kind")),
-                origin_doc_id=_as_str(_get(row, "origin_doc_id")),
-                listen_count=_as_int(_get(row, "listen_count")),
-                promoted=_as_bool(_get(row, "promoted")),
-                evidence_gap=_as_str(_get(row, "evidence_gap")),
-            )
-        )
-
-    gate_result = await session.run(LIST_CONTEXT_LAYER_RUNS_CYPHER)
-    gate_runs: list[ContextLayerRunItem] = []
-    async for row in gate_result:
-        gate_runs.append(
-            ContextLayerRunItem(
-                id=_as_str(_get(row, "id")),
-                job_id=_as_opt_str(_get(row, "job_id")),
-                timestamp=_as_opt_str(_get(row, "timestamp")),
-                t1=_as_int(_get(row, "t1")),
-                t2=_as_int(_get(row, "t2")),
-                t3=_as_int(_get(row, "t3")),
-                model_fallback=_as_int(_get(row, "model_fallback")),
-                promotions=_as_int(_get(row, "promotions")),
-                agent_runs=_as_int(_get(row, "agent_runs")),
-                agent_turns_used=_as_int(_get(row, "agent_turns_used")),
-            )
-        )
-
-    return ContextLayerRunsResponse(
-        agent_runs=agent_runs,
-        open_hypotheses=open_hypotheses,
-        gate_runs=gate_runs,
-    )

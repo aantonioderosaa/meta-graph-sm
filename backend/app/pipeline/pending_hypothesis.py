@@ -23,7 +23,7 @@ from app.pipeline.relevance_gate import (
     RETRACTION_MARKERS,
     FragmentSignal,
     S0Outcome,
-    classify_fragment_relevance_pass,
+    classify_fragment_relevance_with_model_fallback,
     extract_named_witnesses,
     has_different_tail_comparables,
     has_t2_marker,
@@ -560,9 +560,6 @@ async def create_or_reinforce_hypothesis(
     )
     if should_promote and not already_promoted:
         await _publish_promoted(job_id, record)
-        from app.pipeline.context_layer_observability import record_promotion
-
-        await record_promotion(session, job_id)
     return record.as_dict()
 
 
@@ -632,17 +629,13 @@ async def route_chunk_signal(
     has_comp = False
     if s0_written and has_t2_marker(chunk_text) and node_ids:
         has_comp = await has_different_tail_comparables(session, node_ids)
-    gate = await classify_fragment_relevance_pass(
+    signal = await classify_fragment_relevance_with_model_fallback(
         chunk_text,
         pair_entities,
         S0Outcome(relation_written=s0_written, has_comparables=has_comp),
         relation_text=relation_text or chunk_text,
         job_id=job_id,
     )
-    from app.pipeline.context_layer_observability import record_gate_pass
-
-    await record_gate_pass(session, job_id, gate)
-    signal = gate.signal
     if signal is None:
         return None
     return await create_or_reinforce_hypothesis(

@@ -435,21 +435,7 @@ def _signal_from_verdict(
     )
 
 
-@dataclass(frozen=True)
-class GatePassResult:
-    """One gate classification, with enough detail for F25.1 counters.
-
-    ``deterministic_kind`` is the lexical T1/T2/T3 outcome *before* any
-    model upgrade. ``model_fallback_used`` is True iff the model path was
-    invoked (T1/None + a written ``:Relation``) — that is the extra LLM call.
-    """
-
-    signal: FragmentSignal | None
-    deterministic_kind: SignalKind | None
-    model_fallback_used: bool
-
-
-async def classify_fragment_relevance_pass(
+async def classify_fragment_relevance_with_model_fallback(
     chunk_text: str,
     pair_entities: Sequence[Any] | None = None,
     s0_outcome: S0Outcome | Mapping[str, Any] | None = None,
@@ -457,15 +443,18 @@ async def classify_fragment_relevance_pass(
     job_id: str = "",
     *,
     model_fn: StructuralSignalFn | None = None,
-) -> GatePassResult:
-    """Same rules as the fallback classifier, plus observability fields."""
+) -> FragmentSignal | None:
+    """Deterministic gate first; model only for T1/None when a relation was written.
+
+    T2/T3 from the lexical gate are used as-is (zero extra model cost).
+    Unsure model output → no extra signal. Never invents witnesses.
+    """
     signal = classify_fragment_relevance(chunk_text, pair_entities, s0_outcome)
-    deterministic_kind: SignalKind | None = signal.kind if signal is not None else None
     if signal is not None and signal.kind in {"t2", "t3"}:
-        return GatePassResult(signal, deterministic_kind, False)
+        return signal
     s0 = _coerce_s0(s0_outcome)
     if not s0.relation_written:
-        return GatePassResult(signal, deterministic_kind, False)
+        return signal
 
     user_prompt = STRUCTURAL_SIGNAL_USER_PROMPT_TEMPLATE.format(
         chunk_text=chunk_text or "",
@@ -485,14 +474,14 @@ async def classify_fragment_relevance_pass(
             )
     except Exception:
         logger.debug("structural_signal_fallback skipped", exc_info=True)
-        return GatePassResult(signal, deterministic_kind, True)
+        return signal
 
     extra = _signal_from_verdict(chunk_text, pair_entities, verdict)
     if extra is None:
-        return GatePassResult(signal, deterministic_kind, True)
+        return signal
     if signal is not None and signal.kind == "t1":
         # Upgrade T1 with the model's category; keep extracted witnesses.
-        upgraded = FragmentSignal(
+        return FragmentSignal(
             kind="t2",
             text=signal.text,
             span=signal.span,
@@ -501,30 +490,4 @@ async def classify_fragment_relevance_pass(
             evidence_gap=extra.evidence_gap,
             named_witnesses=signal.named_witnesses or extra.named_witnesses,
         )
-        return GatePassResult(upgraded, deterministic_kind, True)
-    return GatePassResult(extra, deterministic_kind, True)
-
-
-async def classify_fragment_relevance_with_model_fallback(
-    chunk_text: str,
-    pair_entities: Sequence[Any] | None = None,
-    s0_outcome: S0Outcome | Mapping[str, Any] | None = None,
-    relation_text: str = "",
-    job_id: str = "",
-    *,
-    model_fn: StructuralSignalFn | None = None,
-) -> FragmentSignal | None:
-    """Deterministic gate first; model only for T1/None when a relation was written.
-
-    T2/T3 from the lexical gate are used as-is (zero extra model cost).
-    Unsure model output → no extra signal. Never invents witnesses.
-    """
-    result = await classify_fragment_relevance_pass(
-        chunk_text,
-        pair_entities,
-        s0_outcome,
-        relation_text=relation_text,
-        job_id=job_id,
-        model_fn=model_fn,
-    )
-    return result.signal
+    return extra
