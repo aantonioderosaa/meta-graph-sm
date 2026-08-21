@@ -70,8 +70,7 @@ RETURN j.id AS id,
        coalesce(j.reraffine, 0) AS reraffine,
        coalesce(j.identity, 0) AS identity,
        coalesce(j.missed_contradictions, 0) AS missed_contradictions,
-       coalesce(j.temporal, 0) AS temporal,
-       coalesce(j.generic_instances, 0) AS generic_instances
+       coalesce(j.temporal, 0) AS temporal
 ORDER BY j.timestamp DESC
 """
 
@@ -232,7 +231,6 @@ async def list_judge_runs(session: AsyncSession) -> JudgeRunListResponse:
                 identity=_as_int(_get(row, "identity")),
                 missed_contradictions=_as_int(_get(row, "missed_contradictions")),
                 temporal=_as_int(_get(row, "temporal")),
-                generic_instances=_as_int(_get(row, "generic_instances")),
             )
         )
     return JudgeRunListResponse(items=items)

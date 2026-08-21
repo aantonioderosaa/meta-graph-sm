@@ -91,9 +91,7 @@ def _three_entities() -> list[dict]:
 CANON = "e-alice-1"
 
 
-async def _fake_resolve_two_dups(
-    _session, node_id, node_type, name, embedding, job_id, **_kwargs
-):
+async def _fake_resolve_two_dups(_session, node_id, node_type, name, embedding, job_id):
     assert node_type == "entity"
     assert job_id == JOB_ID
     if node_id in {"e-alice-1", "e-alice-2"}:

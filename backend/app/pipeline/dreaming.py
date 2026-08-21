@@ -29,8 +29,7 @@ logger = logging.getLogger(__name__)
 FIND_FRESH_ENTITIES_CYPHER = """
 MATCH (n:Node {type:'entity', dreamed:false})
 WHERE n.merged_into IS NULL
-RETURN n.id AS id, n.name AS name, n.embedding AS embedding,
-       n.summary AS summary, n.summary_embedding AS summary_embedding
+RETURN n.id AS id, n.name AS name, n.embedding AS embedding
 """
 
 MARK_NODE_DREAMED_CYPHER = """
@@ -55,32 +54,22 @@ async def _mark_nodes_dreamed(session: AsyncSession, node_ids: list[str]) -> Non
 async def _resolve_fresh_entities(session: AsyncSession, job_id: str) -> set[str]:
     """Phase 1: dedup fresh entity nodes. Empty MATCH is a no-op."""
     result = await session.run(FIND_FRESH_ENTITIES_CYPHER)
-    rows: list[tuple[str, str, list[float], str, list[float] | None]] = []
+    rows: list[tuple[str, str, list[float]]] = []
     async for record in result:
         embedding = record["embedding"]
-        summary_embedding = record.get("summary_embedding")
         rows.append(
             (
                 record["id"],
                 record["name"],
                 list(embedding) if embedding is not None else [],
-                record.get("summary") or "",
-                list(summary_embedding) if summary_embedding is not None else None,
             )
         )
 
     touched: set[str] = set()
-    for node_id, name, embedding, summary, summary_embedding in rows:
+    for node_id, name, embedding in rows:
         try:
             canon_id = await node_resolution.resolve_node(
-                session,
-                node_id,
-                "entity",
-                name,
-                embedding,
-                job_id,
-                summary=summary,
-                summary_embedding=summary_embedding,
+                session, node_id, "entity", name, embedding, job_id
             )
         except LLMValidationError as exc:
             logger.exception("entity_resolution_failed node_id=%s validation_error", node_id)
@@ -314,7 +303,6 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
                 "identity": judge_stats.identity,
                 "missed_contradictions": judge_stats.missed_contradictions,
                 "temporal": judge_stats.temporal,
-                "generic_instances": judge_stats.generic_instances,
             }},
         )
     except Exception as exc:

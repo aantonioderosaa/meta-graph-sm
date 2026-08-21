@@ -8,13 +8,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import Settings
-from app.pipeline.concepts import MERGE_MEMBER_OF_CYPHER
 from app.pipeline.dreaming import run_dreaming_pipeline
-from app.pipeline.generic_instances import (
-    DELETE_NODE_MEMBER_OF_CYPHER,
-    ENSURE_GENERIC_INSTANCE_CYPHER,
-    SET_GENERIC_OBSERVATION_COUNT_CYPHER,
-)
 from app.pipeline.identity_resolution import (
     LINK_SAME_AS_CYPHER,
     MARK_NOT_SAME_AS_CYPHER,
@@ -45,18 +39,6 @@ from app.pipeline.judge import (
     JudgeStats,
     run_judge,
     split_blurred_relation,
-)
-from app.pipeline.node_resolution import (
-    COLLAPSE_INCOMING_RELATIONS_CYPHER,
-    COLLAPSE_OUTGOING_RELATIONS_CYPHER,
-    COPY_DERIVED_FROM_CYPHER,
-    COPY_HAS_CONCEPT_CYPHER,
-    CREATE_INCOMING_ON_CANON_CYPHER,
-    CREATE_OUTGOING_ON_CANON_CYPHER,
-    DELETE_DUP_RELATIONS_CYPHER,
-    READ_INCOMING_RELATIONS_CYPHER,
-    READ_OUTGOING_RELATIONS_CYPHER,
-    SET_MERGED_INTO_CYPHER,
 )
 from tests.test_dreaming_nodes import FakeDriver, FakeSession
 
@@ -94,8 +76,6 @@ class JudgeGraph:
         self.famiglia: list[dict] = []
         self.judge_runs: dict[str, dict] = {}
         self.calls: list[tuple[str, dict]] = []
-        self.has_concept: dict[str, list[str]] = {}
-        self.derived_from: dict[str, list[str]] = {}
 
     def add_node(self, node_id: str, **props) -> None:
         self.nodes[node_id] = {"id": node_id, **props}
@@ -250,11 +230,6 @@ class JudgeGraph:
                         "name": node.get("name"),
                         "summary": node.get("summary"),
                         "kernel_category": node.get("kernel_category"),
-                        "is_generic": node.get("is_generic"),
-                        "merged_into": node.get("merged_into"),
-                        "generic_observation_count": node.get(
-                            "generic_observation_count"
-                        ),
                     }
                 )
             return FakeResult(rows)
@@ -421,136 +396,6 @@ class JudgeGraph:
 
         if cypher == MARK_NOT_SAME_AS_CYPHER:
             self.add_famiglia(kwargs["src_id"], "NOT_SAME_AS", kwargs["dst_id"])
-            return FakeResult([])
-
-        if cypher == SET_GENERIC_OBSERVATION_COUNT_CYPHER:
-            node = self.nodes.get(kwargs["node_id"])
-            if node is not None:
-                node["generic_observation_count"] = kwargs["count"]
-            return FakeResult([])
-
-        if cypher == ENSURE_GENERIC_INSTANCE_CYPHER:
-            node_id = kwargs["node_id"]
-            existing = self.nodes.get(node_id)
-            if existing is None:
-                self.nodes[node_id] = {
-                    "id": node_id,
-                    "name": kwargs.get("name"),
-                    "type": kwargs.get("type", "entity"),
-                    "is_generic": True,
-                    "kernel_category": kwargs.get("kernel_category"),
-                    "summary": kwargs.get("summary"),
-                }
-            else:
-                existing["is_generic"] = True
-                if kwargs.get("type"):
-                    existing["type"] = kwargs["type"]
-                if kwargs.get("kernel_category"):
-                    existing["kernel_category"] = kwargs["kernel_category"]
-            return FakeResult([{"id": node_id}])
-
-        if cypher == MERGE_MEMBER_OF_CYPHER:
-            self.set_member_of(kwargs["node_id"], kwargs["concept_id"])
-            return FakeResult([])
-
-        if cypher == DELETE_NODE_MEMBER_OF_CYPHER:
-            self.member_of.pop(kwargs["node_id"], None)
-            return FakeResult([])
-
-        if cypher == READ_OUTGOING_RELATIONS_CYPHER:
-            dup_id, canon_id = kwargs["dup_id"], kwargs["canon_id"]
-            rows = []
-            for rel in self.relations:
-                if rel["src"] == dup_id and rel["dst"] != canon_id:
-                    props = {
-                        k: v
-                        for k, v in rel.items()
-                        if k not in {"src", "dst"}
-                    }
-                    rows.append({"r": props, "other_id": rel["dst"]})
-            return FakeResult(rows)
-
-        if cypher == READ_INCOMING_RELATIONS_CYPHER:
-            dup_id, canon_id = kwargs["dup_id"], kwargs["canon_id"]
-            rows = []
-            for rel in self.relations:
-                if rel["dst"] == dup_id and rel["src"] != canon_id:
-                    props = {
-                        k: v
-                        for k, v in rel.items()
-                        if k not in {"src", "dst"}
-                    }
-                    rows.append({"r": props, "other_id": rel["src"]})
-            return FakeResult(rows)
-
-        if cypher == CREATE_OUTGOING_ON_CANON_CYPHER:
-            props = dict(kwargs.get("props") or {})
-            self.add_relation(kwargs["canon_id"], kwargs["other_id"], **props)
-            return FakeResult([])
-
-        if cypher == CREATE_INCOMING_ON_CANON_CYPHER:
-            props = dict(kwargs.get("props") or {})
-            self.add_relation(kwargs["other_id"], kwargs["canon_id"], **props)
-            return FakeResult([])
-
-        if cypher == DELETE_DUP_RELATIONS_CYPHER:
-            dup_id = kwargs["dup_id"]
-            self.relations = [
-                rel
-                for rel in self.relations
-                if rel["src"] != dup_id and rel["dst"] != dup_id
-            ]
-            return FakeResult([])
-
-        if cypher == COPY_HAS_CONCEPT_CYPHER:
-            dup_id, canon_id = kwargs["dup_id"], kwargs["canon_id"]
-            concepts = self.has_concept.pop(dup_id, [])
-            dest = self.has_concept.setdefault(canon_id, [])
-            for concept_id in concepts:
-                if concept_id not in dest:
-                    dest.append(concept_id)
-            return FakeResult([])
-
-        if cypher == COPY_DERIVED_FROM_CYPHER:
-            dup_id, canon_id = kwargs["dup_id"], kwargs["canon_id"]
-            chunks = self.derived_from.pop(dup_id, [])
-            dest = self.derived_from.setdefault(canon_id, [])
-            for chunk_id in chunks:
-                if chunk_id not in dest:
-                    dest.append(chunk_id)
-            return FakeResult([])
-
-        if cypher == SET_MERGED_INTO_CYPHER:
-            node = self.nodes.get(kwargs["dup_id"])
-            if node is not None:
-                node["merged_into"] = kwargs["canon_id"]
-            return FakeResult([])
-
-        if cypher in (
-            COLLAPSE_OUTGOING_RELATIONS_CYPHER,
-            COLLAPSE_INCOMING_RELATIONS_CYPHER,
-        ):
-            canon_id = kwargs["canon_id"]
-            outgoing = cypher == COLLAPSE_OUTGOING_RELATIONS_CYPHER
-            grouped: dict[tuple[str, str], list[dict]] = {}
-            for rel in self.relations:
-                other = rel["dst"] if outgoing else rel["src"]
-                endpoint = rel["src"] if outgoing else rel["dst"]
-                if endpoint != canon_id:
-                    continue
-                key = (other, str(rel.get("normalized_relation") or rel.get("relation") or ""))
-                grouped.setdefault(key, []).append(rel)
-            drop_ids: set[int] = set()
-            for rels in grouped.values():
-                if len(rels) <= 1:
-                    continue
-                ordered = sorted(
-                    rels, key=lambda r: str(r.get("created_at") or ""), reverse=True
-                )
-                for extra in ordered[1:]:
-                    drop_ids.add(id(extra))
-            if drop_ids:
-                self.relations = [rel for rel in self.relations if id(rel) not in drop_ids]
             return FakeResult([])
 
         return FakeResult([])

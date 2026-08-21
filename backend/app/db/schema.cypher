@@ -113,13 +113,8 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 
 // :JudgeRun (Fase 10) — structured log of each post-batch judge pass.
 // Properties: id, batch_id, timestamp, anti_blur, equivalent_to, reraffine,
-// identity, missed_contradictions, temporal, generic_instances (Fase 23).
-// No uniqueness constraint required; pipeline MERGEs on id = job_id.
-//
-// Fase 23: generic subdomain instances are ordinary :Node rows (code MERGE,
-// like :JudgeRun — no extra uniqueness constraint). Properties: is_generic
-// (bool), generic_observation_count (int). Redirected singletons keep
-// merged_into set so existing `merged_into IS NULL` filters hide them.
+// identity, missed_contradictions, temporal. No uniqueness constraint required;
+// pipeline MERGEs on id = job_id.
 
 // :AgentSearchRun (Fase 22) — structured log of one ReAct verification pass
 // per promoted :PendingHypothesis (including fallback). Same pattern as

@@ -6,7 +6,7 @@ import hashlib
 
 from app.models.kernel import EntityKernelType, RelationKernelType
 from app.pipeline.concepts import compute_hash_id
-from app.pipeline.domain_book import CATEGORY_CARDS, GENRE_NOT_TOPIC_PROMPT
+from app.pipeline.domain_book import GENRE_NOT_TOPIC_PROMPT
 from app.pipeline.node_extraction_prompts import (
     build_corpus_summary_prompt,
     build_entity_concept_prompt,
@@ -23,14 +23,6 @@ SUMMARY_B = "Acme is a company."
 CORPUS = "A small corpus about employment."
 
 
-def test_entity_list_prompt_extracts_background_fact_witnesses():
-    """F23.6: background elements that witness a fact must be extracted too."""
-    _system, user = build_entity_list_prompt(SAMPLE, CORPUS)
-    assert "elementi di sfondo" in user
-    assert "la strada" in user
-    assert "estrai SOLO le entità importanti" not in user
-
-
 def test_entity_list_prompt_substitutes_chunk_and_kernel_categories():
     _system, user = build_entity_list_prompt(SAMPLE, CORPUS)
     assert SAMPLE in user
@@ -42,16 +34,6 @@ def test_entity_list_prompt_substitutes_chunk_and_kernel_categories():
     assert GENRE_NOT_TOPIC_PROMPT in user
     for category in EntityKernelType:
         assert category.value in user
-
-
-def test_entity_list_prompt_includes_category_admission_criteria():
-    """Bare E1-E8 labels alone are not enough to disambiguate edge cases (e.g. a
-    traveller character being classified as OggettoFisico instead of Agente) —
-    the same criterio_appartenenza already used by backbone classification must
-    reach the extraction prompt too."""
-    _system, user = build_entity_list_prompt(SAMPLE, CORPUS)
-    for category in EntityKernelType:
-        assert CATEGORY_CARDS[category].criterio_appartenenza in user
 
 
 def test_pair_relation_prompt_includes_summaries_and_primitives():
