@@ -21,6 +21,7 @@ import { DomainDashboard } from "@/components/DomainDashboard";
 import { DomainDetailCard } from "@/components/DomainDetailCard";
 import { DomainGraphPanel } from "@/components/DomainGraphPanel";
 import { IdentityDetailPanel } from "@/components/IdentityDetailPanel";
+import { IncompletenessPanel } from "@/components/IncompletenessPanel";
 import { JudgeLogPanel } from "@/components/JudgeLogPanel";
 import { NodeMetadataPanel } from "@/components/NodeMetadataPanel";
 import { NodeQueryPanel } from "@/components/NodeQueryPanel";
@@ -68,6 +69,9 @@ function LayerTabs({
         <TabsTrigger value="giudice" className="px-2 text-[11px]">
           Giudice
         </TabsTrigger>
+        <TabsTrigger value="incompletezze" className="px-2 text-[11px]">
+          Visualizza incompletezze
+        </TabsTrigger>
       </TabsList>
       <TabsContent value="pipeline" className="mt-2 min-h-0 flex-1 overflow-hidden">
         <PipelineMonitorPanel />
@@ -89,6 +93,9 @@ function LayerTabs({
       </TabsContent>
       <TabsContent value="giudice" className="mt-2 min-h-0 flex-1 overflow-hidden">
         <JudgeLogPanel />
+      </TabsContent>
+      <TabsContent value="incompletezze" className="mt-2 min-h-0 flex-1 overflow-hidden">
+        <IncompletenessPanel onHighlightChange={onHighlightChange} />
       </TabsContent>
     </Tabs>
   );

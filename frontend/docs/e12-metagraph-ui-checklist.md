@@ -10,6 +10,7 @@ Dataset: grafo dopo ingest + dreaming con backbone, faccette, CONTRADICTS, Conne
 | CONTRADICTS aperti | tab **Contraddizioni**, elenco filtrabile, mai auto-nascosto; click evidenzia entrambi gli id | sì (path API + copy UI) |
 | Regole S1 | tab **Regole**, triple + `origin_count` | sì (path API) |
 | Log giudice | tab **Giudice**, conteggi per compito da `GET /graph/judge-runs` | sì (path API) |
+| Incompletezze eventi (Macrotask 7) | tab **Visualizza incompletezze**, elenco filtrabile di `:EventTriageRun{verdict:incomplete}` da `GET /graph/event-incompleteness` (sola lettura); lista vuota = empty state, non errore | sì (path API `metagraph-api.test.ts`, copy UI `incompleteness-ui.test.ts`) |
 | Badge epistemici | Query: **ASSERITO** (muted) / **DERIVATO** (warning); DERIVATO espande `derivation_chain` | sì (`citation-badges.test.ts`) |
 | Un solo grafo | `DashboardShell` monta esattamente un `EntityEventExplorer` | sì (`test_acceptance_solo_entita_eventi.py`) |
 

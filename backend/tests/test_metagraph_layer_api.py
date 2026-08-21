@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.api.metagraph import list_event_incompleteness_endpoint
 from app.api.schemas import (
     ConnectivityRuleListResponse,
     ContradictionListResponse,
+    EventIncompletenessListResponse,
     IdentityItem,
     IdentityListResponse,
     JudgeRunListResponse,
@@ -24,11 +27,13 @@ from app.pipeline.metagraph_layer import (
     GET_IDENTITY_CYPHER,
     LIST_CONNECTIVITY_RULES_CYPHER,
     LIST_CONTRADICTIONS_CYPHER,
+    LIST_EVENT_INCOMPLETENESS_CYPHER,
     LIST_IDENTITIES_CYPHER,
     LIST_JUDGE_RUNS_CYPHER,
     get_identity,
     list_connectivity_rules,
     list_contradictions,
+    list_event_incompleteness,
     list_identities,
     list_judge_runs,
     unlink_identity_facet,
@@ -214,6 +219,97 @@ async def test_list_judge_runs_newest_first_shape():
 
 
 @pytest.mark.asyncio
+async def test_list_event_incompleteness_is_read_only_and_incomplete_only():
+    session = FakeSession()
+    session.enqueue(
+        [
+            {
+                "event_id": "evt-wait",
+                "text": "waiting span",
+                "missing_context": "need more",
+                "first_seen_run_id": "run-1",
+                "checks_without_progress": 1,
+                "incomplete_at": "2026-08-20T10:00:00",
+                "verdict": "waiting",
+            },
+            {
+                "event_id": "evt-inc",
+                "text": "esperimento 5 era fallato",
+                "missing_context": "stato unknown",
+                "first_seen_run_id": "run-2",
+                "checks_without_progress": 5,
+                "incomplete_at": "2026-08-21T12:00:00",
+                "verdict": "incomplete",
+            },
+            {
+                "event_id": "evt-ok",
+                "text": "confirmed event",
+                "missing_context": None,
+                "first_seen_run_id": "run-0",
+                "checks_without_progress": 0,
+                "incomplete_at": "2026-08-19T09:00:00",
+                "verdict": "confirmed",
+            },
+        ]
+    )
+
+    body = await list_event_incompleteness(session)
+
+    assert session.calls[0][0] == LIST_EVENT_INCOMPLETENESS_CYPHER
+    query = LIST_EVENT_INCOMPLETENESS_CYPHER.upper()
+    for token in ("CREATE", "MERGE", "DELETE"):
+        assert token not in query
+    assert "SET " not in query
+    handler_src = inspect.getsource(list_event_incompleteness)
+    for token in ("CREATE", "MERGE", "DELETE", "SET "):
+        assert token not in handler_src
+    assert "call_structured" not in handler_src
+    endpoint_src = inspect.getsource(list_event_incompleteness_endpoint)
+    for token in ("CREATE", "MERGE", "DELETE", "SET "):
+        assert token not in endpoint_src
+    assert "verdict = 'incomplete'" in LIST_EVENT_INCOMPLETENESS_CYPHER
+    assert len(body.items) == 1
+    item = body.items[0]
+    assert item.event_id == "evt-inc"
+    assert item.text == "esperimento 5 era fallato"
+    assert item.missing_context == "stato unknown"
+    assert item.first_seen_run_id == "run-2"
+    assert item.checks_without_progress == 5
+    assert item.incomplete_at == "2026-08-21T12:00:00"
+    assert item.timestamp == item.incomplete_at
+
+
+@pytest.mark.asyncio
+async def test_list_event_incompleteness_empty_graph_is_empty_items():
+    session = FakeSession()
+    session.enqueue([])
+
+    body = await list_event_incompleteness(session)
+
+    assert body.items == []
+    assert session.calls[0][0] == LIST_EVENT_INCOMPLETENESS_CYPHER
+
+
+@pytest.mark.asyncio
+async def test_http_event_incompleteness_empty_graph_is_200_not_500():
+    session = FakeSession()
+    session.enqueue([])
+
+    async def fake_session() -> AsyncIterator[FakeSession]:
+        yield session
+
+    app.dependency_overrides[get_neo4j_session] = fake_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            resp = await ac.get("/graph/event-incompleteness")
+    finally:
+        app.dependency_overrides.pop(get_neo4j_session, None)
+    assert resp.status_code == 200
+    assert resp.json() == {"items": []}
+
+
+@pytest.mark.asyncio
 async def test_http_identities_and_unlink(client: AsyncClient):
     async def mock_list(session) -> IdentityListResponse:
         _ = session
@@ -267,6 +363,10 @@ async def test_http_contradictions_rules_judge(client: AsyncClient):
         _ = session
         return JudgeRunListResponse(items=[])
 
+    async def mock_incomplete(session) -> EventIncompletenessListResponse:
+        _ = session
+        return EventIncompletenessListResponse(items=[])
+
     with (
         patch(
             "app.api.metagraph.metagraph_layer.list_contradictions", mock_contra
@@ -275,16 +375,23 @@ async def test_http_contradictions_rules_judge(client: AsyncClient):
             "app.api.metagraph.metagraph_layer.list_connectivity_rules", mock_rules
         ),
         patch("app.api.metagraph.metagraph_layer.list_judge_runs", mock_judge),
+        patch(
+            "app.api.metagraph.metagraph_layer.list_event_incompleteness",
+            mock_incomplete,
+        ),
     ):
         contra = await client.get("/graph/contradictions")
         rules = await client.get("/graph/connectivity-rules")
         judge = await client.get("/graph/judge-runs")
+        incomplete = await client.get("/graph/event-incompleteness")
         assert contra.status_code == 200
         assert rules.status_code == 200
         assert judge.status_code == 200
+        assert incomplete.status_code == 200
         assert contra.json() == {"items": []}
         assert rules.json() == {"items": []}
         assert judge.json() == {"items": []}
+        assert incomplete.json() == {"items": []}
 
 
 def test_openapi_registers_metagraph_routes():
@@ -295,5 +402,8 @@ def test_openapi_registers_metagraph_routes():
     assert "/graph/contradictions" in paths
     assert "/graph/connectivity-rules" in paths
     assert "/graph/judge-runs" in paths
+    assert "/graph/event-incompleteness" in paths
     assert "get" in paths["/graph/identities"]
+    assert "get" in paths["/graph/event-incompleteness"]
+    assert "post" not in paths["/graph/event-incompleteness"]
     assert "post" in paths["/graph/identities/{uri}/unlink"]

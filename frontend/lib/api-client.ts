@@ -12,6 +12,7 @@ import type {
   DomainDictionaryResponse,
   DomainListResponse,
   DreamingRunRequest,
+  EventIncompletenessListResponse,
   GetEntityEventGraphParams,
   GetGraphLimitParams,
   GraphResponse,
@@ -277,6 +278,10 @@ export function getConnectivityRules(): Promise<ConnectivityRuleListResponse> {
 
 export function getJudgeRuns(): Promise<JudgeRunListResponse> {
   return request<JudgeRunListResponse>("/graph/judge-runs");
+}
+
+export function getEventIncompleteness(): Promise<EventIncompletenessListResponse> {
+  return request<EventIncompletenessListResponse>("/graph/event-incompleteness");
 }
 
 export async function resetKnowledgeBase(): Promise<void> {

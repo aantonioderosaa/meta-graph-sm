@@ -4,6 +4,7 @@ import {
   ApiError,
   getConnectivityRules,
   getContradictions,
+  getEventIncompleteness,
   getIdentities,
   getIdentity,
   getJudgeRuns,
@@ -88,6 +89,14 @@ describe("metagraph layer API client paths", () => {
     await getJudgeRuns();
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8000/graph/judge-runs",
+      expect.any(Object),
+    );
+  });
+
+  it("getEventIncompleteness hits /graph/event-incompleteness", async () => {
+    await getEventIncompleteness();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/graph/event-incompleteness",
       expect.any(Object),
     );
   });

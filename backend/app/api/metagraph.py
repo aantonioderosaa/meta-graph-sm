@@ -1,4 +1,4 @@
-"""Metagraph layer REST views (identities, contradictions, S1 rules, judge log)."""
+"""Metagraph layer REST views (identities, contradictions, S1, judge, incompleteness)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from app.api.schemas import (
     ConnectivityRuleListResponse,
     ContradictionListResponse,
+    EventIncompletenessListResponse,
     IdentityItem,
     IdentityListResponse,
     JudgeRunListResponse,
@@ -58,3 +59,11 @@ async def list_connectivity_rules_endpoint(
 @router.get("/judge-runs", response_model=JudgeRunListResponse)
 async def list_judge_runs_endpoint(session: Neo4jSessionDep) -> JudgeRunListResponse:
     return await metagraph_layer.list_judge_runs(session)
+
+
+@router.get("/event-incompleteness", response_model=EventIncompletenessListResponse)
+async def list_event_incompleteness_endpoint(
+    session: Neo4jSessionDep,
+) -> EventIncompletenessListResponse:
+    """List incomplete events. Read-only; does not require ENABLE_EVENT_TRIAGE."""
+    return await metagraph_layer.list_event_incompleteness(session)

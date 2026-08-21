@@ -285,3 +285,17 @@ export interface JudgeRunItem {
 export interface JudgeRunListResponse {
   items: JudgeRunItem[];
 }
+
+export interface EventIncompletenessItem {
+  event_id: string;
+  text: string;
+  missing_context?: string | null;
+  first_seen_run_id?: string | null;
+  checks_without_progress: number;
+  incomplete_at?: string | null;
+  timestamp?: string | null;
+}
+
+export interface EventIncompletenessListResponse {
+  items: EventIncompletenessItem[];
+}

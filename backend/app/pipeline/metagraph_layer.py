@@ -1,4 +1,4 @@
-"""Read-only Metagraph layer views for Fase 12 UI panels (identities, S1, judge)."""
+"""Read-only Metagraph layer views for Fase 12 UI panels (identities, S1, judge, incompleteness)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from app.api.schemas import (
     ConnectivityRuleListResponse,
     ContradictionItem,
     ContradictionListResponse,
+    EventIncompletenessItem,
+    EventIncompletenessListResponse,
     IdentityFacet,
     IdentityItem,
     IdentityListResponse,
@@ -72,6 +74,23 @@ RETURN j.id AS id,
        coalesce(j.missed_contradictions, 0) AS missed_contradictions,
        coalesce(j.temporal, 0) AS temporal
 ORDER BY j.timestamp DESC
+"""
+
+LIST_EVENT_INCOMPLETENESS_CYPHER = """
+MATCH (r:EventTriageRun)
+WHERE r.verdict = 'incomplete'
+OPTIONAL MATCH (p:PendingEventContext)
+WHERE p.event_id = coalesce(r.event_id, r.id)
+OPTIONAL MATCH (e:Node)
+WHERE e.id = coalesce(r.event_id, r.id)
+RETURN coalesce(r.event_id, r.id) AS event_id,
+       coalesce(e.name, e.summary, p.missing_context, r.event_id, r.id) AS text,
+       p.missing_context AS missing_context,
+       p.first_seen_run_id AS first_seen_run_id,
+       coalesce(p.checks_without_progress, 0) AS checks_without_progress,
+       toString(r.timestamp) AS incomplete_at,
+       r.verdict AS verdict
+ORDER BY r.timestamp DESC
 """
 
 
@@ -234,3 +253,34 @@ async def list_judge_runs(session: AsyncSession) -> JudgeRunListResponse:
             )
         )
     return JudgeRunListResponse(items=items)
+
+
+async def list_event_incompleteness(
+    session: AsyncSession,
+) -> EventIncompletenessListResponse:
+    """Incomplete EventTriageRun rows only. Read-only: MATCH / OPTIONAL MATCH."""
+    result = await session.run(LIST_EVENT_INCOMPLETENESS_CYPHER)
+    rows = await _collect_rows(result)
+    items: list[EventIncompletenessItem] = []
+    for row in rows:
+        verdict = _as_str(_get(row, "verdict"), "incomplete")
+        if verdict != "incomplete":
+            continue
+        event_id = _as_str(_get(row, "event_id"))
+        ts = _get(row, "incomplete_at")
+        ts_s = None if ts in (None, "") else str(ts)
+        missing = _get(row, "missing_context")
+        first_seen = _get(row, "first_seen_run_id")
+        text = _as_str(_get(row, "text"), event_id)
+        items.append(
+            EventIncompletenessItem(
+                event_id=event_id,
+                text=text,
+                missing_context=None if missing in (None, "") else str(missing),
+                first_seen_run_id=None if first_seen in (None, "") else str(first_seen),
+                checks_without_progress=_as_int(_get(row, "checks_without_progress")),
+                incomplete_at=ts_s,
+                timestamp=ts_s,
+            )
+        )
+    return EventIncompletenessListResponse(items=items)

@@ -137,7 +137,7 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 // :PendingEventContext — wait-state when triage cannot yet apply a slot.
 // Pipeline MERGEs on event_id; the node is left in place after a terminal
 // verdict (skip via EventTriageRun.verdict). No constraint/index (YAGNI;
-// Macrotask 7 may add an index if the read endpoint needs it).
+// Macrotask 7 GET /graph/event-incompleteness lists by verdict without one).
 // Properties: event_id, missing_context, first_seen_run_id,
 // last_checked_run_id, checks_without_progress.
 

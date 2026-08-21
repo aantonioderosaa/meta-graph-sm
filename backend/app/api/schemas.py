@@ -126,6 +126,22 @@ class JudgeRunListResponse(BaseModel):
     items: list[JudgeRunItem]
 
 
+class EventIncompletenessItem(BaseModel):
+    """One `:EventTriageRun` with verdict incomplete (Macrotask 7, read-only)."""
+
+    event_id: str
+    text: str = ""
+    missing_context: str | None = None
+    first_seen_run_id: str | None = None
+    checks_without_progress: int = 0
+    incomplete_at: str | None = None
+    timestamp: str | None = None
+
+
+class EventIncompletenessListResponse(BaseModel):
+    items: list[EventIncompletenessItem] = Field(default_factory=list)
+
+
 class NodeQueryRequest(BaseModel):
     text: str
 
@@ -230,6 +246,8 @@ __all__ = [
     "DocumentRequest",
     "DocumentSummary",
     "DreamingRunRequest",
+    "EventIncompletenessItem",
+    "EventIncompletenessListResponse",
     "GraphNode",
     "GraphRelationship",
     "GraphResponse",
