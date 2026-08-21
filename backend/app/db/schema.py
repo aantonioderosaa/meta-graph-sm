@@ -50,7 +50,8 @@ REQUIRED_FULLTEXT_INDEXES = {
 # Event triage (ENABLE_EVENT_TRIAGE): schema-optional free properties — do not add
 # to REQUIRED_* sets. :Relation.caused_by_event_id, :Relation.run_id (plus existing
 # created_at); :Node.revisions — list of {property, old_value, event_id, run_id, at}
-# (additive, same pattern as origin_fact_ids). No constraint/index in this phase.
+# (additive, same pattern as origin_fact_ids). :EventTriageRun / :PendingEventContext
+# are comment-only in schema.cypher (pipeline MERGE, no constraint/index).
 
 # Dedicated Neo4j relationship types (no CREATE TYPE). Uppercased kernel values so
 # schema and kernel cannot drift. IS_A / MEMBER_OF must never share one rel type.

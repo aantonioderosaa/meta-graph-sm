@@ -128,6 +128,16 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 // Properties: id, hypothesis_id, steps (JSON: tool + reasoning), verdict,
 // turns_used, timestamp.
 
+// :EventTriageRun (ENABLE_EVENT_TRIAGE) — structured log of one event-triage
+// pass per :Evento. Same pattern as :JudgeRun / :AgentSearchRun: pipeline
+// MERGEs on id = event_id; no uniqueness constraint required.
+// Properties: id, event_id, verdict (confirmed|waiting|incomplete), run_id,
+// timestamp.
+
+// :PendingEventContext — thin wait-state record when triage verdict is
+// waiting (Macrotask 5 MERGE so waiting events are queryable; Macrotask 6
+// adds listen-window fields). Pipeline MERGEs on event_id; no constraint.
+
 // :PendingHypothesis (Fase 20) — open context hypotheses. Never an S0 fact.
 // Properties: id, claim_target, evidence_span, witness_fragments, evidence_gap,
 // confidence (low|medium|high), status (open|confirmed|dismissed),

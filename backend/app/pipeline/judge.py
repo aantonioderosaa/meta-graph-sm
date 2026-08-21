@@ -496,6 +496,22 @@ async def _task_temporal(session: AsyncSession) -> int:
     return count
 
 
+async def _task_event_triage(
+    session: AsyncSession,
+    run_id: str,
+    *,
+    touched_ids: Sequence[str] | None = None,
+) -> int:
+    """Last judge task when ``ENABLE_EVENT_TRIAGE``. Thin wrapper, no Cypher."""
+    from app.pipeline.event_triage import run_event_triage
+
+    try:
+        return await run_event_triage(session, run_id, touched_ids=touched_ids)
+    except Exception:
+        logger.exception("event_triage_failed run_id=%s", run_id)
+        return 0
+
+
 async def run_judge(
     session: AsyncSession,
     job_id: str,
@@ -504,10 +520,11 @@ async def run_judge(
     on_requeue: RequeuePair | None = None,
     touched_ids: Sequence[str] | None = None,
 ) -> JudgeStats:
-    """Six post-batch tasks + ``:JudgeRun`` log. Always writes the log node.
+    """Six post-batch tasks, optional event triage, then ``:JudgeRun``.
 
     ``touched_ids`` scopes missed-contradiction pairing to the current batch
     when non-empty; omitted or empty keeps the full-scan (debug/manual).
+    Event triage runs only if ``ENABLE_EVENT_TRIAGE`` (default off).
     """
     stats = JudgeStats()
     if not settings.ENABLE_JUDGE:
@@ -526,6 +543,8 @@ async def run_judge(
         session, touched_ids=touched_ids
     )
     stats.temporal = await _task_temporal(session)
+    if settings.ENABLE_EVENT_TRIAGE:
+        await _task_event_triage(session, job_id, touched_ids=touched_ids)
     await _log_judge_run(session, job_id, stats)
     logger.info("judge_complete job_id=%s stats=%s", job_id, asdict(stats))
     return stats
