@@ -1,30 +1,20 @@
-"""Structural-relevance gate (Fase 20) plus model fallback (Fase 24).
+"""Deterministic structural-relevance gate (Fase 20).
 
-``classify_fragment_relevance`` is deterministic (zero LLM): T1/T2/T3.
-``classify_fragment_relevance_with_model_fallback`` may call the model only
-when the deterministic gate yields T1 or None *and* a relation was written.
-Same lexical style as ``map_temporal_transition``.
+Zero LLM calls. Same lexical style as ``map_temporal_transition``.
+A fragment enters the hypothesis funnel only if T1, T2, or T3 matches;
+otherwise the function returns ``None`` and ingestion is unchanged.
 """
 
 from __future__ import annotations
 
-import logging
 import re
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
 from neo4j import AsyncSession
 
-from app.core.llm_client import call_structured
-from app.models.structural_signal import StructuralSignalVerdict
-from app.pipeline.entity_relation_resolution import (
-    ERROR_MARKERS,
-    SUCCESSION_MARKERS,
-    contains_lexical_marker,
-)
-
-logger = logging.getLogger(__name__)
+from app.pipeline.entity_relation_resolution import ERROR_MARKERS, SUCCESSION_MARKERS
 
 MarkerCategory = Literal["quantifier", "retraction", "error", "succession"]
 SignalKind = Literal["t1", "t2", "t3"]
@@ -238,21 +228,20 @@ def match_t2_marker(text: str) -> tuple[MarkerCategory, str] | None:
     """Return ``(category, matched_marker)`` for the first T2 hit, else None.
 
     Retraction is checked before quantifier (more specific); then error
-    and succession from the shared temporal-marker tuples. Matching uses
-    word boundaries (``contains_lexical_marker``) so ``ora è`` does not
-    fire inside ``finora è``.
+    and succession from the shared temporal-marker tuples.
     """
+    folded = _padded(text)
     for marker in RETRACTION_MARKERS:
-        if contains_lexical_marker(text, marker):
+        if marker in folded:
             return ("retraction", marker)
     for marker in QUANTIFIER_MARKERS:
-        if contains_lexical_marker(text, marker):
+        if marker in folded:
             return ("quantifier", marker)
     for marker in ERROR_MARKERS:
-        if contains_lexical_marker(text, marker):
+        if marker in folded:
             return ("error", marker)
     for marker in SUCCESSION_MARKERS:
-        if contains_lexical_marker(text, marker):
+        if marker in folded:
             return ("succession", marker)
     return None
 
@@ -377,117 +366,3 @@ async def has_different_tail_comparables(
     async for _row in result:
         return True
     return False
-
-
-STRUCTURAL_SIGNAL_SYSTEM_PROMPT = (
-    "Decidi se il frammento contiene un segnale strutturale di contesto "
-    "(quantificatore sul genere, ritrattazione globale, rettifica/errore, "
-    "successione temporale di stato) che dovrebbe aprire un'ipotesi.\n"
-    "Categorie ammesse per marker_category: quantifier, retraction, error, "
-    "succession.\n"
-    "Non inventare testimoni. Non forzare un segnale se il fatto è "
-    "semplicemente nuovo, complementare, o scorrelato: in quel caso "
-    "has_signal deve essere false. Se sei incerto, has_signal=false. "
-    "Dichiarare erroneamente un segnale su un fatto nuovo è un errore "
-    "peggiore di non dichiarare nulla.\n"
-    "Rispondi solo secondo lo schema."
-)
-
-STRUCTURAL_SIGNAL_USER_PROMPT_TEMPLATE = (
-    "Frammento:\n{chunk_text}\n\n"
-    "Testo della relazione scritta (se presente):\n{relation_text}\n\n"
-    "Entità della coppia: {pair_entities}\n\n"
-    "Il gate lessicale non ha trovato un marcatore T2/T3. C'è comunque un "
-    "segnale strutturale (correzione, ritrattazione, quantificatore, "
-    "successione di stato), o il fatto è semplicemente nuovo?"
-)
-
-_VALID_CATEGORIES = frozenset({"quantifier", "retraction", "error", "succession"})
-
-StructuralSignalFn = Callable[[str, str], Awaitable[StructuralSignalVerdict]]
-
-
-def _pair_label(pair_entities: Sequence[Any] | None) -> str:
-    rows = _iter_pair_entities(pair_entities)
-    names = [name or nid for nid, _summary, name in rows if nid or name]
-    return ", ".join(names) if names else "(nessuna)"
-
-
-def _signal_from_verdict(
-    chunk_text: str,
-    pair_entities: Sequence[Any] | None,
-    verdict: StructuralSignalVerdict,
-) -> FragmentSignal | None:
-    if not verdict.has_signal:
-        return None
-    category = verdict.marker_category
-    if category not in _VALID_CATEGORIES:
-        return None
-    text = chunk_text or ""
-    return FragmentSignal(
-        kind="t2",
-        text=text,
-        span=" ".join(text.split()),
-        pair_entity_ids=_pair_entity_ids(pair_entities),
-        marker_category=category,  # type: ignore[arg-type]
-        evidence_gap=_evidence_gap("t2", category),  # type: ignore[arg-type]
-        named_witnesses=extract_named_witnesses(text, pair_entities),
-    )
-
-
-async def classify_fragment_relevance_with_model_fallback(
-    chunk_text: str,
-    pair_entities: Sequence[Any] | None = None,
-    s0_outcome: S0Outcome | Mapping[str, Any] | None = None,
-    relation_text: str = "",
-    job_id: str = "",
-    *,
-    model_fn: StructuralSignalFn | None = None,
-) -> FragmentSignal | None:
-    """Deterministic gate first; model only for T1/None when a relation was written.
-
-    T2/T3 from the lexical gate are used as-is (zero extra model cost).
-    Unsure model output → no extra signal. Never invents witnesses.
-    """
-    signal = classify_fragment_relevance(chunk_text, pair_entities, s0_outcome)
-    if signal is not None and signal.kind in {"t2", "t3"}:
-        return signal
-    s0 = _coerce_s0(s0_outcome)
-    if not s0.relation_written:
-        return signal
-
-    user_prompt = STRUCTURAL_SIGNAL_USER_PROMPT_TEMPLATE.format(
-        chunk_text=chunk_text or "",
-        relation_text=relation_text or chunk_text or "",
-        pair_entities=_pair_label(pair_entities),
-    )
-    try:
-        if model_fn is not None:
-            verdict = await model_fn(STRUCTURAL_SIGNAL_SYSTEM_PROMPT, user_prompt)
-        else:
-            verdict = await call_structured(
-                STRUCTURAL_SIGNAL_SYSTEM_PROMPT,
-                user_prompt,
-                StructuralSignalVerdict,
-                temperature=0,
-                job_id=job_id or None,
-            )
-    except Exception:
-        logger.debug("structural_signal_fallback skipped", exc_info=True)
-        return signal
-
-    extra = _signal_from_verdict(chunk_text, pair_entities, verdict)
-    if extra is None:
-        return signal
-    if signal is not None and signal.kind == "t1":
-        # Upgrade T1 with the model's category; keep extracted witnesses.
-        return FragmentSignal(
-            kind="t2",
-            text=signal.text,
-            span=signal.span,
-            pair_entity_ids=signal.pair_entity_ids,
-            marker_category=extra.marker_category,
-            evidence_gap=extra.evidence_gap,
-            named_witnesses=signal.named_witnesses or extra.named_witnesses,
-        )
-    return extra

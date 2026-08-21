@@ -21,7 +21,6 @@ from app.models.query import (
     QueryCitation,
 )
 from app.models.relations import RelationClassification, RelationLabel
-from app.models.structural_signal import StructuralSignalVerdict
 
 __all__ = [
     "AgentAction",
@@ -43,5 +42,4 @@ __all__ = [
     "RelationKernelType",
     "RelationLabel",
     "SpecialRelationType",
-    "StructuralSignalVerdict",
 ]

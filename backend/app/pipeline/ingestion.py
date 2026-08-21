@@ -569,7 +569,6 @@ async def process_chunk_node_extraction(
             node_ids=[nid for nid, _ent in pair_entities],
             doc_id=doc_id,
             job_id=job_id,
-            relation_text="; ".join(fact.relation for fact in written_facts),
         )
         await maybe_resolve_quantifier_scope(session, chunk)
         await maybe_resolve_retraction_scope(session, chunk)

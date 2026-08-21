@@ -132,40 +132,6 @@ SUCCESSION_MARKERS = (
     "presidente",
 )
 
-# Stems that intentionally continue into a longer token (years, ciascuno*).
-# All other markers require a trailing word boundary (F24.3).
-MARKER_PREFIX_STEMS = frozenset({"dal 20", "dal 19", "ciascun"})
-
-_WORD_CHAR = r"[0-9A-Za-zÀ-ÖØ-öø-ÿ_]"
-_WORD_CHAR_RE = re.compile(_WORD_CHAR)
-
-
-def _normalize_apostrophe(text: str) -> str:
-    return (text or "").replace("’", "'").replace("`", "'")
-
-
-def contains_lexical_marker(text: str, marker: str) -> bool:
-    """True iff ``marker`` occurs in ``text`` not as a substring of a longer word.
-
-    Leading boundary is always required when the marker starts with a word
-    character, so ``ora è`` does not fire on ``finora è``. Trailing boundary
-    is required unless the marker is a declared prefix stem (``dal 20`` →
-    ``dal 2018``, ``ciascun`` → ``ciascuno``).
-    """
-    if not marker or not text:
-        return False
-    folded = f" {_normalize_apostrophe(text.casefold())} "
-    core = _normalize_apostrophe(marker.casefold()).strip()
-    if not core:
-        return False
-    escaped = re.escape(core).replace(r"\ ", r"\s+")
-    if _WORD_CHAR_RE.match(core[0]):
-        escaped = rf"(?<!{_WORD_CHAR}){escaped}"
-    if core not in MARKER_PREFIX_STEMS and _WORD_CHAR_RE.match(core[-1]):
-        escaped = rf"{escaped}(?!{_WORD_CHAR})"
-    return re.search(escaped, folded) is not None
-
-
 _STOPWORDS = frozenset(
     {
         "il",
@@ -204,7 +170,8 @@ def temporal_transitions_enabled() -> bool:
 
 
 def _has_error_marker(text: str) -> bool:
-    return any(contains_lexical_marker(text, marker) for marker in ERROR_MARKERS)
+    folded = text.casefold()
+    return any(marker in folded for marker in ERROR_MARKERS)
 
 
 def map_temporal_transition(new_text: str, old_text: str) -> RelationLabel:
@@ -217,9 +184,9 @@ def map_temporal_transition(new_text: str, old_text: str) -> RelationLabel:
     """
     blob = f"{new_text} {old_text}"
     folded = blob.casefold()
-    if _has_error_marker(blob):
+    if _has_error_marker(folded):
         return RelationLabel.updated_by
-    if any(contains_lexical_marker(blob, marker) for marker in SUCCESSION_MARKERS):
+    if any(marker in folded for marker in SUCCESSION_MARKERS):
         return RelationLabel.supersedes
     years = set(re.findall(r"\b(?:19|20)\d{2}\b", folded))
     if len(years) >= 2:

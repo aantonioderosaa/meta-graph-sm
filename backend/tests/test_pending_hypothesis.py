@@ -430,19 +430,6 @@ async def test_ingest_rejected_fragment_does_not_merge_hypothesis(monkeypatch):
     monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_entities", mock_empty)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_relations", mock_rels)
-
-    async def no_structural_signal(_system, _user, _model, temperature=0, job_id=None):
-        from app.models.structural_signal import StructuralSignalVerdict
-
-        return StructuralSignalVerdict(
-            has_signal=False,
-            reasoning="fatto semplicemente nuovo",
-        )
-
-    monkeypatch.setattr(
-        "app.pipeline.relevance_gate.call_structured",
-        no_structural_signal,
-    )
     session = HypothesisSession()
     chunk = Chunk(id="c-ok", doc_id=DOC_A, text="Alice works at Acme.")
     await process_chunk_node_extraction(session, chunk, DOC_A, JOB_ID)
