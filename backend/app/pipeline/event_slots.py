@@ -19,6 +19,7 @@ from neo4j import AsyncSession
 
 from app.models.kernel import AttributeKernelType, RelationKernelType
 from app.pipeline.ingestion import write_contradicts, write_node_relation
+from app.pipeline.reconcile import reconcile_scoped_attribute_slots
 
 _ATTRIBUTE_VALUES = frozenset(m.value for m in AttributeKernelType)
 _RELATION_VALUES = frozenset(m.value for m in RelationKernelType)
@@ -349,21 +350,27 @@ async def assert_slot(
             witnesses_b=_unique_ids(witnesses_b),
             is_latest=True,
         )
-        return
+    else:
+        await _stamp_new_edge(
+            session,
+            slot=slot,
+            tail_id=tail_id,
+            sid=sid,
+            fonte_id=fonte,
+            relation=relation_name,
+            head_name=head_name,
+            tail_name=tail_name,
+            witness_source=ui_source,
+            witness_target=ui_target,
+            provenance=provenance,
+        )
 
-    await _stamp_new_edge(
-        session,
-        slot=slot,
-        tail_id=tail_id,
-        sid=sid,
-        fonte_id=fonte,
-        relation=relation_name,
-        head_name=head_name,
-        tail_name=tail_name,
-        witness_source=ui_source,
-        witness_target=ui_target,
-        provenance=provenance,
-    )
+    if is_attribute_kernel(slot.kernel_parent):
+        await reconcile_scoped_attribute_slots(
+            session,
+            head_ids=[slot.head_id],
+            slot_id=sid,
+        )
 
 
 async def retract_slot(session: AsyncSession, *, slot: Slot, fonte_id: str) -> None:

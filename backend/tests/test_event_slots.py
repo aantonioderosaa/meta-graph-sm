@@ -20,6 +20,11 @@ from app.pipeline.event_slots import (
     slot_id_for,
 )
 from app.pipeline.ingestion import CREATE_CONTRADICTS_CYPHER, CREATE_NODE_RELATION_CYPHER
+from app.pipeline.reconcile import (
+    FIND_ATTRIBUTE_SLOT_EDGES_CYPHER,
+    SET_ATTRIBUTE_SLOT_IS_LATEST_CYPHER,
+    SET_ATTRIBUTE_SLOT_UPDATES_CYPHER,
+)
 
 HEAD = "esperimento-5"
 FONTE = "fonte-mike"
@@ -93,6 +98,7 @@ def _dispatch(graph: SlotGraph, cypher: str, kwargs: dict) -> list[dict]:
                 "witness_target_ids": [],
                 "witness_add_tags": [],
                 "slot_id": None,
+                "updates": None,
                 "created_at": graph.next_clock(),
             }
         )
@@ -148,6 +154,47 @@ def _dispatch(graph: SlotGraph, cypher: str, kwargs: dict) -> list[dict]:
                 rel["witnesses_a"] = list(kwargs.get("witnesses_a") or [])
                 rel["witnesses_b"] = list(kwargs.get("witnesses_b") or [])
                 rel["is_latest"] = bool(kwargs["is_latest"])
+        return []
+    if cypher is FIND_ATTRIBUTE_SLOT_EDGES_CYPHER:
+        slot_id_filter = kwargs.get("slot_id")
+        kernels = set(kwargs.get("attribute_kernels") or [])
+        head_ids = set(kwargs.get("head_ids") or [])
+        return [
+            {
+                "head_id": rel["head_id"],
+                "tail_id": rel["tail_id"],
+                "slot_id": rel.get("slot_id"),
+                "kernel_parent": rel.get("kernel_parent"),
+                "is_latest": rel.get("is_latest"),
+                "created_at": rel.get("created_at"),
+                "updates": rel.get("updates"),
+            }
+            for rel in graph.relations
+            if rel["head_id"] in head_ids
+            and rel.get("kernel_parent") in kernels
+            and (slot_id_filter is None or rel.get("slot_id") == slot_id_filter)
+        ]
+    if cypher is SET_ATTRIBUTE_SLOT_IS_LATEST_CYPHER:
+        slot_id_filter = kwargs.get("slot_id")
+        for rel in graph.relations:
+            if (
+                rel["head_id"] == kwargs["head_id"]
+                and rel["tail_id"] == kwargs["tail_id"]
+                and rel.get("kernel_parent") == kwargs["kernel_parent"]
+                and (slot_id_filter is None or rel.get("slot_id") == slot_id_filter)
+            ):
+                rel["is_latest"] = bool(kwargs["is_latest"])
+        return []
+    if cypher is SET_ATTRIBUTE_SLOT_UPDATES_CYPHER:
+        slot_id_filter = kwargs.get("slot_id")
+        for rel in graph.relations:
+            if (
+                rel["head_id"] == kwargs["head_id"]
+                and rel["tail_id"] == kwargs["tail_id"]
+                and rel.get("kernel_parent") == kwargs["kernel_parent"]
+                and (slot_id_filter is None or rel.get("slot_id") == slot_id_filter)
+            ):
+                rel["updates"] = kwargs.get("updates")
         return []
     if cypher is FIND_CONFLICTING_LATEST_CYPHER:
         for rel in graph.relations:
@@ -362,7 +409,14 @@ async def test_attribute_different_tails_share_slot_id_and_may_create(
     assert len(graph.relations) == 2
     slot_ids = {rel["slot_id"] for rel in graph.relations}
     assert len(slot_ids) == 1
-    assert all(rel["is_latest"] is True for rel in graph.relations)
+    latest = [rel for rel in graph.relations if rel["is_latest"] is True]
+    assert len(latest) == 1
+    assert latest[0]["tail_id"] == OK
+    previous = next(rel for rel in graph.relations if rel["tail_id"] == FAILED)
+    assert previous["is_latest"] is False
+    assert latest[0].get("updates") == FAILED
+    assert all(rel["normalized_relation"] == "has_state" for rel in graph.relations)
+    assert all(rel["kernel_parent"] == AttributeKernelType.Stato.value for rel in graph.relations)
 
 
 @pytest.mark.asyncio
@@ -402,5 +456,8 @@ async def test_assert_queries_are_known_constants(stub_ingestion_side_effects):
         UPDATE_SLOT_EDGE_CYPHER,
         FIND_CONFLICTING_LATEST_CYPHER,
         CREATE_CONTRADICTS_CYPHER,
+        FIND_ATTRIBUTE_SLOT_EDGES_CYPHER,
+        SET_ATTRIBUTE_SLOT_IS_LATEST_CYPHER,
+        SET_ATTRIBUTE_SLOT_UPDATES_CYPHER,
     }
     assert all(cypher in allowed for cypher, _ in session.calls)
