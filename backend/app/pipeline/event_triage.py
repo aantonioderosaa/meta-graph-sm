@@ -1,4 +1,4 @@
-"""Per-event judge triage: LLM proposes slots, primitives write (Macrotasks 5–6).
+"""Per-event judge triage: ReAct loop proposes slots, primitives write.
 
 ``run_event_triage`` is the body of ``judge._task_event_triage``. Slot mutations
 go only through ``validate_slot_proposal`` / ``apply_validated_slot``. Audit
@@ -10,6 +10,10 @@ Waiting events reuse ``PENDING_HYPOTHESIS_LISTEN_WINDOW`` as the hard cap on
 ``checks_without_progress`` (no parallel threshold). Zero slots past that
 window become ``incomplete``; a later pass that applies ≥1 slot becomes
 ``confirmed`` on that same pass.
+
+The judge never creates new ``:Node`` — assert/retract only on nodes that
+already exist (plan §7). Writes go only through ``validate_slot_proposal`` /
+``apply_validated_slot``. Identity and Famiglia B stay closed.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ import json
 import logging
 from collections.abc import Sequence
 from dataclasses import asdict, is_dataclass
+from enum import Enum
 from typing import Any, Literal
 
 from neo4j import AsyncSession
@@ -26,7 +31,13 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.llm_client import call_structured
 from app.models.kernel import AttributeKernelType, RelationKernelType
-from app.pipeline.context_retrieval import get_metadata, get_relations
+from app.pipeline.context_retrieval import (
+    get_domain_dictionary,
+    get_metadata,
+    get_relations,
+    search_fulltext,
+    search_vector,
+)
 from app.pipeline.event_slots import apply_validated_slot, validate_slot_proposal
 
 logger = logging.getLogger(__name__)
@@ -42,6 +53,22 @@ EVENT_TRIAGE_SOURCE_TEXT_CAP = 4000
 
 # UI fallback when the LLM returns zero slots and empty reasoning.
 _DEFAULT_MISSING_CONTEXT = "no resolvable slots"
+
+# Keys whose values are graph node ids when walking tool results.
+_OBSERVED_ID_KEYS = frozenset(
+    {
+        "id",
+        "other_id",
+        "from_id",
+        "to_id",
+        "head_id",
+        "tail_id",
+        "member_of",
+        "node_id",
+        "event_id",
+        "concept_id",
+    }
+)
 
 FIND_BATCH_EVENTS_CYPHER = """
 MATCH (e:Node)
@@ -104,16 +131,37 @@ _KERNEL_VALUES = tuple(
 )
 
 SYSTEM_PROMPT = (
-    "Sei il giudice degli eventi del grafo. Per l'evento dato proponi zero o più "
-    "slot da assertire o ritrattare. kernel_parent deve essere un membro esatto "
-    f"del vocabolario chiuso: {', '.join(_KERNEL_VALUES)}. "
+    "Sei il giudice degli eventi del grafo. A ogni turno scegli UN'azione: "
+    "search_fulltext, search_vector, get_relations, get_metadata, "
+    "get_domain_dictionary, oppure propose (azione terminale). "
+    "Obiettivo: capire di cosa parla l'evento e se il grafo lo riflette già. "
+    "Distingui sempre «il grafo rappresenta già correttamente questo evento» "
+    "(propose con slots vuota e verified_no_change=True) da «propongo una "
+    "modifica» (propose con slot concreti). Non collassare i due esiti nella "
+    "stessa risposta vuota. Se non sai o manca contesto dopo aver cercato, "
+    "propose con slots vuota e verified_no_change=False. "
+    "Se un'entità nominata nell'evento non compare nelle osservazioni finora, "
+    "cerca (search_fulltext / search_vector) prima di arrenderti: non dichiarare "
+    "subito non risolvibile. "
+    "Non inventare un id: uno slot il cui head o tail non è stato osservato "
+    "nel turno 0 o in un risultato search/get_* non va proposto. "
+    "Il giudice non crea mai nuovi :Node — assert/retract solo su nodi già "
+    "esistenti. Se un riferimento non risolve, lascia l'evento in attesa. "
+    "kernel_parent deve essere un membro esatto del vocabolario chiuso: "
+    f"{', '.join(_KERNEL_VALUES)}. "
     "Non inventare kernel_parent vicini. Non emettere Cypher. "
-    "Se il grafo rappresenta già correttamente l'evento, restituisci slots vuota "
-    "e verified_no_change=True. Se non sai o manca contesto, restituisci slots "
-    "vuota e verified_no_change=False: non collassare «non so» in "
-    "verified_no_change. verified_no_change=True solo con lista slot vuota. "
-    "reasoning breve e obbligatorio."
+    "verified_no_change=True solo con lista slot vuota. "
+    "reasoning breve e obbligatorio a ogni turno."
 )
+
+
+class EventTriageAction(str, Enum):
+    search_fulltext = "search_fulltext"
+    search_vector = "search_vector"
+    get_relations = "get_relations"
+    get_metadata = "get_metadata"
+    get_domain_dictionary = "get_domain_dictionary"
+    propose = "propose"  # terminal
 
 
 class EventSlotItem(BaseModel):
@@ -131,7 +179,7 @@ class EventSlotItem(BaseModel):
 
 
 class EventSlotProposal(BaseModel):
-    """Structured LLM output for one event. List length is hard-capped."""
+    """Structured propose payload. List length is hard-capped."""
 
     slots: list[EventSlotItem] = Field(
         default_factory=list,
@@ -146,6 +194,33 @@ class EventSlotProposal(BaseModel):
         ),
     )
     reasoning: str = Field(default="", description="Breve ragionamento")
+
+
+class EventTriageStep(BaseModel):
+    """One ReAct turn: a read-only retrieval tool or a terminal propose."""
+
+    action: EventTriageAction = Field(
+        description=(
+            "search_fulltext, search_vector, get_relations, get_metadata, "
+            "get_domain_dictionary, or propose"
+        )
+    )
+    reasoning: str = Field(min_length=1, description="Short audit trail for this turn")
+    query: str = Field(default="", description="Fulltext or vector query text")
+    node_id: str = Field(default="", description="Node id for metadata/relations")
+    concept_id: str = Field(default="", description="Concept id for domain dictionary")
+    slots: list[EventSlotItem] = Field(
+        default_factory=list,
+        max_length=EVENT_TRIAGE_MAX_SLOT_FANOUT,
+        description="Slot concreti when action=propose",
+    )
+    verified_no_change: bool = Field(
+        default=False,
+        description=(
+            "True se il grafo rappresenta già correttamente l'evento: nessuno "
+            "slot da scrivere. Only meaningful when action=propose."
+        ),
+    )
 
 
 def _brief(value: Any) -> str:
@@ -188,6 +263,76 @@ async def _fetch_all(result: Any) -> list[Any]:
     return rows
 
 
+def _add_observed_id(into: set[str], raw: Any) -> None:
+    if raw is None or isinstance(raw, bool):
+        return
+    text = str(raw).strip()
+    if text:
+        into.add(text)
+
+
+def _collect_observed_ids(value: Any, into: set[str]) -> None:
+    """Walk tool results and keep only values of known id keys."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return
+    if hasattr(value, "model_dump"):
+        _collect_observed_ids(value.model_dump(), into)
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        _collect_observed_ids(asdict(value), into)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in _OBSERVED_ID_KEYS:
+                if isinstance(item, (list, tuple, set)):
+                    for part in item:
+                        _add_observed_id(into, part)
+                else:
+                    _add_observed_id(into, item)
+            else:
+                _collect_observed_ids(item, into)
+        return
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            _collect_observed_ids(item, into)
+
+
+def _filter_unobserved_slots(
+    proposal: EventSlotProposal, observed: set[str]
+) -> EventSlotProposal:
+    """Drop slots whose head/tail was never seen in turn 0 or a tool result.
+
+    Combined with Phase 1 MATCH, an unobserved/hallucinated id never becomes
+    ``confirmed``. Dropping any slot clears ``verified_no_change`` so a
+    mixed guess cannot confirm as «already correct».
+    """
+    kept: list[EventSlotItem] = []
+    dropped = False
+    for item in proposal.slots:
+        head = (item.head or "").strip()
+        tail = (item.tail or "").strip() if item.tail else ""
+        if head and head not in observed:
+            dropped = True
+            continue
+        if tail and tail not in observed:
+            dropped = True
+            continue
+        kept.append(item)
+    if not dropped:
+        return proposal
+    return proposal.model_copy(update={"slots": kept, "verified_no_change": False})
+
+
+def _proposal_from_step(step: EventTriageStep | EventSlotProposal) -> EventSlotProposal:
+    if isinstance(step, EventSlotProposal):
+        return step
+    return EventSlotProposal(
+        slots=list(step.slots),
+        verified_no_change=bool(step.verified_no_change),
+        reasoning=step.reasoning,
+    )
+
+
 async def _load_source_chunk_text(session: AsyncSession, event_id: str) -> str:
     """Read-only original phrasing from ``(event)-[:DERIVED_FROM]->(:Chunk)``.
 
@@ -217,36 +362,45 @@ async def _load_source_chunk_text(session: AsyncSession, event_id: str) -> str:
     return "\n\n".join(parts)[:EVENT_TRIAGE_SOURCE_TEXT_CAP]
 
 
-async def _load_readonly_context(session: AsyncSession, event_id: str) -> str:
-    relations: Any = []
-    metadata: Any = None
+async def _seed_turn0(
+    session: AsyncSession, event_id: str
+) -> tuple[list[str], set[str]]:
+    """Free turn 0: relations + metadata + source chunk text. Not an LLM turn."""
+    observed: set[str] = {event_id}
+    observations: list[str] = []
     try:
         relations = await get_relations(session, event_id)
-    except Exception:
+        _collect_observed_ids(relations, observed)
+        observations.append(f"relations={_brief(relations)}")
+    except Exception as exc:
         logger.debug("event_triage get_relations failed event_id=%s", event_id, exc_info=True)
+        observations.append(f"relations=tool_error: {exc}")
     try:
         metadata = await get_metadata(session, event_id)
-    except Exception:
+        _collect_observed_ids(metadata, observed)
+        observations.append(f"metadata={_brief(metadata)}")
+    except Exception as exc:
         logger.debug("event_triage get_metadata failed event_id=%s", event_id, exc_info=True)
+        observations.append(f"metadata=tool_error: {exc}")
     source_text = await _load_source_chunk_text(session, event_id)
-    lines = [
-        f"metadata={_brief(metadata)}",
-        f"relations={_brief(relations)}",
-    ]
     if source_text:
-        lines.append(f"source_chunk_text={source_text}")
-    return "\n".join(lines)
+        observations.append(f"source_chunk_text={source_text}")
+    return observations, observed
 
 
-def _user_prompt(event: dict[str, Any], context_block: str) -> str:
+def _user_prompt(
+    event: dict[str, Any], observations: list[str], remaining: int
+) -> str:
+    obs_block = "\n".join(observations) or "(nessuna osservazione ancora)"
     return (
         f"event_id={event.get('event_id')}\n"
         f"name={event.get('name') or ''}\n"
         f"summary={event.get('summary') or ''}\n"
         f"kernel_category={event.get('kernel_category') or ''}\n"
         f"type={event.get('type') or ''}\n"
-        f"Contesto in sola lettura:\n{context_block}\n"
-        "Proponi gli slot (lista vuota se nessuno è risolvibile)."
+        f"turni_rimasti={remaining}\n"
+        f"Contesto in sola lettura:\n{obs_block}\n"
+        "Scegli la prossima azione. propose è terminale."
     )
 
 
@@ -366,22 +520,85 @@ async def _apply_proposal(
     return applied
 
 
+async def _dispatch(session: AsyncSession, step: EventTriageStep) -> Any:
+    """Read-only Fase 19 wrappers. The judge never creates a ``:Node`` here."""
+    action = step.action
+    if action == EventTriageAction.search_fulltext:
+        return await search_fulltext(session, step.query or "")
+    if action == EventTriageAction.search_vector:
+        return await search_vector(session, step.query or "")
+    if action == EventTriageAction.get_metadata:
+        node_id = step.node_id.strip()
+        if not node_id:
+            return "missing node_id"
+        return await get_metadata(session, node_id)
+    if action == EventTriageAction.get_relations:
+        node_id = step.node_id.strip()
+        if not node_id:
+            return "missing node_id"
+        return await get_relations(session, node_id)
+    if action == EventTriageAction.get_domain_dictionary:
+        concept_id = step.concept_id.strip()
+        if not concept_id:
+            return "missing concept_id"
+        return await get_domain_dictionary(session, concept_id)
+    return f"unknown action {action}"
+
+
 async def _triage_one_event(
     session: AsyncSession,
     event: dict[str, Any],
     run_id: str,
 ) -> tuple[int, str, bool]:
     event_id = str(event["event_id"])
-    context_block = await _load_readonly_context(session, event_id)
-    proposal = await call_structured(
-        SYSTEM_PROMPT,
-        _user_prompt(event, context_block),
-        EventSlotProposal,
-        temperature=0,
-        job_id=run_id,
-    )
-    if not isinstance(proposal, EventSlotProposal):
-        proposal = EventSlotProposal()
+    # Turn 0 is free: already-linked relations, metadata, and source chunk
+    # text. The LLM loop below has up to EVENT_TRIAGE_MAX_TURNS turns to
+    # search / inspect / propose. Immediate propose is one call_structured —
+    # same cost as the former one-shot.
+    observations, observed = await _seed_turn0(session, event_id)
+    max_turns = max(1, int(settings.EVENT_TRIAGE_MAX_TURNS))
+    proposal: EventSlotProposal | None = None
+    for turn in range(max_turns):
+        remaining = max_turns - turn
+        step = await call_structured(
+            SYSTEM_PROMPT,
+            _user_prompt(event, observations, remaining),
+            EventTriageStep,
+            temperature=0,
+            job_id=run_id,
+        )
+        if isinstance(step, EventSlotProposal):
+            proposal = _filter_unobserved_slots(step, observed)
+            break
+        if not isinstance(step, EventTriageStep):
+            proposal = EventSlotProposal()
+            break
+        if step.action == EventTriageAction.propose:
+            proposal = _filter_unobserved_slots(_proposal_from_step(step), observed)
+            break
+        try:
+            raw = await _dispatch(session, step)
+            _collect_observed_ids(raw, observed)
+            if step.action in {
+                EventTriageAction.get_metadata,
+                EventTriageAction.get_relations,
+            } and step.node_id.strip():
+                observed.add(step.node_id.strip())
+            if (
+                step.action == EventTriageAction.get_domain_dictionary
+                and step.concept_id.strip()
+            ):
+                observed.add(step.concept_id.strip())
+            observations.append(_brief(raw))
+        except Exception as exc:
+            logger.debug("event_triage tool failed", exc_info=True)
+            observations.append(f"tool_error: {exc}")
+    if proposal is None:
+        proposal = EventSlotProposal(
+            slots=[],
+            verified_no_change=False,
+            reasoning="turns exhausted",
+        )
     applied = await _apply_proposal(
         session, proposal, event_id=event_id, run_id=run_id
     )

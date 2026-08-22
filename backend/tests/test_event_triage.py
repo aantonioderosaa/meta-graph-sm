@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from app.core.config import Settings
+from app.pipeline.context_retrieval import NODE_RELATIONS_CYPHER, RetrievalHit
 from app.pipeline.event_slots import (
-    MATCH_BOTH_NODES_CYPHER,
     STAMP_SLOT_ON_LATEST_CYPHER,
     UPDATE_SLOT_EDGE_CYPHER,
 )
@@ -23,7 +23,8 @@ from app.pipeline.event_triage import (
     MERGE_EVENT_TRIAGE_RUN_CYPHER,
     MERGE_PENDING_EVENT_CONTEXT_CYPHER,
     EventSlotItem,
-    EventSlotProposal,
+    EventTriageAction,
+    EventTriageStep,
     run_event_triage,
 )
 from app.pipeline.ingestion import CREATE_NODE_RELATION_CYPHER
@@ -90,6 +91,7 @@ class TriageGraph:
         self.triage_runs: dict[str, dict] = {}
         self.pending: dict[str, dict] = {}
         self.source_chunks: dict[str, list[str]] = {}
+        self.neighbors: dict[str, list[str]] = {}
         self.calls: list[tuple[str, dict]] = []
 
     def add_event(self, event_id: str, **props) -> None:
@@ -191,6 +193,61 @@ def _dispatch(graph: TriageGraph, cypher: str, kwargs: dict) -> list[dict]:
         event_id = str(kwargs.get("id") or "")
         texts = getattr(graph, "source_chunks", {}).get(event_id) or []
         return [{"text": text} for text in texts]
+    if cypher is NODE_RELATIONS_CYPHER or cypher == NODE_RELATIONS_CYPHER:
+        node_id = str(kwargs.get("node_id") or "")
+        rows: list[dict] = []
+        seen: set[str] = set()
+        for other_id in getattr(graph, "neighbors", {}).get(node_id, []):
+            oid = str(other_id)
+            if not oid or oid in seen:
+                continue
+            seen.add(oid)
+            rows.append(
+                {
+                    "relation": "related",
+                    "normalized_relation": "related",
+                    "kernel_parent": None,
+                    "is_latest": True,
+                    "valid_time": None,
+                    "system_time": None,
+                    "witnesses_a": [],
+                    "witnesses_b": [],
+                    "provenance": None,
+                    "witness_text": None,
+                    "direction": "outgoing",
+                    "other_id": oid,
+                    "other_name": oid,
+                }
+            )
+        for rel in getattr(graph, "relations", []) or []:
+            head_id = str(rel.get("head_id") or "")
+            tail_id = str(rel.get("tail_id") or "")
+            other = ""
+            if head_id == node_id:
+                other = tail_id
+            elif tail_id == node_id:
+                other = head_id
+            if not other or other in seen:
+                continue
+            seen.add(other)
+            rows.append(
+                {
+                    "relation": rel.get("relation") or "related",
+                    "normalized_relation": rel.get("normalized_relation") or "related",
+                    "kernel_parent": rel.get("kernel_parent"),
+                    "is_latest": rel.get("is_latest"),
+                    "valid_time": None,
+                    "system_time": None,
+                    "witnesses_a": rel.get("witnesses_a") or [],
+                    "witnesses_b": rel.get("witnesses_b") or [],
+                    "provenance": None,
+                    "witness_text": rel.get("witness_text"),
+                    "direction": "outgoing" if head_id == node_id else "incoming",
+                    "other_id": other,
+                    "other_name": other,
+                }
+            )
+        return rows
     return []
 
 
@@ -202,6 +259,7 @@ class SlotTriageGraph(SlotGraph):
         self.triage_runs: dict[str, dict] = {}
         self.pending: dict[str, dict] = {}
         self.source_chunks: dict[str, list[str]] = {}
+        self.neighbors: dict[str, list[str]] = {}
         self.calls: list[tuple[str, dict]] = []
 
     def add_event(self, event_id: str, **props) -> None:
@@ -238,12 +296,40 @@ class SlotTriageSession:
             or cypher == MERGE_PENDING_EVENT_CONTEXT_CYPHER
             or cypher is FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER
             or cypher == FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER
+            or cypher is NODE_RELATIONS_CYPHER
+            or cypher == NODE_RELATIONS_CYPHER
         ):
             return FakeResult(_dispatch(self.graph, cypher, params))
         try:
             return FakeResult(slot_dispatch(self.graph, cypher, params))
         except AssertionError:
             return FakeResult([])
+
+
+def _prelink(graph: object, event_id: str, *node_ids: str) -> None:
+    neighbors = getattr(graph, "neighbors", None)
+    if neighbors is None:
+        graph.neighbors = {}  # type: ignore[attr-defined]
+        neighbors = graph.neighbors  # type: ignore[attr-defined]
+    existing = list(neighbors.get(event_id, []))
+    for nid in node_ids:
+        text = str(nid)
+        if text and text not in existing:
+            existing.append(text)
+    neighbors[event_id] = existing
+
+
+def _propose(
+    *slots: EventSlotItem,
+    reasoning: str = "propose",
+    verified_no_change: bool = False,
+) -> EventTriageStep:
+    return EventTriageStep(
+        action=EventTriageAction.propose,
+        reasoning=reasoning,
+        slots=list(slots),
+        verified_no_change=verified_no_change,
+    )
 
 
 def _valid_item(**overrides: object) -> EventSlotItem:
@@ -312,13 +398,14 @@ async def test_flag_on_one_evento_one_triage_run_idempotent(monkeypatch):
 
     async def fake_llm(_system, user, model, **_kwargs):
         llm_calls.append(user)
-        assert model is EventSlotProposal
-        return EventSlotProposal(slots=[_valid_item()], reasoning="stato fallato")
+        assert model is EventTriageStep
+        return _propose(_valid_item(), reasoning="stato fallato")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
     graph = TriageGraph()
     graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    _prelink(graph, EVENT_ONE, HEAD, TAIL)
     session = FakeSession(graph)
 
     await run_judge(session, JOB_ID, touched_ids=[EVENT_ONE])
@@ -348,8 +435,8 @@ async def test_invented_kernel_parent_zero_writes_not_confirmed(monkeypatch):
     monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", boom_apply)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(slots=[_invented_item()], reasoning="invented")
+        assert model is EventTriageStep
+        return _propose(_invented_item(), reasoning="invented")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -371,18 +458,19 @@ async def test_llm_error_on_one_event_does_not_block_the_other(monkeypatch):
     _stub_apply_success(monkeypatch)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
+        assert model is EventTriageStep
         if f"event_id={EVENT_A}" in user:
             raise TimeoutError("llm timeout")
         if f"event_id={EVENT_B}" in user:
-            return EventSlotProposal(slots=[_valid_item()], reasoning="ok")
-        return EventSlotProposal(slots=[])
+            return _propose(_valid_item(), reasoning="ok")
+        return _propose(reasoning="none")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
     graph = TriageGraph()
     graph.add_event(EVENT_A, summary="evento A")
     graph.add_event(EVENT_B, summary="evento B")
+    _prelink(graph, EVENT_B, HEAD, TAIL)
     session = FakeSession(graph)
 
     stats = await run_judge(session, JOB_ID, touched_ids=[EVENT_A, EVENT_B])
@@ -440,18 +528,17 @@ async def test_waiting_event_confirms_on_later_pass_when_slot_applies(monkeypatc
     passes = {"n": 0}
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
+        assert model is EventTriageStep
         passes["n"] += 1
         if passes["n"] == 1:
-            return EventSlotProposal(
-                slots=[], reasoning="need more context about experiment 5"
-            )
-        return EventSlotProposal(slots=[_valid_item()], reasoning="stato fallato")
+            return _propose(reasoning="need more context about experiment 5")
+        return _propose(_valid_item(), reasoning="stato fallato")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
     graph = TriageGraph()
     graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    _prelink(graph, EVENT_ONE, HEAD, TAIL)
     session = FakeSession(graph)
 
     await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
@@ -479,9 +566,9 @@ async def test_listen_window_empty_checks_become_incomplete_and_are_not_retried(
     llm_calls: list[str] = []
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
+        assert model is EventTriageStep
         llm_calls.append(user)
-        return EventSlotProposal(slots=[], reasoning="cannot resolve yet")
+        return _propose(reasoning="cannot resolve yet")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -512,12 +599,12 @@ async def test_waiting_events_are_attempted_before_new_batch_events(monkeypatch)
     llm_order: list[str] = []
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
+        assert model is EventTriageStep
         if f"event_id={EVENT_A}" in user:
             llm_order.append(EVENT_A)
         elif f"event_id={EVENT_B}" in user:
             llm_order.append(EVENT_B)
-        return EventSlotProposal(slots=[], reasoning="still waiting")
+        return _propose(reasoning="still waiting")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -563,12 +650,8 @@ async def test_verified_no_change_empty_slots_confirms_without_writes_or_window_
     monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", boom_apply)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(
-            slots=[],
-            verified_no_change=True,
-            reasoning="grafo già corretto",
-        )
+        assert model is EventTriageStep
+        return _propose(verified_no_change=True, reasoning="grafo già corretto")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -603,12 +686,8 @@ async def test_verified_no_change_false_empty_slots_still_waiting(monkeypatch):
     monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", boom_apply)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(
-            slots=[],
-            verified_no_change=False,
-            reasoning="cannot resolve yet",
-        )
+        assert model is EventTriageStep
+        return _propose(verified_no_change=False, reasoning="cannot resolve yet")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -633,9 +712,9 @@ async def test_applied_slot_confirms_regardless_of_verified_no_change(monkeypatc
     applied = _stub_apply_success(monkeypatch)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(
-            slots=[_valid_item()],
+        assert model is EventTriageStep
+        return _propose(
+            _valid_item(),
             verified_no_change=True,
             reasoning="scrittura applicata",
         )
@@ -644,6 +723,7 @@ async def test_applied_slot_confirms_regardless_of_verified_no_change(monkeypatc
 
     graph = TriageGraph()
     graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    _prelink(graph, EVENT_ONE, HEAD, TAIL)
     session = FakeSession(graph)
 
     await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
@@ -668,9 +748,9 @@ async def test_verified_no_change_ignored_when_proposed_slots_all_fail(monkeypat
     monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", miss_apply)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(
-            slots=[_valid_item()],
+        assert model is EventTriageStep
+        return _propose(
+            _valid_item(),
             verified_no_change=True,
             reasoning="guessed ids that missed",
         )
@@ -679,6 +759,7 @@ async def test_verified_no_change_ignored_when_proposed_slots_all_fail(monkeypat
 
     graph = TriageGraph()
     graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    _prelink(graph, EVENT_ONE, HEAD, TAIL)
     session = FakeSession(graph)
 
     await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
@@ -711,8 +792,8 @@ async def test_source_chunk_phrase_reaches_prompt_when_summary_paraphrases(
 
     async def fake_llm(_system, user, model, **_kwargs):
         llm_calls.append(user)
-        assert model is EventSlotProposal
-        return EventSlotProposal(slots=[], reasoning="saw original phrasing")
+        assert model is EventTriageStep
+        return _propose(reasoning="saw original phrasing")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -742,8 +823,8 @@ async def test_missing_derived_from_still_triages(monkeypatch):
 
     async def fake_llm(_system, user, model, **_kwargs):
         llm_calls.append(user)
-        assert model is EventSlotProposal
-        return EventSlotProposal(slots=[], reasoning="no source chunk")
+        assert model is EventTriageStep
+        return _propose(reasoning="no source chunk")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -786,11 +867,8 @@ async def test_hallucinated_tail_id_verdict_not_confirmed(
     graph, session = _seed_slot_triage(TAIL)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(
-            slots=[_valid_item(tail=ghost)],
-            reasoning="invented tail id",
-        )
+        assert model is EventTriageStep
+        return _propose(_valid_item(tail=ghost), reasoning="invented tail id")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -800,7 +878,6 @@ async def test_hallucinated_tail_id_verdict_not_confirmed(
     assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
     assert graph.relations == []
     assert not any(call[0] in WRITE_CYPHER for call in session.calls)
-    assert any(call[0] is MATCH_BOTH_NODES_CYPHER for call in session.calls)
     assert ghost not in graph.nodes
 
 
@@ -812,11 +889,8 @@ async def test_hallucinated_head_id_verdict_not_confirmed(
     graph, session = _seed_slot_triage(TAIL)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(
-            slots=[_valid_item(head=ghost)],
-            reasoning="invented head id",
-        )
+        assert model is EventTriageStep
+        return _propose(_valid_item(head=ghost), reasoning="invented head id")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -832,10 +906,11 @@ async def test_existing_nodes_real_assert_confirms(
     stub_ingestion_side_effects, monkeypatch
 ):
     graph, session = _seed_slot_triage(TAIL)
+    _prelink(graph, EVENT_ONE, HEAD, TAIL)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(slots=[_valid_item()], reasoning="stato fallato")
+        assert model is EventTriageStep
+        return _propose(_valid_item(), reasoning="stato fallato")
 
     monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
 
@@ -847,3 +922,209 @@ async def test_existing_nodes_real_assert_confirms(
     assert graph.relations[0]["tail_id"] == TAIL
     assert graph.relations[0]["kernel_parent"] == "Stato"
     assert any(call[0] is CREATE_NODE_RELATION_CYPHER for call in session.calls)
+
+
+def _hit(node_id: str, name: str = "") -> RetrievalHit:
+    return RetrievalHit(
+        kind="node",
+        score=1.0,
+        id=node_id,
+        index="node_summary_fulltext",
+        name=name or node_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_cost_regression_when_turn0_already_suffices(monkeypatch):
+    search_calls: list[str] = []
+
+    async def boom_search(*_args, **_kwargs):
+        search_calls.append("called")
+        raise AssertionError("search must not run when turn 0 already suffices")
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", boom_search)
+    monkeypatch.setattr("app.pipeline.event_triage.search_vector", boom_search)
+    llm_calls: list[str] = []
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        llm_calls.append(user)
+        assert model is EventTriageStep
+        return _propose(verified_no_change=True, reasoning="grafo già corretto")
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    _prelink(graph, EVENT_ONE, HEAD, TAIL)
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert len(llm_calls) == 1
+    assert search_calls == []
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "confirmed"
+    assert EVENT_ONE not in graph.pending
+    assert not any(call[0] in WRITE_CYPHER for call in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_zero_prelinked_search_then_propose_uses_observed_id(monkeypatch):
+    applied = _stub_apply_success(monkeypatch)
+    search_queries: list[str] = []
+
+    async def fake_search(_session, query, **_kwargs):
+        search_queries.append(query)
+        return [_hit(HEAD, "esperimento 5")]
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", fake_search)
+
+    async def boom_vector(*_args, **_kwargs):
+        raise AssertionError("this test scripts search_fulltext only")
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_vector", boom_vector)
+
+    turns = {"n": 0}
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventTriageStep
+        turns["n"] += 1
+        if turns["n"] == 1:
+            return EventTriageStep(
+                action=EventTriageAction.search_fulltext,
+                reasoning="cerco l'esperimento 5 nominato nel testo",
+                query="esperimento 5",
+            )
+        return _propose(
+            _valid_item(head=EVENT_ONE, tail=HEAD),
+            reasoning="slot sull'id osservato",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, name="fallimento", summary="l'esperimento 5 era fallato")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert search_queries
+    assert turns["n"] == 2
+    assert applied
+    assert applied[0].slot.head_id == EVENT_ONE
+    assert applied[0].tail_id == HEAD
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_unobserved_id_dropped_not_confirmed(monkeypatch):
+    apply_calls: list[object] = []
+
+    async def spy_apply(*_args, **_kwargs) -> bool:
+        apply_calls.append(1)
+        return True
+
+    monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", spy_apply)
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventTriageStep
+        return _propose(
+            _valid_item(head="invented-id", tail="invented-id"),
+            reasoning="id mai osservato",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert apply_calls == []
+    assert graph.triage_runs[EVENT_ONE]["verdict"] != "confirmed"
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+    assert EVENT_ONE in graph.pending
+
+
+@pytest.mark.asyncio
+async def test_turns_exhausted_without_propose_is_waiting(monkeypatch):
+    apply_calls: list[object] = []
+
+    async def boom_apply(*_args, **_kwargs) -> bool:
+        apply_calls.append(1)
+        raise AssertionError("no writes when turns exhaust without propose")
+
+    monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", boom_apply)
+
+    async def fake_search(_session, query, **_kwargs):
+        return []
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", fake_search)
+    monkeypatch.setattr(
+        "app.pipeline.event_triage.settings.EVENT_TRIAGE_MAX_TURNS", 3
+    )
+    llm_calls: list[int] = []
+
+    async def always_search(_system, user, model, **_kwargs):
+        assert model is EventTriageStep
+        llm_calls.append(1)
+        return EventTriageStep(
+            action=EventTriageAction.search_fulltext,
+            reasoning="ancora cerco, non propongo",
+            query="esperimento 5",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", always_search)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="evento irrisolvibile")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert len(llm_calls) == 3
+    assert apply_calls == []
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+    assert EVENT_ONE in graph.pending
+    assert graph.pending[EVENT_ONE]["missing_context"] == "turns exhausted"
+
+
+@pytest.mark.asyncio
+async def test_unobserved_id_mixed_with_observed_drops_only_guess(monkeypatch):
+    applied = _stub_apply_success(monkeypatch)
+
+    async def fake_search(_session, query, **_kwargs):
+        return [_hit(HEAD, "esperimento 5"), _hit(TAIL, "fallato")]
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", fake_search)
+
+    turns = {"n": 0}
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventTriageStep
+        turns["n"] += 1
+        if turns["n"] == 1:
+            return EventTriageStep(
+                action=EventTriageAction.search_fulltext,
+                reasoning="cerco i referenti",
+                query="esperimento 5 fallato",
+            )
+        return _propose(
+            _valid_item(),
+            _valid_item(head="invented-id", tail=TAIL),
+            reasoning="un id osservato e uno inventato",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert turns["n"] == 2
+    assert len(applied) == 1
+    assert applied[0].slot.head_id == HEAD
+    assert applied[0].tail_id == TAIL
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "confirmed"

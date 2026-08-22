@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     PENDING_HYPOTHESIS_LISTEN_WINDOW: int = 5
     # Fase 22: ReAct turn cap around call_structured. Do not retune.
     CONTEXT_AGENT_MAX_TURNS: int = 4
+    # Macrotask 9: event-triage ReAct cap. Lower than CONTEXT_AGENT_MAX_TURNS
+    # because this loop runs per event per batch. Turn 0 (relations / metadata /
+    # source chunk text) is free and is not counted.
+    EVENT_TRIAGE_MAX_TURNS: int = 3
 
 
 settings = Settings()

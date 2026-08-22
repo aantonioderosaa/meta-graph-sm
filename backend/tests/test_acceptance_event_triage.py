@@ -16,12 +16,13 @@ from app.models.kernel import (
     RelationKernelType,
     SpecialRelationType,
 )
+from app.pipeline.context_retrieval import NODE_RELATIONS_CYPHER
 from app.pipeline.event_relation_resolution import SITUATION_NORMALIZED_RELATION
 from app.pipeline.event_slots import Slot, slot_id_for
 from app.pipeline.event_triage import (
     EVENT_TRIAGE_MAX_SLOT_FANOUT,
     EventSlotItem,
-    EventSlotProposal,
+    EventTriageStep,
     run_event_triage,
 )
 from app.pipeline.quantifier_events import resolve_quantifier_scope
@@ -52,6 +53,8 @@ from tests.test_event_triage import (
     FIND_WAITING_EVENTS_CYPHER,
     MERGE_EVENT_TRIAGE_RUN_CYPHER,
     MERGE_PENDING_EVENT_CONTEXT_CYPHER,
+    _prelink,
+    _propose,
 )
 from tests.test_event_triage import (
     _dispatch as triage_dispatch,
@@ -97,6 +100,7 @@ class CorpusGraph(SlotGraph):
         self.calls: list[tuple[str, dict]] = []
         self.member_of: dict[str, str] = {}
         self.isa: dict[str, str] = {}
+        self.neighbors: dict[str, list[str]] = {}
 
     def add_event(self, event_id: str, **props) -> None:
         row = {
@@ -125,7 +129,11 @@ class FakeSession(SlotFakeSession):
 
 
 def _corpus_dispatch(graph: CorpusGraph, cypher: str, kwargs: dict) -> list[dict]:
-    if cypher in TRIAGE_CYPHER:
+    if (
+        cypher in TRIAGE_CYPHER
+        or cypher is NODE_RELATIONS_CYPHER
+        or cypher == NODE_RELATIONS_CYPHER
+    ):
         return triage_dispatch(graph, cypher, kwargs)
     try:
         return slot_dispatch(graph, cypher, kwargs)
@@ -238,10 +246,10 @@ async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatc
     _enable_triage(monkeypatch)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
+        assert model is EventTriageStep
         assert "esperimento 5" in user.casefold() or "fallato" in user.casefold()
-        return EventSlotProposal(
-            slots=[_item()],
+        return _propose(
+            _item(),
             reasoning="l'esperimento 5 era fallato: Stato → fallato",
         )
 
@@ -256,6 +264,7 @@ async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatc
         name="l'esperimento 5 era fallato",
         summary="l'esperimento 5 era fallato",
     )
+    _prelink(graph, EVENT_FAILED, HEAD, NEW_TAIL)
     _stamp_slot(
         graph,
         head_id=HEAD,
@@ -357,31 +366,29 @@ async def test_mike_and_story_fanout_direct_members_only(
     _enable_triage(monkeypatch)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventSlotProposal
-        return EventSlotProposal(
-            slots=[
-                _item(
-                    head=SAID_ONE,
-                    kernel_parent=AttributeKernelType.Descrizione.value,
-                    tail=BELLO,
-                    verbo="assert",
-                    fonte=FONTE,
-                ),
-                _item(
-                    head=MIKE,
-                    kernel_parent=RelationKernelType.SocialeIntenzionale.value,
-                    tail=SAID_TWO,
-                    verbo="retract",
-                    fonte=FONTE,
-                ),
-                _item(
-                    head=STORY,
-                    kernel_parent=RelationKernelType.Compositiva.value,
-                    tail=STORY_MEMBER,
-                    verbo="retract",
-                    fonte=FONTE,
-                ),
-            ],
+        assert model is EventTriageStep
+        return _propose(
+            _item(
+                head=SAID_ONE,
+                kernel_parent=AttributeKernelType.Descrizione.value,
+                tail=BELLO,
+                verbo="assert",
+                fonte=FONTE,
+            ),
+            _item(
+                head=MIKE,
+                kernel_parent=RelationKernelType.SocialeIntenzionale.value,
+                tail=SAID_TWO,
+                verbo="retract",
+                fonte=FONTE,
+            ),
+            _item(
+                head=STORY,
+                kernel_parent=RelationKernelType.Compositiva.value,
+                tail=STORY_MEMBER,
+                verbo="retract",
+                fonte=FONTE,
+            ),
             reasoning="Mike's direct facts + the named story's members, never MEMBER_OF",
         )
 
@@ -408,6 +415,16 @@ async def test_mike_and_story_fanout_direct_members_only(
         EVENT_MIKE,
         name="tutto quello che ha detto Mike / la storia è falsa",
         summary="tutto quello che ha detto Mike era bellissimo; la storia raccontata è falsa",
+    )
+    _prelink(
+        graph,
+        EVENT_MIKE,
+        SAID_ONE,
+        BELLO,
+        MIKE,
+        SAID_TWO,
+        STORY,
+        STORY_MEMBER,
     )
     _stamp_slot(
         graph,
