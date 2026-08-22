@@ -1,7 +1,11 @@
-"""Macrotask 8: event-triage non-regression on a fixed corpus.
+"""Macrotask 8–9: event-triage non-regression on a fixed corpus.
 
 FakeSession, no Neo4j/OpenAI. Quantifier (Fase 21.1) and retraction (Fase 21.2)
 are called directly — they must not route through event triage.
+
+Macrotask 9 Phase 5 adds the unlinked-entity search case: the same esperimento-5
+story without `_prelink`, resolved via scripted `search_fulltext` + real
+`apply_validated_slot` writes. That is the e2e the one-shot baseline would fail.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from app.pipeline.event_slots import Slot, slot_id_for
 from app.pipeline.event_triage import (
     EVENT_TRIAGE_MAX_SLOT_FANOUT,
     EventSlotItem,
+    EventTriageAction,
     EventTriageStep,
     run_event_triage,
 )
@@ -50,9 +55,11 @@ from tests.test_event_slots import (
 )
 from tests.test_event_triage import (
     FIND_BATCH_EVENTS_CYPHER,
+    FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER,
     FIND_WAITING_EVENTS_CYPHER,
     MERGE_EVENT_TRIAGE_RUN_CYPHER,
     MERGE_PENDING_EVENT_CONTEXT_CYPHER,
+    _hit,
     _prelink,
     _propose,
 )
@@ -87,9 +94,11 @@ EVENT_MIKE = "evento-mike-storia"
 TRIAGE_CYPHER = {
     FIND_BATCH_EVENTS_CYPHER,
     FIND_WAITING_EVENTS_CYPHER,
+    FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER,
     MERGE_EVENT_TRIAGE_RUN_CYPHER,
     MERGE_PENDING_EVENT_CONTEXT_CYPHER,
 }
+SEARCH_DECOY = "nodo-non-osservato"
 
 
 class CorpusGraph(SlotGraph):
@@ -129,6 +138,8 @@ class FakeSession(SlotFakeSession):
 
 
 def _corpus_dispatch(graph: CorpusGraph, cypher: str, kwargs: dict) -> list[dict]:
+    # Search is monkeypatched on event_triage.search_fulltext / search_vector
+    # in corpus tests — no Neo4j fulltext in FakeSession.
     if (
         cypher in TRIAGE_CYPHER
         or cypher is NODE_RELATIONS_CYPHER
@@ -227,34 +238,8 @@ def _item(**overrides: object) -> EventSlotItem:
     return EventSlotItem.model_validate(payload)
 
 
-@pytest.fixture
-def stub_ingestion_side_effects(monkeypatch):
-    async def _noop(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr("app.pipeline.ingestion.deposit_from_asserted_fact", _noop)
-    monkeypatch.setattr("app.pipeline.ingestion.embeddings.embed", lambda _t: [0.1] * 8)
-
-
-def _enable_triage(monkeypatch) -> None:
-    monkeypatch.setattr("app.pipeline.judge.settings.ENABLE_EVENT_TRIAGE", True)
-    monkeypatch.setattr("app.core.config.settings.ENABLE_EVENT_TRIAGE", True)
-
-
-@pytest.mark.asyncio
-async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatch):
-    _enable_triage(monkeypatch)
-
-    async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventTriageStep
-        assert "esperimento 5" in user.casefold() or "fallato" in user.casefold()
-        return _propose(
-            _item(),
-            reasoning="l'esperimento 5 era fallato: Stato → fallato",
-        )
-
-    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
-
+def _esperimento_5_graph(*, prelink: bool) -> CorpusGraph:
+    """Same story as Macrotask 8: HEAD Stato riuscito → fallato exists as :Node."""
     graph = CorpusGraph()
     graph.add_node(HEAD, "esperimento 5", summary=OLD_SUMMARY)
     graph.add_node(OLD_TAIL, OLD_TAIL)
@@ -264,7 +249,8 @@ async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatc
         name="l'esperimento 5 era fallato",
         summary="l'esperimento 5 era fallato",
     )
-    _prelink(graph, EVENT_FAILED, HEAD, NEW_TAIL)
+    if prelink:
+        _prelink(graph, EVENT_FAILED, HEAD, NEW_TAIL)
     _stamp_slot(
         graph,
         head_id=HEAD,
@@ -272,11 +258,10 @@ async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatc
         kernel_parent=AttributeKernelType.Stato.value,
         fonte_id=FONTE,
     )
-    session = FakeSession(graph)
+    return graph
 
-    await run_event_triage(session, RUN_ID, touched_ids=[EVENT_FAILED])
 
-    assert graph.triage_runs[EVENT_FAILED]["verdict"] == "confirmed"
+def _assert_esperimento_5_lww(graph: CorpusGraph) -> None:
     stato = [
         rel
         for rel in graph.relations
@@ -294,8 +279,203 @@ async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatc
     assert revisions[-1]["old_value"] == OLD_SUMMARY
     assert revisions[-1]["property"] == "summary"
     assert graph.nodes[HEAD]["summary"] == NEW_TAIL
+
+
+def _stub_search_unused(monkeypatch) -> list[str]:
+    """Record accidental search; raise so a leak cannot silently succeed."""
+    calls: list[str] = []
+
+    async def boom_search(*_args, **_kwargs):
+        calls.append("called")
+        raise AssertionError("search must not run when turn 0 already suffices")
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", boom_search)
+    monkeypatch.setattr("app.pipeline.event_triage.search_vector", boom_search)
+    return calls
+
+
+@pytest.fixture
+def stub_ingestion_side_effects(monkeypatch):
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.pipeline.ingestion.deposit_from_asserted_fact", _noop)
+    monkeypatch.setattr("app.pipeline.ingestion.embeddings.embed", lambda _t: [0.1] * 8)
+
+
+def _enable_triage(monkeypatch) -> None:
+    monkeypatch.setattr("app.pipeline.judge.settings.ENABLE_EVENT_TRIAGE", True)
+    monkeypatch.setattr("app.core.config.settings.ENABLE_EVENT_TRIAGE", True)
+
+
+@pytest.mark.asyncio
+async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatch):
+    """Prelinked / no extra search: no-cost regression vs Macrotask 8 one-shot."""
+    _enable_triage(monkeypatch)
+    search_calls = _stub_search_unused(monkeypatch)
+    llm_calls: list[int] = []
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        llm_calls.append(1)
+        assert model is EventTriageStep
+        assert "esperimento 5" in user.casefold() or "fallato" in user.casefold()
+        return _propose(
+            _item(),
+            reasoning="l'esperimento 5 era fallato: Stato → fallato",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = _esperimento_5_graph(prelink=True)
+    nodes_before = set(graph.nodes)
+    session = FakeSession(graph)
+
+    await run_event_triage(session, RUN_ID, touched_ids=[EVENT_FAILED])
+
+    assert len(llm_calls) == 1
+    assert search_calls == []
+    assert graph.triage_runs[EVENT_FAILED]["verdict"] == "confirmed"
+    _assert_esperimento_5_lww(graph)
     _assert_closed_kernel_parents(graph, event_id=EVENT_FAILED)
     _assert_no_delete(session)
+    assert set(graph.nodes) == nodes_before
+
+
+@pytest.mark.asyncio
+async def test_esperimento_5_unlinked_entity_resolved_via_search(
+    stub_ingestion_side_effects, monkeypatch
+):
+    """Phase 5 corpus e2e: event has no prelinked participants; search finds HEAD.
+
+    Without Phase 4 (one-shot propose, no search) this case cannot observe HEAD
+    and would drop the slot — the gap §8 names as the baseline failure.
+    """
+    _enable_triage(monkeypatch)
+    search_queries: list[str] = []
+    search_hit_ids: list[str] = []
+
+    async def fake_search(_session, query, **_kwargs):
+        search_queries.append(query)
+        folded = query.casefold()
+        if "esperimento" not in folded and "fallato" not in folded:
+            return []
+        hits = [_hit(HEAD, "esperimento 5"), _hit(NEW_TAIL, NEW_TAIL)]
+        search_hit_ids.extend(hit.id for hit in hits)
+        return hits
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", fake_search)
+
+    async def boom_vector(*_args, **_kwargs):
+        raise AssertionError("this test scripts search_fulltext only")
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_vector", boom_vector)
+
+    turns = {"n": 0}
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventTriageStep
+        turns["n"] += 1
+        if turns["n"] == 1:
+            return EventTriageStep(
+                action=EventTriageAction.search_fulltext,
+                reasoning="turno 0 vuoto: cerco l'entità nominata nel testo",
+                query="esperimento 5 fallato",
+            )
+        assert HEAD in user
+        return _propose(
+            _item(head=HEAD, tail=NEW_TAIL),
+            reasoning="Stato → fallato sull'id restituito da search",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = _esperimento_5_graph(prelink=False)
+    assert graph.neighbors.get(EVENT_FAILED, []) == []
+    nodes_before = set(graph.nodes)
+    session = FakeSession(graph)
+
+    await run_event_triage(session, RUN_ID, touched_ids=[EVENT_FAILED])
+
+    assert search_queries
+    assert turns["n"] == 2
+    assert graph.triage_runs[EVENT_FAILED]["verdict"] == "confirmed"
+    _assert_esperimento_5_lww(graph)
+    applied = [
+        rel for rel in graph.relations if rel.get("caused_by_event_id") == EVENT_FAILED
+    ]
+    assert applied
+    for rel in applied:
+        assert rel["head_id"] in search_hit_ids
+        assert rel["tail_id"] in search_hit_ids
+        assert rel["head_id"] == HEAD
+        assert rel["tail_id"] == NEW_TAIL
+    _assert_closed_kernel_parents(graph, event_id=EVENT_FAILED)
+    _assert_no_delete(session)
+    assert set(graph.nodes) == nodes_before
+
+
+@pytest.mark.asyncio
+async def test_esperimento_5_unlinked_unobserved_id_not_confirmed(
+    stub_ingestion_side_effects, monkeypatch
+):
+    """Observed-id gate, not just MATCH-both-nodes: HEAD exists but search never returned it."""
+    _enable_triage(monkeypatch)
+    search_queries: list[str] = []
+
+    async def fake_search(_session, query, **_kwargs):
+        search_queries.append(query)
+        return [_hit(SEARCH_DECOY, "decoy")]
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", fake_search)
+
+    async def boom_vector(*_args, **_kwargs):
+        raise AssertionError("this test scripts search_fulltext only")
+
+    monkeypatch.setattr("app.pipeline.event_triage.search_vector", boom_vector)
+
+    turns = {"n": 0}
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventTriageStep
+        turns["n"] += 1
+        if turns["n"] == 1:
+            return EventTriageStep(
+                action=EventTriageAction.search_fulltext,
+                reasoning="cerco l'esperimento 5",
+                query="esperimento 5 fallato",
+            )
+        return _propose(
+            _item(head=HEAD, tail=NEW_TAIL),
+            reasoning="propongo HEAD che esiste nel grafo ma non è nei hit",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = _esperimento_5_graph(prelink=False)
+    assert HEAD in graph.nodes
+    assert NEW_TAIL in graph.nodes
+    nodes_before = set(graph.nodes)
+    session = FakeSession(graph)
+
+    await run_event_triage(session, RUN_ID, touched_ids=[EVENT_FAILED])
+
+    assert search_queries
+    assert graph.triage_runs[EVENT_FAILED]["verdict"] != "confirmed"
+    assert graph.triage_runs[EVENT_FAILED]["verdict"] == "waiting"
+    stato = [
+        rel
+        for rel in graph.relations
+        if rel["head_id"] == HEAD
+        and rel.get("kernel_parent") == AttributeKernelType.Stato.value
+    ]
+    latest = [rel for rel in stato if rel.get("is_latest") is True]
+    assert len(latest) == 1
+    assert latest[0]["tail_id"] == OLD_TAIL
+    assert not any(
+        rel.get("caused_by_event_id") == EVENT_FAILED for rel in graph.relations
+    )
+    _assert_no_delete(session)
+    assert set(graph.nodes) == nodes_before
 
 
 @pytest.mark.asyncio
@@ -364,6 +544,7 @@ async def test_mike_and_story_fanout_direct_members_only(
     stub_ingestion_side_effects, monkeypatch
 ):
     _enable_triage(monkeypatch)
+    search_calls = _stub_search_unused(monkeypatch)
 
     async def fake_llm(_system, user, model, **_kwargs):
         assert model is EventTriageStep
@@ -454,10 +635,13 @@ async def test_mike_and_story_fanout_direct_members_only(
         kernel_parent=AttributeKernelType.Stato.value,
         fonte_id=FONTE,
     )
+    assert COUSIN not in graph.neighbors.get(EVENT_MIKE, [])
+    nodes_before = set(graph.nodes)
     session = FakeSession(graph)
 
     await run_event_triage(session, RUN_ID, touched_ids=[EVENT_MIKE])
 
+    assert search_calls == []
     assert graph.triage_runs[EVENT_MIKE]["verdict"] == "confirmed"
     direct = {MIKE, SAID_ONE, SAID_TWO, BELLO, STORY, STORY_MEMBER, "detto-1-stato"}
     touched = _written_ids(graph, EVENT_MIKE)
@@ -465,6 +649,7 @@ async def test_mike_and_story_fanout_direct_members_only(
     assert touched <= direct
     assert COUSIN not in touched
     assert COUSIN_TAIL not in touched
+    assert set(graph.nodes) == nodes_before
     cousin_edges = [rel for rel in graph.relations if rel["head_id"] == COUSIN]
     assert len(cousin_edges) == 1
     assert cousin_edges[0]["is_latest"] is True
