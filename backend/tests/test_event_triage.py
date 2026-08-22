@@ -10,6 +10,7 @@ import pytest
 
 from app.core.config import Settings
 from app.pipeline.event_slots import (
+    MATCH_BOTH_NODES_CYPHER,
     STAMP_SLOT_ON_LATEST_CYPHER,
     UPDATE_SLOT_EDGE_CYPHER,
 )
@@ -35,6 +36,12 @@ from app.pipeline.judge import (
     run_judge,
 )
 from tests.test_acceptance_judge import JOB_ID, JudgeGraph
+from tests.test_event_slots import (
+    SlotGraph,
+)
+from tests.test_event_slots import (
+    _dispatch as slot_dispatch,
+)
 
 EVENT_A = "event-a"
 EVENT_B = "event-b"
@@ -172,6 +179,55 @@ def _dispatch(graph: TriageGraph, cypher: str, kwargs: dict) -> list[dict]:
         }
         return [{"checks_without_progress": checks}]
     return []
+
+
+class SlotTriageGraph(SlotGraph):
+    """SlotGraph plus triage audit so hallucinated ids hit the real writers."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.triage_runs: dict[str, dict] = {}
+        self.pending: dict[str, dict] = {}
+        self.calls: list[tuple[str, dict]] = []
+
+    def add_event(self, event_id: str, **props) -> None:
+        row = {
+            "id": event_id,
+            "name": props.get("name") or event_id,
+            "summary": props.get("summary") or "",
+            "kernel_category": props.get("kernel_category", "Evento"),
+            "type": props.get("type", "event"),
+            "revisions": [],
+        }
+        row.update(props)
+        self.nodes[event_id] = row
+
+
+class SlotTriageSession:
+    def __init__(self, graph: SlotTriageGraph) -> None:
+        self.graph = graph
+        self.calls = graph.calls
+
+    async def run(self, cypher: str, parameters: dict | None = None, **kwargs):
+        params = dict(parameters or {})
+        params.update(kwargs)
+        self.graph.calls.append((cypher, params))
+        self.calls = self.graph.calls
+        if (
+            cypher is FIND_BATCH_EVENTS_CYPHER
+            or cypher == FIND_BATCH_EVENTS_CYPHER
+            or cypher is FIND_WAITING_EVENTS_CYPHER
+            or cypher == FIND_WAITING_EVENTS_CYPHER
+            or cypher is MERGE_EVENT_TRIAGE_RUN_CYPHER
+            or cypher == MERGE_EVENT_TRIAGE_RUN_CYPHER
+            or cypher is MERGE_PENDING_EVENT_CONTEXT_CYPHER
+            or cypher == MERGE_PENDING_EVENT_CONTEXT_CYPHER
+        ):
+            return FakeResult(_dispatch(self.graph, cypher, params))
+        try:
+            return FakeResult(slot_dispatch(self.graph, cypher, params))
+        except AssertionError:
+            return FakeResult([])
 
 
 def _valid_item(**overrides: object) -> EventSlotItem:
@@ -476,3 +532,92 @@ async def test_waiting_events_are_attempted_before_new_batch_events(monkeypatch)
         if call[0] in {FIND_WAITING_EVENTS_CYPHER, FIND_BATCH_EVENTS_CYPHER}
     ]
     assert find_calls[:2] == [FIND_WAITING_EVENTS_CYPHER, FIND_BATCH_EVENTS_CYPHER]
+
+
+@pytest.fixture
+def stub_ingestion_side_effects(monkeypatch):
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.pipeline.ingestion.deposit_from_asserted_fact", _noop)
+    monkeypatch.setattr("app.pipeline.ingestion.embeddings.embed", lambda _t: [0.1] * 8)
+
+
+def _seed_slot_triage(*extra_node_ids: str) -> tuple[SlotTriageGraph, SlotTriageSession]:
+    graph = SlotTriageGraph()
+    graph.add_node(HEAD, "esperimento 5")
+    for node_id in extra_node_ids:
+        graph.add_node(node_id)
+    graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    return graph, SlotTriageSession(graph)
+
+
+@pytest.mark.asyncio
+async def test_hallucinated_tail_id_verdict_not_confirmed(
+    stub_ingestion_side_effects, monkeypatch
+):
+    ghost = "hallucinated-tail"
+    graph, session = _seed_slot_triage(TAIL)
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        return EventSlotProposal(
+            slots=[_valid_item(tail=ghost)],
+            reasoning="invented tail id",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert graph.triage_runs[EVENT_ONE]["verdict"] != "confirmed"
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+    assert graph.relations == []
+    assert not any(call[0] in WRITE_CYPHER for call in session.calls)
+    assert any(call[0] is MATCH_BOTH_NODES_CYPHER for call in session.calls)
+    assert ghost not in graph.nodes
+
+
+@pytest.mark.asyncio
+async def test_hallucinated_head_id_verdict_not_confirmed(
+    stub_ingestion_side_effects, monkeypatch
+):
+    ghost = "hallucinated-head"
+    graph, session = _seed_slot_triage(TAIL)
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        return EventSlotProposal(
+            slots=[_valid_item(head=ghost)],
+            reasoning="invented head id",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert graph.triage_runs[EVENT_ONE]["verdict"] != "confirmed"
+    assert graph.relations == []
+    assert not any(call[0] in WRITE_CYPHER for call in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_existing_nodes_real_assert_confirms(
+    stub_ingestion_side_effects, monkeypatch
+):
+    graph, session = _seed_slot_triage(TAIL)
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        return EventSlotProposal(slots=[_valid_item()], reasoning="stato fallato")
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "confirmed"
+    assert len(graph.relations) == 1
+    assert graph.relations[0]["head_id"] == HEAD
+    assert graph.relations[0]["tail_id"] == TAIL
+    assert graph.relations[0]["kernel_parent"] == "Stato"
+    assert any(call[0] is CREATE_NODE_RELATION_CYPHER for call in session.calls)

@@ -11,6 +11,10 @@ Every edge this module stamps or updates carries ``caused_by_event_id`` and
 LLM proposals must pass ``validate_slot_proposal`` before any write. Invented or
 nearby ``kernel_parent`` values yield ``None`` (waiting/incomplete), never a
 coerced member of the closed R1–R6 / A1–A7 enums.
+
+``apply_validated_slot`` returns True only after a real graph effect (or an
+idempotent re-assert on existing endpoints). A hallucinated ``head_id`` /
+``tail_id`` is False — this module never creates ``:Node``.
 """
 
 from __future__ import annotations
@@ -53,6 +57,11 @@ RETURN t.id AS tail_id,
        r.relation AS relation,
        r.kernel_parent AS kernel_parent,
        r.normalized_relation AS normalized_relation
+"""
+
+MATCH_BOTH_NODES_CYPHER = """
+MATCH (h:Node {id: $head_id}), (t:Node {id: $tail_id})
+RETURN h.id AS head_id, t.id AS tail_id
 """
 
 STAMP_SLOT_ON_LATEST_CYPHER = """
@@ -317,8 +326,9 @@ async def apply_validated_slot(
     """Apply one ``ValidatedSlot``. ``None`` / invalid input is a no-op (no write).
 
     Raw proposals are validated first; only an accepted slot reaches
-    ``assert_slot`` / ``retract_slot``. Macrotask 5 should call this helper
-    rather than the writers directly.
+    ``assert_slot`` / ``retract_slot``. Returns the writers' booleans: False
+    when MATCH finds no endpoints, when retract is a true no-op, or when the
+    proposal is invalid. Never True after a silent zero-row write.
     """
     if not isinstance(validated, ValidatedSlot):
         if validated is None:
@@ -330,7 +340,7 @@ async def apply_validated_slot(
         tail_id = validated.tail_id
         if not tail_id:
             return False
-        await assert_slot(
+        return await assert_slot(
             session,
             slot=validated.slot,
             tail_id_or_value=tail_id,
@@ -344,15 +354,13 @@ async def apply_validated_slot(
             witness_target=witness_target,
             provenance=provenance,
         )
-        return True
-    await retract_slot(
+    return await retract_slot(
         session,
         slot=validated.slot,
         fonte_id=validated.fonte_id,
         caused_by_event_id=caused_by_event_id,
         run_id=run_id,
     )
-    return True
 
 
 def _require_nonempty(name: str, value: str | None, *, context: str) -> str:
@@ -433,6 +441,17 @@ async def _fetch_all(result: Any) -> list[Any]:
 async def _find_slot_rows(session: AsyncSession, *, head_id: str, sid: str) -> list[Any]:
     result = await session.run(FIND_SLOT_RELATIONS_CYPHER, head_id=head_id, slot_id=sid)
     return await _fetch_all(result)
+
+
+async def _both_nodes_exist(
+    session: AsyncSession, *, head_id: str, tail_id: str
+) -> bool:
+    """True iff both ids are existing ``:Node`` rows. Never creates a node."""
+    result = await session.run(
+        MATCH_BOTH_NODES_CYPHER, head_id=head_id, tail_id=tail_id
+    )
+    rows = await _fetch_all(result)
+    return bool(rows)
 
 
 def _row_get(row: Any, key: str, default: Any = None) -> Any:
@@ -539,13 +558,17 @@ async def assert_slot(
     witness_source: str = "",
     witness_target: str = "",
     provenance: dict | str | None = None,
-) -> None:
+) -> bool:
     """Assert ``tail_id_or_value`` on ``slot`` with provenance ``fonte_id``.
 
     Empty ``fonte_id`` / ``caused_by_event_id`` / ``run_id`` is a programming
     error. Duplicate ``(slot, fonte_id)`` is idempotent (one id in the
     supporting set). A retracted slot is brought back to supported when the
     same fonte re-asserts (resurrection).
+
+    Returns False when either endpoint is not an existing ``:Node`` — no
+    ``write_node_relation``, stamp, or deposit. Idempotent re-assert of an
+    already-supporting fonte on an existing slot whose endpoints exist is True.
     """
     fonte = _require_fonte_id(fonte_id)
     event_id, rid = _require_provenance(
@@ -554,6 +577,8 @@ async def assert_slot(
     tail_id = str(tail_id_or_value).strip()
     if not tail_id:
         raise ValueError("tail_id_or_value is required for slot assert")
+    if not await _both_nodes_exist(session, head_id=slot.head_id, tail_id=tail_id):
+        return False
     sid = slot_id_for(slot, tail_id)
     relation_name = (
         relation or slot.normalized_relation or _kernel_value(slot.kernel_parent)
@@ -572,7 +597,7 @@ async def assert_slot(
             fonte,
         )
         if already and _as_bool(_row_get(row, "is_latest")):
-            return
+            return True
         witnesses_b = list(_row_get(row, "witnesses_b") or [])
         if ui_target:
             witnesses_b.append(ui_target)
@@ -623,6 +648,7 @@ async def assert_slot(
             event_id=event_id,
             run_id=rid,
         )
+    return True
 
 
 async def _archive_head_summary_if_present(
@@ -671,12 +697,13 @@ async def retract_slot(
     fonte_id: str,
     caused_by_event_id: str,
     run_id: str,
-) -> None:
+) -> bool:
     """Remove ``fonte_id`` from the slot's supporting set.
 
     Unknown ``(slot, fonte_id)`` is a no-op. Empty supporting set sets
     ``is_latest=false`` and leaves the edge in place. A true no-op does not
-    write the edge; every edge that is updated still gets provenance.
+    write the edge and returns False; every edge that is updated still gets
+    provenance and the call returns True.
     """
     fonte = _require_fonte_id(fonte_id)
     event_id, rid = _require_provenance(
@@ -684,6 +711,7 @@ async def retract_slot(
     )
     sid = slot_id_for(slot)
     rows = await _find_slot_rows(session, head_id=slot.head_id, sid=sid)
+    updated = False
     for row in rows:
         tail_id = str(_row_get(row, "tail_id") or "")
         if not tail_id:
@@ -711,6 +739,7 @@ async def retract_slot(
             caused_by_event_id=event_id,
             run_id=rid,
         )
+        updated = True
         if empty and is_relation_kernel(slot.kernel_parent):
             conflict = await session.run(
                 FIND_CONFLICTING_LATEST_CYPHER,
@@ -734,6 +763,7 @@ async def retract_slot(
                         ),
                         kernel_parent=_kernel_value(slot.kernel_parent),
                     )
+    return updated
 
 
 async def append_node_revision(

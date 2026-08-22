@@ -13,6 +13,7 @@ from app.models.kernel import (
     SpecialRelationType,
 )
 from app.pipeline.event_slots import (
+    MATCH_BOTH_NODES_CYPHER,
     STAMP_SLOT_ON_LATEST_CYPHER,
     UPDATE_SLOT_EDGE_CYPHER,
     ValidatedSlot,
@@ -243,3 +244,86 @@ async def test_apply_none_performs_zero_graph_writes(stub_ingestion_side_effects
     assert session.calls == []
     sets = [cy for cy, _ in session.calls if "SET " in cy]
     assert sets == []
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"head_id": "hallucinated-head"},
+        {"tail_id": "hallucinated-tail"},
+    ],
+)
+@pytest.mark.asyncio
+async def test_hallucinated_endpoint_apply_false_zero_edges(
+    stub_ingestion_side_effects, overrides: dict
+):
+    graph = _seed(FAILED, PLACE)
+    session = FakeSession(graph)
+    before = list(graph.relations)
+    validated = validate_slot_proposal(_assert_proposal(**overrides))
+    assert validated is not None
+
+    wrote = await apply_validated_slot(session, validated, **PROV)
+
+    assert wrote is False
+    assert graph.relations == before
+    assert graph.relations == []
+    assert not any(cy is CREATE_NODE_RELATION_CYPHER for cy, _ in session.calls)
+    assert not any(cy is STAMP_SLOT_ON_LATEST_CYPHER for cy, _ in session.calls)
+    assert any(cy is MATCH_BOTH_NODES_CYPHER for cy, _ in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_idempotent_reassert_existing_endpoints_still_true(
+    stub_ingestion_side_effects,
+):
+    graph = _seed(FAILED)
+    session = FakeSession(graph)
+    validated = validate_slot_proposal(_assert_proposal())
+    assert validated is not None
+    assert await apply_validated_slot(session, validated, **PROV) is True
+    assert await apply_validated_slot(session, validated, **PROV) is True
+    assert len(graph.relations) == 1
+    creates = [cy for cy, _ in session.calls if cy is CREATE_NODE_RELATION_CYPHER]
+    assert len(creates) == 1
+
+
+@pytest.mark.asyncio
+async def test_retract_fonte_not_in_supporting_set_false_no_update(
+    stub_ingestion_side_effects,
+):
+    graph = _seed(FAILED)
+    session = FakeSession(graph)
+    asserted = validate_slot_proposal(_assert_proposal())
+    assert await apply_validated_slot(session, asserted, **PROV) is True
+    updates_before = sum(1 for cy, _ in session.calls if cy is UPDATE_SLOT_EDGE_CYPHER)
+    retracted = validate_slot_proposal(
+        _assert_proposal(verb="retract", fonte_id="fonte-never-seen", tail_id=None)
+    )
+    assert retracted is not None
+
+    wrote = await apply_validated_slot(session, retracted, **PROV)
+
+    assert wrote is False
+    assert graph.relations[0]["witness_source_ids"] == [FONTE]
+    assert graph.relations[0]["is_latest"] is True
+    updates_after = sum(1 for cy, _ in session.calls if cy is UPDATE_SLOT_EDGE_CYPHER)
+    assert updates_after == updates_before
+
+
+@pytest.mark.asyncio
+async def test_retract_supporting_fonte_returns_true(
+    stub_ingestion_side_effects,
+):
+    graph = _seed(FAILED)
+    session = FakeSession(graph)
+    asserted = validate_slot_proposal(_assert_proposal())
+    assert await apply_validated_slot(session, asserted, **PROV) is True
+    retracted = validate_slot_proposal(_assert_proposal(verb="retract", tail_id=None))
+    assert retracted is not None
+
+    wrote = await apply_validated_slot(session, retracted, **PROV)
+
+    assert wrote is True
+    assert graph.relations[0]["is_latest"] is False
+    assert FONTE not in graph.relations[0]["witness_source_ids"]
