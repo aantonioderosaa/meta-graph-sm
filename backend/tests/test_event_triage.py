@@ -534,6 +534,146 @@ async def test_waiting_events_are_attempted_before_new_batch_events(monkeypatch)
     assert find_calls[:2] == [FIND_WAITING_EVENTS_CYPHER, FIND_BATCH_EVENTS_CYPHER]
 
 
+@pytest.mark.asyncio
+async def test_verified_no_change_empty_slots_confirms_without_writes_or_window_check(
+    monkeypatch,
+):
+    apply_calls: list[object] = []
+
+    async def boom_apply(*_args, **_kwargs) -> bool:
+        apply_calls.append(1)
+        raise AssertionError("apply_validated_slot must not run when slots are empty")
+
+    monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", boom_apply)
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        return EventSlotProposal(
+            slots=[],
+            verified_no_change=True,
+            reasoning="grafo già corretto",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "confirmed"
+    assert apply_calls == []
+    assert not any(call[0] in WRITE_CYPHER for call in session.calls)
+    pending_merges = [
+        call for call in graph.calls if call[0] == MERGE_PENDING_EVENT_CONTEXT_CYPHER
+    ]
+    assert pending_merges == []
+    assert EVENT_ONE not in graph.pending
+    audit_merges = [
+        call for call in graph.calls if call[0] == MERGE_EVENT_TRIAGE_RUN_CYPHER
+    ]
+    assert len(audit_merges) == 1
+
+
+@pytest.mark.asyncio
+async def test_verified_no_change_false_empty_slots_still_waiting(monkeypatch):
+    apply_calls: list[object] = []
+
+    async def boom_apply(*_args, **_kwargs) -> bool:
+        apply_calls.append(1)
+        raise AssertionError("apply_validated_slot must not run when slots are empty")
+
+    monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", boom_apply)
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        return EventSlotProposal(
+            slots=[],
+            verified_no_change=False,
+            reasoning="cannot resolve yet",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="evento irrisolvibile")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert apply_calls == []
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+    assert EVENT_ONE in graph.pending
+    assert graph.pending[EVENT_ONE]["checks_without_progress"] == 1
+    pending_merges = [
+        call for call in graph.calls if call[0] == MERGE_PENDING_EVENT_CONTEXT_CYPHER
+    ]
+    assert len(pending_merges) == 1
+
+
+@pytest.mark.asyncio
+async def test_applied_slot_confirms_regardless_of_verified_no_change(monkeypatch):
+    applied = _stub_apply_success(monkeypatch)
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        return EventSlotProposal(
+            slots=[_valid_item()],
+            verified_no_change=True,
+            reasoning="scrittura applicata",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert applied
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "confirmed"
+    assert EVENT_ONE not in graph.pending
+    pending_merges = [
+        call for call in graph.calls if call[0] == MERGE_PENDING_EVENT_CONTEXT_CYPHER
+    ]
+    assert pending_merges == []
+
+
+@pytest.mark.asyncio
+async def test_verified_no_change_ignored_when_proposed_slots_all_fail(monkeypatch):
+    apply_calls: list[object] = []
+
+    async def miss_apply(*_args, **_kwargs) -> bool:
+        apply_calls.append(1)
+        return False
+
+    monkeypatch.setattr("app.pipeline.event_triage.apply_validated_slot", miss_apply)
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        assert model is EventSlotProposal
+        return EventSlotProposal(
+            slots=[_valid_item()],
+            verified_no_change=True,
+            reasoning="guessed ids that missed",
+        )
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="l'esperimento 5 era fallato")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert apply_calls == [1]
+    assert graph.triage_runs[EVENT_ONE]["verdict"] != "confirmed"
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+    assert EVENT_ONE in graph.pending
+    assert graph.pending[EVENT_ONE]["checks_without_progress"] == 1
+
+
 @pytest.fixture
 def stub_ingestion_side_effects(monkeypatch):
     async def _noop(*_args, **_kwargs):

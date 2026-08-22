@@ -95,7 +95,10 @@ SYSTEM_PROMPT = (
     "slot da assertire o ritrattare. kernel_parent deve essere un membro esatto "
     f"del vocabolario chiuso: {', '.join(_KERNEL_VALUES)}. "
     "Non inventare kernel_parent vicini. Non emettere Cypher. "
-    "Se non riesci a enumerare slot concreti, restituisci la lista vuota. "
+    "Se il grafo rappresenta già correttamente l'evento, restituisci slots vuota "
+    "e verified_no_change=True. Se non sai o manca contesto, restituisci slots "
+    "vuota e verified_no_change=False: non collassare «non so» in "
+    "verified_no_change. verified_no_change=True solo con lista slot vuota. "
     "reasoning breve e obbligatorio."
 )
 
@@ -121,6 +124,13 @@ class EventSlotProposal(BaseModel):
         default_factory=list,
         max_length=EVENT_TRIAGE_MAX_SLOT_FANOUT,
         description="Slot concreti toccati dall'evento, massimo fan-out",
+    )
+    verified_no_change: bool = Field(
+        default=False,
+        description=(
+            "True se il grafo rappresenta già correttamente l'evento: nessuno "
+            "slot da scrivere, ma l'evento è stato valutato con esito positivo."
+        ),
     )
     reasoning: str = Field(default="", description="Breve ragionamento")
 
@@ -229,6 +239,17 @@ def _missing_context_text(proposal: EventSlotProposal | None) -> str:
     return text or _DEFAULT_MISSING_CONTEXT
 
 
+def _honest_verified_no_change(proposal: EventSlotProposal, applied: int) -> bool:
+    """True only for an explicit positive evaluation with an empty slot list.
+
+    ``verified_no_change=True`` plus non-empty slots that all failed to apply
+    is not "already correct" — that falls through to waiting.
+    """
+    if applied >= 1 or proposal.slots:
+        return False
+    return bool(proposal.verified_no_change)
+
+
 async def _record_verdict(
     session: AsyncSession,
     *,
@@ -236,9 +257,18 @@ async def _record_verdict(
     applied: int,
     run_id: str,
     missing_context: str,
+    verified_no_change: bool = False,
 ) -> str:
-    """Write audit + pending. ``incomplete`` iff empty checks hit the listen window."""
+    """Write audit + pending.
+
+    ``confirmed`` if ``applied >= 1``, or if ``applied == 0`` and
+    ``verified_no_change`` (explicit positive evaluation; does not MERGE
+    ``:PendingEventContext`` or consume a listen-window check). Otherwise
+    ``waiting``/``incomplete`` as Macrotask 6.
+    """
     if applied >= 1:
+        verdict = "confirmed"
+    elif verified_no_change:
         verdict = "confirmed"
     else:
         result = await session.run(
@@ -294,7 +324,7 @@ async def _triage_one_event(
     session: AsyncSession,
     event: dict[str, Any],
     run_id: str,
-) -> tuple[int, str]:
+) -> tuple[int, str, bool]:
     event_id = str(event["event_id"])
     context_block = await _load_readonly_context(session, event_id)
     proposal = await call_structured(
@@ -309,7 +339,11 @@ async def _triage_one_event(
     applied = await _apply_proposal(
         session, proposal, event_id=event_id, run_id=run_id
     )
-    return applied, _missing_context_text(proposal)
+    return (
+        applied,
+        _missing_context_text(proposal),
+        _honest_verified_no_change(proposal, applied),
+    )
 
 
 async def run_event_triage(
@@ -326,8 +360,9 @@ async def run_event_triage(
             event_id = str(event.get("event_id") or "")
             applied = 0
             missing_context = _DEFAULT_MISSING_CONTEXT
+            verified_no_change = False
             try:
-                applied, missing_context = await _triage_one_event(
+                applied, missing_context, verified_no_change = await _triage_one_event(
                     session, event, run_id
                 )
                 triaged += 1
@@ -339,6 +374,7 @@ async def run_event_triage(
                 )
                 applied = 0
                 missing_context = _DEFAULT_MISSING_CONTEXT
+                verified_no_change = False
             try:
                 if event_id:
                     await _record_verdict(
@@ -347,6 +383,7 @@ async def run_event_triage(
                         applied=applied,
                         run_id=run_id,
                         missing_context=missing_context,
+                        verified_no_change=verified_no_change,
                     )
             except Exception:
                 logger.exception(
