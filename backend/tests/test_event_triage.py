@@ -16,7 +16,9 @@ from app.pipeline.event_slots import (
 )
 from app.pipeline.event_triage import (
     EVENT_TRIAGE_MAX_SLOT_FANOUT,
+    EVENT_TRIAGE_SOURCE_TEXT_CAP,
     FIND_BATCH_EVENTS_CYPHER,
+    FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER,
     FIND_WAITING_EVENTS_CYPHER,
     MERGE_EVENT_TRIAGE_RUN_CYPHER,
     MERGE_PENDING_EVENT_CONTEXT_CYPHER,
@@ -87,6 +89,7 @@ class TriageGraph:
         self.nodes: dict[str, dict] = {}
         self.triage_runs: dict[str, dict] = {}
         self.pending: dict[str, dict] = {}
+        self.source_chunks: dict[str, list[str]] = {}
         self.calls: list[tuple[str, dict]] = []
 
     def add_event(self, event_id: str, **props) -> None:
@@ -99,6 +102,9 @@ class TriageGraph:
         }
         row.update(props)
         self.nodes[event_id] = row
+
+    def add_source_chunk(self, event_id: str, text: str) -> None:
+        self.source_chunks.setdefault(event_id, []).append(text)
 
 
 class FakeSession:
@@ -178,6 +184,13 @@ def _dispatch(graph: TriageGraph, cypher: str, kwargs: dict) -> list[dict]:
             "checks_without_progress": checks,
         }
         return [{"checks_without_progress": checks}]
+    if (
+        cypher is FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER
+        or cypher == FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER
+    ):
+        event_id = str(kwargs.get("id") or "")
+        texts = getattr(graph, "source_chunks", {}).get(event_id) or []
+        return [{"text": text} for text in texts]
     return []
 
 
@@ -188,6 +201,7 @@ class SlotTriageGraph(SlotGraph):
         super().__init__()
         self.triage_runs: dict[str, dict] = {}
         self.pending: dict[str, dict] = {}
+        self.source_chunks: dict[str, list[str]] = {}
         self.calls: list[tuple[str, dict]] = []
 
     def add_event(self, event_id: str, **props) -> None:
@@ -222,6 +236,8 @@ class SlotTriageSession:
             or cypher == MERGE_EVENT_TRIAGE_RUN_CYPHER
             or cypher is MERGE_PENDING_EVENT_CONTEXT_CYPHER
             or cypher == MERGE_PENDING_EVENT_CONTEXT_CYPHER
+            or cypher is FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER
+            or cypher == FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER
         ):
             return FakeResult(_dispatch(self.graph, cypher, params))
         try:
@@ -672,6 +688,76 @@ async def test_verified_no_change_ignored_when_proposed_slots_all_fail(monkeypat
     assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
     assert EVENT_ONE in graph.pending
     assert graph.pending[EVENT_ONE]["checks_without_progress"] == 1
+
+
+def test_source_chunk_text_cypher_is_readonly():
+    query = FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER
+    folded = " ".join(query.upper().split())
+    assert "MATCH" in folded
+    assert "RETURN" in folded
+    assert "DERIVED_FROM" in folded
+    assert ":CHUNK" in folded
+    for token in ("CREATE", "MERGE", "SET", "DELETE"):
+        assert token not in folded
+    assert EVENT_TRIAGE_SOURCE_TEXT_CAP >= 1000
+    assert EVENT_TRIAGE_SOURCE_TEXT_CAP <= 8000
+
+
+@pytest.mark.asyncio
+async def test_source_chunk_phrase_reaches_prompt_when_summary_paraphrases(
+    monkeypatch,
+):
+    llm_calls: list[str] = []
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        llm_calls.append(user)
+        assert model is EventSlotProposal
+        return EventSlotProposal(slots=[], reasoning="saw original phrasing")
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(
+        EVENT_ONE,
+        name="esperimento 5",
+        summary="the fifth experiment did not succeed",
+    )
+    graph.add_source_chunk(EVENT_ONE, "Nel diario: l'esperimento 5 era fallato.")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert llm_calls
+    prompt = llm_calls[0]
+    assert "era fallato" in prompt
+    assert "the fifth experiment did not succeed" in prompt
+    assert "source_chunk_text=" in prompt
+    assert any(call[0] == FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER for call in session.calls)
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+
+
+@pytest.mark.asyncio
+async def test_missing_derived_from_still_triages(monkeypatch):
+    llm_calls: list[str] = []
+
+    async def fake_llm(_system, user, model, **_kwargs):
+        llm_calls.append(user)
+        assert model is EventSlotProposal
+        return EventSlotProposal(slots=[], reasoning="no source chunk")
+
+    monkeypatch.setattr("app.pipeline.event_triage.call_structured", fake_llm)
+
+    graph = TriageGraph()
+    graph.add_event(EVENT_ONE, summary="bland paraphrase without original phrasing")
+    session = FakeSession(graph)
+
+    await run_event_triage(session, "run-1", touched_ids=[EVENT_ONE])
+
+    assert llm_calls
+    assert "source_chunk_text=" not in llm_calls[0]
+    assert graph.triage_runs[EVENT_ONE]["verdict"] == "waiting"
+    assert EVENT_ONE in graph.pending
+    assert any(call[0] == FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER for call in session.calls)
 
 
 @pytest.fixture

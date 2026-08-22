@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 # CONNECTIVITY_MAX_GENERALIZATION_HOPS). Module constant, not a Settings flag.
 EVENT_TRIAGE_MAX_SLOT_FANOUT = 8
 
+# Concatenated :Chunk.text from DERIVED_FROM, injected into the free turn-0
+# observation. A few thousand chars is enough; a long document must not blow
+# the prompt. Not a ReAct turn.
+EVENT_TRIAGE_SOURCE_TEXT_CAP = 4000
+
 # UI fallback when the LLM returns zero slots and empty reasoning.
 _DEFAULT_MISSING_CONTEXT = "no resolvable slots"
 
@@ -84,6 +89,14 @@ SET p.event_id = $event_id,
     p.last_checked_run_id = $run_id,
     p.checks_without_progress = coalesce(p.checks_without_progress, 0) + 1
 RETURN p.checks_without_progress AS checks_without_progress
+"""
+
+# Turn-0 read of the original phrasing. get_metadata / NodeMetadataResponse
+# expose name/summary/attributes/identity_uris only — they do not traverse
+# DERIVED_FROM to :Chunk.text. Sola lettura: MATCH/RETURN, no writes.
+FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER = """
+MATCH (e:Node {id: $id})-[:DERIVED_FROM]->(c:Chunk)
+RETURN c.text AS text
 """
 
 _KERNEL_VALUES = tuple(
@@ -175,6 +188,35 @@ async def _fetch_all(result: Any) -> list[Any]:
     return rows
 
 
+async def _load_source_chunk_text(session: AsyncSession, event_id: str) -> str:
+    """Read-only original phrasing from ``(event)-[:DERIVED_FROM]->(:Chunk)``.
+
+    Missing edges or empty ``c.text`` omit source text; never raises.
+    Concatenation is capped so a long document cannot blow the prompt.
+    """
+    try:
+        result = await session.run(FIND_EVENT_SOURCE_CHUNK_TEXT_CYPHER, id=event_id)
+        rows = await _fetch_all(result)
+    except Exception:
+        logger.debug(
+            "event_triage source chunk text failed event_id=%s",
+            event_id,
+            exc_info=True,
+        )
+        return ""
+    parts: list[str] = []
+    for row in rows:
+        raw = _row_get(row, "text")
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            parts.append(text)
+    if not parts:
+        return ""
+    return "\n\n".join(parts)[:EVENT_TRIAGE_SOURCE_TEXT_CAP]
+
+
 async def _load_readonly_context(session: AsyncSession, event_id: str) -> str:
     relations: Any = []
     metadata: Any = None
@@ -186,10 +228,14 @@ async def _load_readonly_context(session: AsyncSession, event_id: str) -> str:
         metadata = await get_metadata(session, event_id)
     except Exception:
         logger.debug("event_triage get_metadata failed event_id=%s", event_id, exc_info=True)
-    return (
-        f"metadata={_brief(metadata)}\n"
-        f"relations={_brief(relations)}"
-    )
+    source_text = await _load_source_chunk_text(session, event_id)
+    lines = [
+        f"metadata={_brief(metadata)}",
+        f"relations={_brief(relations)}",
+    ]
+    if source_text:
+        lines.append(f"source_chunk_text={source_text}")
+    return "\n".join(lines)
 
 
 def _user_prompt(event: dict[str, Any], context_block: str) -> str:
