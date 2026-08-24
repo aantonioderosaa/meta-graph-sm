@@ -5,7 +5,7 @@
  * R3.3: reset KB with explicit two-step confirmation dialog.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,28 @@ import {
 import { useAppStore } from "@/lib/store";
 import type { DocumentSummary } from "@/lib/types";
 
+// Solo ciò che l'ingestione sa leggere (chunking.py lavora su testo semplice;
+// niente parsing binario/PDF/docx). L'estensione è l'unico segnale lato
+// client: `accept` filtra il selettore, il controllo qui sotto sul nome file
+// è la vera barriera — un utente può forzare "tutti i file" nel dialog del
+// sistema operativo, `accept` da solo non basta.
+const ALLOWED_EXTENSIONS = [".md", ".txt"] as const;
+
+function hasAllowedExtension(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function docIdFromFilename(filename: string): string {
+  const base = filename.replace(/\.[^./\\]+$/, "");
+  const slug = base
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "doc-1";
+}
+
 export function DocumentsPage() {
   const setActiveJobId = useAppStore((s) => s.setActiveJobId);
   const lastPipelineEvent = useAppStore((s) => s.lastPipelineEvent);
@@ -37,6 +59,8 @@ export function DocumentsPage() {
   const [docText, setDocText] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -94,6 +118,33 @@ export function DocumentsPage() {
       setStatus(err instanceof Error ? err.message : "Ingest fallito");
     } finally {
       setBusy(false);
+    }
+  }
+
+  function onPickFile() {
+    setFileError(null);
+    fileInputRef.current?.click();
+  }
+
+  async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset immediately so selecting the same file twice still fires onChange.
+    e.target.value = "";
+    if (!file) return;
+    if (!hasAllowedExtension(file.name)) {
+      setFileError(
+        `Formato non supportato (${file.name}). Solo .md e .txt — la pipeline legge testo semplice, non PDF/DOCX/altri binari.`,
+      );
+      return;
+    }
+    setFileError(null);
+    try {
+      const text = await file.text();
+      setDocText(text);
+      setDocId(docIdFromFilename(file.name));
+      setStatus(`File caricato: ${file.name} (${text.length} caratteri) — controlla e premi Ingest.`);
+    } catch {
+      setFileError(`Impossibile leggere ${file.name}.`);
     }
   }
 
@@ -222,6 +273,21 @@ export function DocumentsPage() {
             />
           </label>
           <div className="flex gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".md,.txt,text/markdown,text/plain"
+              className="hidden"
+              onChange={(e) => void onFileSelected(e)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={onPickFile}
+            >
+              Carica file (.md/.txt)
+            </Button>
             <Button
               size="sm"
               disabled={busy || !docText.trim()}
@@ -239,6 +305,11 @@ export function DocumentsPage() {
             </Button>
           </div>
         </div>
+        {fileError ? (
+          <p className="text-xs text-destructive" role="alert">
+            {fileError}
+          </p>
+        ) : null}
         {status ? <p className="text-xs text-foreground">{status}</p> : null}
       </section>
 

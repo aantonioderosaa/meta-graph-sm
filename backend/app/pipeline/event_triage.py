@@ -39,6 +39,7 @@ from app.pipeline.context_retrieval import (
     search_vector,
 )
 from app.pipeline.event_slots import apply_validated_slot, validate_slot_proposal
+from app.pipeline.relevance_gate import extract_named_witnesses
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,20 @@ EVENT_TRIAGE_MAX_SLOT_FANOUT = 8
 # observation. A few thousand chars is enough; a long document must not blow
 # the prompt. Not a ReAct turn.
 EVENT_TRIAGE_SOURCE_TEXT_CAP = 4000
+
+# Deterministic pre-fetch, run before the ReAct loop for every event. Closes a
+# real failure mode observed in production: a turn can simply omit
+# search_fulltext/search_vector even though the system prompt asks for it —
+# an event naming two already-existing entities ("Sole", "Vento") was judged
+# "not representable in the graph" because the model never searched, even
+# though a plain fulltext query for either name ranked the existing :Node
+# first. Every proper-noun-looking mention in the event's own text (name +
+# summary + source chunk) is searched here, unconditionally, so discovery
+# does not depend on the model choosing to look. The ReAct loop keeps
+# search_fulltext/search_vector for anything this miss (implicit references,
+# disambiguation among near-duplicates).
+EVENT_TRIAGE_PREFETCH_MAX_CANDIDATES = 5
+EVENT_TRIAGE_PREFETCH_HITS_PER_CANDIDATE = 3
 
 # UI fallback when the LLM returns zero slots and empty reasoning.
 _DEFAULT_MISSING_CONTEXT = "no resolvable slots"
@@ -140,9 +155,12 @@ SYSTEM_PROMPT = (
     "modifica» (propose con slot concreti). Non collassare i due esiti nella "
     "stessa risposta vuota. Se non sai o manca contesto dopo aver cercato, "
     "propose con slots vuota e verified_no_change=False. "
-    "Se un'entità nominata nell'evento non compare nelle osservazioni finora, "
-    "cerca (search_fulltext / search_vector) prima di arrenderti: non dichiarare "
-    "subito non risolvibile. "
+    "Le entità nominate nel testo dell'evento sono già state cercate "
+    "automaticamente (osservazioni «prefetch_search[nome]=...»): guardale "
+    "prima di dichiarare che un'entità non esiste nel grafo. "
+    "Se un'entità nominata nell'evento non compare né nel prefetch né nelle "
+    "osservazioni finora, cerca comunque (search_fulltext / search_vector) "
+    "prima di arrenderti: non dichiarare subito non risolvibile. "
     "Non inventare un id: uno slot il cui head o tail non è stato osservato "
     "nel turno 0 o in un risultato search/get_* non va proposto. "
     "Il giudice non crea mai nuovi :Node — assert/retract solo su nodi già "
@@ -362,29 +380,97 @@ async def _load_source_chunk_text(session: AsyncSession, event_id: str) -> str:
     return "\n\n".join(parts)[:EVENT_TRIAGE_SOURCE_TEXT_CAP]
 
 
+async def _prefetch_named_candidates(
+    session: AsyncSession,
+    *,
+    event: dict[str, Any],
+    source_text: str,
+    already_known_text: str,
+    observed: set[str],
+) -> list[str]:
+    """Search proper-noun mentions in the event's text that turn 0 didn't already cover.
+
+    Runs before the ReAct loop — entity discovery for the common case (named
+    entities in the event's own phrasing) never depends on the model deciding
+    to call search_fulltext. ``already_known_text`` is the relations+metadata
+    dump already fetched for this event: a candidate name literally present
+    there is already linked in the graph, so searching it again would be a
+    wasted call for no new information — skip it. A candidate absent from
+    ``already_known_text`` is exactly the failure mode this closes (an event
+    with no pre-linked participants, e.g. "Sole"/"Vento" never reached via
+    ``get_relations`` on the event itself). Bounded: at most
+    ``EVENT_TRIAGE_PREFETCH_MAX_CANDIDATES`` names, each fulltext-searched for
+    at most ``EVENT_TRIAGE_PREFETCH_HITS_PER_CANDIDATE`` hits — cost scales
+    with this one event's text, not with the KB.
+    """
+    blob = " ".join(
+        part
+        for part in (event.get("name"), event.get("summary"), source_text)
+        if part
+    )
+    candidates = extract_named_witnesses(blob)[:EVENT_TRIAGE_PREFETCH_MAX_CANDIDATES]
+    known_folded = already_known_text.casefold()
+    observations: list[str] = []
+    for name in candidates:
+        if name.casefold() in known_folded:
+            continue
+        try:
+            hits = await search_fulltext(
+                session, name, k=EVENT_TRIAGE_PREFETCH_HITS_PER_CANDIDATE
+            )
+        except Exception:
+            logger.debug(
+                "event_triage prefetch search failed name=%s", name, exc_info=True
+            )
+            continue
+        _collect_observed_ids(hits, observed)
+        observations.append(f"prefetch_search[{name}]={_brief(hits)}")
+    return observations
+
+
 async def _seed_turn0(
-    session: AsyncSession, event_id: str
+    session: AsyncSession, event: dict[str, Any]
 ) -> tuple[list[str], set[str]]:
-    """Free turn 0: relations + metadata + source chunk text. Not an LLM turn."""
+    """Free turn 0: relations + metadata + source text + prefetch. Not an LLM turn."""
+    event_id = str(event["event_id"])
     observed: set[str] = {event_id}
     observations: list[str] = []
+    # Separate from `observations`: only what's already linked in the graph
+    # (relations + metadata), never the raw event text itself — the event's
+    # own sentence always contains its own entity names, which would make the
+    # "already known" check in _prefetch_named_candidates always true and
+    # silently skip the exact search it exists to run.
+    graph_known: list[str] = []
     try:
         relations = await get_relations(session, event_id)
         _collect_observed_ids(relations, observed)
-        observations.append(f"relations={_brief(relations)}")
+        text = f"relations={_brief(relations)}"
+        observations.append(text)
+        graph_known.append(text)
     except Exception as exc:
         logger.debug("event_triage get_relations failed event_id=%s", event_id, exc_info=True)
         observations.append(f"relations=tool_error: {exc}")
     try:
         metadata = await get_metadata(session, event_id)
         _collect_observed_ids(metadata, observed)
-        observations.append(f"metadata={_brief(metadata)}")
+        text = f"metadata={_brief(metadata)}"
+        observations.append(text)
+        graph_known.append(text)
     except Exception as exc:
         logger.debug("event_triage get_metadata failed event_id=%s", event_id, exc_info=True)
         observations.append(f"metadata=tool_error: {exc}")
     source_text = await _load_source_chunk_text(session, event_id)
     if source_text:
         observations.append(f"source_chunk_text={source_text}")
+    observations.extend(
+        await _prefetch_named_candidates(
+            session,
+            event=event,
+            source_text=source_text,
+            already_known_text=" ".join(graph_known),
+            observed=observed,
+        )
+    )
     return observations, observed
 
 
@@ -555,7 +641,7 @@ async def _triage_one_event(
     # text. The LLM loop below has up to EVENT_TRIAGE_MAX_TURNS turns to
     # search / inspect / propose. Immediate propose is one call_structured —
     # same cost as the former one-shot.
-    observations, observed = await _seed_turn0(session, event_id)
+    observations, observed = await _seed_turn0(session, event)
     max_turns = max(1, int(settings.EVENT_TRIAGE_MAX_TURNS))
     proposal: EventSlotProposal | None = None
     for turn in range(max_turns):
