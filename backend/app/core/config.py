@@ -28,7 +28,11 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
     RERANK_MODEL: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     AUTO_MIGRATE: bool = True
-    LLM_MAX_CONCURRENCY: int = 5
+    # Local 30B models (LM Studio) cannot finish structured JSON in 30s once a
+    # few requests share the GPU; 4 in-flight + a long read timeout lets each
+    # call finish instead of disconnecting mid-prefill.
+    LLM_MAX_CONCURRENCY: int = 4
+    LLM_CALL_TIMEOUT_SECONDS: float = 180.0
     CORS_ORIGINS: str = "http://localhost:3000"
     # Temporary kill-switch: `derives` semantics need rework (see milestone1-tech-spec
     # discussion) — while False, consolidation groups skip abstraction entirely and each

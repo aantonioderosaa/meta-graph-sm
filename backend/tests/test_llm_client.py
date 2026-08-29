@@ -79,9 +79,16 @@ async def test_pydantic_validation_error_no_retry():
     assert mock_call.await_count == 1
 
 
+def test_request_timeout_uses_configured_read_seconds(monkeypatch):
+    monkeypatch.setattr(llm_client.settings, "LLM_CALL_TIMEOUT_SECONDS", 180)
+    timeout = llm_client._request_timeout()
+    assert timeout.read == 180
+    assert timeout.connect == 10.0
+
+
 @pytest.mark.asyncio
 async def test_semaphore_limits_concurrent_calls():
-    llm_client.reset_llm_client(concurrency=5)
+    llm_client.reset_llm_client(concurrency=4)
     in_flight = 0
     max_in_flight = 0
     lock = asyncio.Lock()
@@ -107,7 +114,7 @@ async def test_semaphore_limits_concurrent_calls():
             *[call_structured("sys", "user", DummyModel) for _ in range(6)]
         )
 
-    assert max_in_flight <= 5
+    assert max_in_flight <= 4
     assert mock_parse.await_count == 6
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TypeVar
 
+import httpx
 from openai import APITimeoutError, AsyncOpenAI, RateLimitError
 from pydantic import BaseModel, ValidationError
 from tenacity import (
@@ -18,8 +19,6 @@ from app.core.config import settings
 
 T = TypeVar("T", bound=BaseModel)
 
-CALL_TIMEOUT_SECONDS = 30.0
-
 _semaphore = asyncio.Semaphore(settings.LLM_MAX_CONCURRENCY)
 _token_usage: dict[str, int] = {}
 _client: AsyncOpenAI | None = None
@@ -29,13 +28,19 @@ class LLMValidationError(Exception):
     """Raised when structured output fails Pydantic validation (no retry)."""
 
 
+def _request_timeout() -> httpx.Timeout:
+    """Connect fails fast; read waits for the full local-model generation."""
+    read = float(settings.LLM_CALL_TIMEOUT_SECONDS)
+    return httpx.Timeout(connect=10.0, read=read, write=60.0, pool=10.0)
+
+
 def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
         _client = AsyncOpenAI(
             api_key=settings.OPENAI_API_KEY,
             base_url=settings.OPENAI_BASE_URL or None,
-            timeout=CALL_TIMEOUT_SECONDS,
+            timeout=_request_timeout(),
         )
     return _client
 
