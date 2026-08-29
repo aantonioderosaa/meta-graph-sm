@@ -2,38 +2,25 @@
 
 Runs once at the end of each dreaming batch (after ``reconcile``). Writes only
 through existing primitives: INGEST-style ``:Relation`` witness splits (no new
-S2 facts), ``PROMOTE``/``MEMBER_OF`` moves, Famiglia B
-(``EQUIVALENT_TO``, ``SAME_AS``, ``NOT_SAME_AS``, ``CONTRADICTS``,
-``SUPERSEDES``, ``UPDATED_BY``), and ``link_as_facet`` / ``mark_not_same_as``.
-No new kernel types.
+S2 facts), ``PROMOTE``/``MEMBER_OF`` moves, and Famiglia B ``EQUIVALENT_TO`` /
+``SUPERSEDES`` / ``UPDATED_BY``. No new kernel types.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from neo4j import AsyncSession
-from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.core.llm_client import call_structured
 from app.models.kernel import IS_A, MEMBER_OF, EntityKernelType
 from app.models.relations import RelationLabel
 from app.pipeline.concepts import compute_hash_id, genre_concept_id
 from app.pipeline.entity_relation_resolution import map_temporal_transition
-from app.pipeline.identity_resolution import (
-    cosine,
-    ensure_identity_node,
-    identity_uri_from_facet_ids,
-    identity_uri_from_name,
-    link_as_facet,
-    mark_not_same_as,
-)
-from app.pipeline.ingestion import write_contradicts
-from app.pipeline.node_resolution import prefer_recent_summary
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +37,24 @@ class JudgeStats:
     anti_blur: int = 0
     equivalent_to: int = 0
     reraffine: int = 0
-    identity: int = 0
-    missed_contradictions: int = 0
     temporal: int = 0
 
 
-class IdentityVerdict(BaseModel):
-    """LLM verdict for a residual POSSIBLY_SAME_AS pair (F10.5)."""
-
-    decision: Literal["same_as", "not_same_as", "defer"] = Field(
-        description="same_as, not_same_as, or defer if evidence is insufficient"
-    )
+def cosine(a: list[float], b: list[float]) -> float:
+    """Pure-Python cosine similarity. Empty / length-mismatch / zero-norm → 0.0."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+    for x, y in zip(a, b, strict=True):
+        fx, fy = float(x), float(y)
+        dot += fx * fy
+        norm_a += fx * fx
+        norm_b += fy * fy
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (math.sqrt(norm_a) * math.sqrt(norm_b))
 
 
 FIND_BLURRED_RELATIONS_CYPHER = """
@@ -131,39 +125,6 @@ MATCH (child:Concept {{id: $child_id}})
 CREATE (n)-[:{_MEMBER_OF_REL}]->(child)
 """
 
-FIND_POSSIBLY_SAME_AS_CYPHER = """
-MATCH (a:Node)-[r:POSSIBLY_SAME_AS]->(b:Node)
-RETURN a.id AS id_a, a.name AS name_a, a.summary AS summary_a,
-       a.kernel_category AS kernel_a, a.created_at AS created_a,
-       b.id AS id_b, b.name AS name_b, b.summary AS summary_b,
-       b.kernel_category AS kernel_b, b.created_at AS created_b
-"""
-
-DELETE_POSSIBLY_SAME_AS_CYPHER = """
-MATCH (a:Node {id: $src_id})-[r:POSSIBLY_SAME_AS]-(b:Node {id: $dst_id})
-DELETE r
-"""
-
-FIND_MISSED_CONTRADICTIONS_CYPHER = """
-MATCH (h:Node)-[r1:Relation]->(t1:Node)
-MATCH (h)-[r2:Relation]->(t2:Node)
-WHERE r1.is_latest = true AND r2.is_latest = true
-  AND t1.id < t2.id
-  AND coalesce(r1.kernel_parent, '') = coalesce(r2.kernel_parent, '')
-  AND NOT (t1)-[:CONTRADICTS]-(t2)
-  AND NOT (t1)-[:SUPERSEDES]-(t2)
-  AND NOT (t1)-[:UPDATED_BY]-(t2)
-  AND (
-    size($touched_ids) = 0
-    OR h.id IN $touched_ids
-    OR t1.id IN $touched_ids
-    OR t2.id IN $touched_ids
-  )
-RETURN h.id AS head_id, t1.id AS tail_a, t2.id AS tail_b,
-       coalesce(r1.relation, '') AS relation,
-       coalesce(r1.kernel_parent, '') AS kernel_parent
-"""
-
 FIND_CONTRADICTS_PAIRS_CYPHER = """
 MATCH (a:Node)-[c:CONTRADICTS]->(b:Node)
 OPTIONAL MATCH (h1:Node)-[r1:Relation]->(a)
@@ -204,17 +165,8 @@ SET j.batch_id = $batch_id,
     j.anti_blur = $anti_blur,
     j.equivalent_to = $equivalent_to,
     j.reraffine = $reraffine,
-    j.identity = $identity,
-    j.missed_contradictions = $missed_contradictions,
     j.temporal = $temporal
 """
-
-_IDENTITY_SYSTEM_PROMPT = (
-    "Confronta due faccette collegate da POSSIBLY_SAME_AS e decidi se sono la "
-    "stessa identità (same_as), omonimi distinti (not_same_as), o se l'evidenza "
-    "non basta (defer). Non fondere i nodi: same_as significa solo confermare "
-    "le faccette. Rispondi solo secondo lo schema."
-)
 
 
 async def requeue_pair(witness_a: str, witness_b: str) -> None:
@@ -286,8 +238,6 @@ async def _log_judge_run(session: AsyncSession, job_id: str, stats: JudgeStats) 
         anti_blur=stats.anti_blur,
         equivalent_to=stats.equivalent_to,
         reraffine=stats.reraffine,
-        identity=stats.identity,
-        missed_contradictions=stats.missed_contradictions,
         temporal=stats.temporal,
     )
 
@@ -373,95 +323,6 @@ async def _task_reraffine(
     return count
 
 
-async def _identity_verdict(
-    job_id: str,
-    name_a: str,
-    summary_a: str,
-    name_b: str,
-    summary_b: str,
-) -> IdentityVerdict:
-    user_prompt = (
-        f'FACCETTA A: nome="{name_a}" summary="{summary_a}"\n'
-        f'FACCETTA B: nome="{name_b}" summary="{summary_b}"\n'
-        "Decidi same_as, not_same_as, o defer."
-    )
-    return await call_structured(
-        _IDENTITY_SYSTEM_PROMPT,
-        user_prompt,
-        IdentityVerdict,
-        temperature=0,
-        job_id=job_id,
-    )
-
-
-async def _task_identity(session: AsyncSession, job_id: str) -> int:
-    result = await session.run(FIND_POSSIBLY_SAME_AS_CYPHER)
-    pairs: list[dict[str, Any]] = [dict(record) async for record in result]
-    count = 0
-    for row in pairs:
-        id_a = str(row["id_a"])
-        id_b = str(row["id_b"])
-        try:
-            verdict = await _identity_verdict(
-                job_id,
-                str(row.get("name_a") or ""),
-                str(row.get("summary_a") or ""),
-                str(row.get("name_b") or ""),
-                str(row.get("summary_b") or ""),
-            )
-        except Exception:
-            logger.exception("judge_identity_llm_failed %s %s", id_a, id_b)
-            continue
-        decision = verdict.decision
-        if decision == "defer":
-            continue
-        if decision == "same_as":
-            name_a = str(row.get("name_a") or "")
-            kernel_a = str(row.get("kernel_a") or "")
-            if name_a and kernel_a:
-                uri = identity_uri_from_name(name_a, kernel_a)
-            else:
-                uri = identity_uri_from_facet_ids([id_a, id_b])
-            summary = prefer_recent_summary(
-                str(row.get("summary_a") or ""),
-                row.get("created_a"),
-                str(row.get("summary_b") or ""),
-                row.get("created_b"),
-            )
-            await ensure_identity_node(session, uri=uri, canonical_summary=summary)
-            await link_as_facet(session, uri, id_a)
-            await link_as_facet(session, uri, id_b)
-            await session.run(DELETE_POSSIBLY_SAME_AS_CYPHER, src_id=id_a, dst_id=id_b)
-            count += 1
-            continue
-        if decision == "not_same_as":
-            await mark_not_same_as(session, id_a, id_b)
-            await session.run(DELETE_POSSIBLY_SAME_AS_CYPHER, src_id=id_a, dst_id=id_b)
-            count += 1
-    return count
-
-
-async def _task_missed_contradictions(
-    session: AsyncSession,
-    touched_ids: Sequence[str] | None = None,
-) -> int:
-    ids = [str(nid) for nid in (touched_ids or []) if str(nid)]
-    result = await session.run(FIND_MISSED_CONTRADICTIONS_CYPHER, touched_ids=ids)
-    pairs: list[dict[str, Any]] = [dict(record) async for record in result]
-    count = 0
-    for row in pairs:
-        await write_contradicts(
-            session,
-            left_id=str(row["tail_a"]),
-            right_id=str(row["tail_b"]),
-            subject_id=str(row["head_id"]),
-            relation=str(row.get("relation") or "contradicts"),
-            kernel_parent=str(row.get("kernel_parent") or "contradicts"),
-        )
-        count += 1
-    return count
-
-
 async def _task_temporal(session: AsyncSession) -> int:
     result = await session.run(FIND_CONTRADICTS_PAIRS_CYPHER)
     pairs: list[dict[str, Any]] = [dict(record) async for record in result]
@@ -520,11 +381,11 @@ async def run_judge(
     on_requeue: RequeuePair | None = None,
     touched_ids: Sequence[str] | None = None,
 ) -> JudgeStats:
-    """Six post-batch tasks, optional event triage, then ``:JudgeRun``.
+    """Four post-batch tasks, optional event triage, then ``:JudgeRun``.
 
-    ``touched_ids`` scopes missed-contradiction pairing to the current batch
-    when non-empty; omitted or empty keeps the full-scan (debug/manual).
-    Event triage runs only if ``ENABLE_EVENT_TRIAGE`` (default off).
+    ``touched_ids`` is kept for the event-triage call below (scopes which
+    events are eligible for this batch). Event triage runs only if
+    ``ENABLE_EVENT_TRIAGE`` (default off).
     """
     stats = JudgeStats()
     if not settings.ENABLE_JUDGE:
@@ -538,10 +399,6 @@ async def run_judge(
     stats.anti_blur = await _task_anti_blur(session, requeue=requeue)
     stats.equivalent_to = await _task_equivalent_to(session, threshold)
     stats.reraffine = await _task_reraffine(session, parent_ids)
-    stats.identity = await _task_identity(session, job_id)
-    stats.missed_contradictions = await _task_missed_contradictions(
-        session, touched_ids=touched_ids
-    )
     stats.temporal = await _task_temporal(session)
     if settings.ENABLE_EVENT_TRIAGE:
         await _task_event_triage(session, job_id, touched_ids=touched_ids)

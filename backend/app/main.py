@@ -14,6 +14,15 @@ from app.core.config import settings
 from app.core.neo4j_client import close_neo4j_driver, init_neo4j_driver
 from app.db.schema import apply_schema
 
+# No prior basicConfig anywhere in the app: without it, whether logger.exception()
+# (used throughout dreaming.py/backbone.py/event_triage.py/...) reaches the
+# console at all — and in what format — depends on unreliable defaults. This
+# guarantees every module logger (logging.getLogger(__name__)) inherits a
+# root handler that prints level + logger name + message consistently.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 

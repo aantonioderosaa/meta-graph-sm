@@ -79,10 +79,6 @@ def _disable_temporal(monkeypatch) -> None:
         "app.pipeline.entity_relation_resolution.settings.ENABLE_TEMPORAL_TRANSITIONS",
         False,
     )
-    monkeypatch.setattr(
-        "app.pipeline.entity_relation_resolution.settings.ENABLE_FACET_IDENTITY",
-        False,
-    )
 
 
 async def _boom_classify(*_args, **_kwargs):

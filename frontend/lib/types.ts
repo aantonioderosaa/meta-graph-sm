@@ -93,7 +93,6 @@ export interface NodeMetadataResponse {
   member_count?: number | null;
   summary?: string | null;
   attributes?: Record<string, unknown>;
-  identity_uris?: string[];
   node_type?: "entity" | "event" | string | null;
 }
 
@@ -220,31 +219,6 @@ export interface GetGraphLimitParams {
   limit?: number;
 }
 
-export interface IdentityFacet {
-  id: string;
-  name: string;
-  kernel_category?: string | null;
-}
-
-export interface IdentityItem {
-  uri: string;
-  facets: IdentityFacet[];
-}
-
-export interface IdentityListResponse {
-  items: IdentityItem[];
-}
-
-export interface UnlinkFacetRequest {
-  facet_node_id: string;
-}
-
-export interface UnlinkFacetResponse {
-  unlinked: boolean;
-  identity_uri: string;
-  facet_node_id: string;
-}
-
 export interface ContradictionItem {
   id: string;
   left_id: string;
@@ -277,8 +251,6 @@ export interface JudgeRunItem {
   anti_blur: number;
   equivalent_to: number;
   reraffine: number;
-  identity: number;
-  missed_contradictions: number;
   temporal: number;
 }
 

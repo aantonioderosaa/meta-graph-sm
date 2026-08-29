@@ -1,4 +1,5 @@
-"""Fase 14.3: six Doc1 §13 kernel stress cases. FakeSession, no Docker."""
+"""Fase 14.3: Doc1 §13 kernel stress cases (§13.1 / §13.4 facet-identity cases
+removed with identity_resolution.py). FakeSession, no Docker."""
 
 from __future__ import annotations
 
@@ -10,23 +11,13 @@ import pytest
 
 from app.models.kernel import EntityKernelType, RelationKernelType, SpecialRelationType
 from app.models.query import NodeSubgraph, NodeSubgraphRelationship
-from app.pipeline.identity_resolution import (
-    SAME_AS,
-    UNLINK_FACET_CYPHER,
-    ensure_identity_node,
-    identity_uri_from_facet_ids,
-    link_as_facet,
-    unlink_facet,
-)
 from app.pipeline.ingestion import write_contradicts, write_node_relation
 from app.pipeline.judge import run_judge
 from app.pipeline.node_query_engine import (
     derive_candidate_links,
-    infer_kernel_categories,
     label_query_citations,
 )
 from app.pipeline.promote import is_skipped_relation
-from tests.test_acceptance_identity_facets import IdentityGraph
 from tests.test_acceptance_judge import JudgeGraph
 from tests.test_acceptance_s0_s1_s2 import GraphSession, _seed_player_coach
 
@@ -55,79 +46,6 @@ def _assert_categories_closed(values: list[str | None]) -> None:
 @pytest.fixture
 def embed_stub(monkeypatch):
     monkeypatch.setattr("app.pipeline.ingestion.embeddings.embed", lambda _t: [0.1] * 8)
-
-
-@pytest.mark.asyncio
-async def test_cross_category_entity_uses_two_facets_not_one_node(monkeypatch):
-    """§13.1 Ditta individuale: Agente + CostruttoSociale as two facets, not one node."""
-    monkeypatch.setattr(
-        "app.pipeline.identity_resolution.settings.ENABLE_FACET_IDENTITY",
-        True,
-    )
-    graph = IdentityGraph()
-    graph.add_node(
-        "mario-persona",
-        name="Mario Rossi",
-        kernel_category=EntityKernelType.Agente.value,
-        type="entity",
-    )
-    graph.add_node(
-        "rossi-snc",
-        name="Rossi Snc",
-        kernel_category=EntityKernelType.CostruttoSociale.value,
-        type="entity",
-    )
-    uri = identity_uri_from_facet_ids(["mario-persona", "rossi-snc"])
-    await ensure_identity_node(graph, uri=uri, canonical_summary="Ditta individuale")
-    await link_as_facet(graph, uri, "mario-persona")
-    await link_as_facet(graph, uri, "rossi-snc")
-
-    cats = {
-        graph.nodes["mario-persona"]["kernel_category"],
-        graph.nodes["rossi-snc"]["kernel_category"],
-    }
-    assert cats == {
-        EntityKernelType.Agente.value,
-        EntityKernelType.CostruttoSociale.value,
-    }
-    assert not any(
-        len({graph.nodes[nid].get("kernel_category")}) > 1
-        for nid in ("mario-persona", "rossi-snc")
-    )
-    combined = [
-        n
-        for n in graph.nodes.values()
-        if n.get("kernel_category")
-        not in {EntityKernelType.Agente.value, EntityKernelType.CostruttoSociale.value}
-        and n.get("kernel_category") not in _ENTITY_VALUES
-    ]
-    assert combined == []
-    assert len(EntityKernelType) == 8
-    _assert_categories_closed([n.get("kernel_category") for n in graph.nodes.values()])
-
-    persona_hits = [
-        n
-        for n in graph.nodes.values()
-        if n.get("kernel_category") in infer_kernel_categories("quale Persona è titolare?")
-    ]
-    org_hits = [
-        n
-        for n in graph.nodes.values()
-        if n.get("kernel_category")
-        in infer_kernel_categories("quale Organizzazione è la ditta?")
-    ]
-    assert {n["id"] for n in persona_hits} == {"mario-persona"}
-    assert {n["id"] for n in org_hits} == {"rossi-snc"}
-
-    node_ids_before = set(graph.nodes)
-    await unlink_facet(graph, uri, "mario-persona")
-    assert set(graph.nodes) == node_ids_before
-    assert "mario-persona" in graph.nodes
-    assert "rossi-snc" in graph.nodes
-    compact = " ".join(UNLINK_FACET_CYPHER.split())
-    assert "DELETE r" in compact
-    assert "DELETE facet" not in compact
-    assert "DETACH DELETE" not in UNLINK_FACET_CYPHER
 
 
 @pytest.mark.asyncio
@@ -206,121 +124,11 @@ async def test_equivalent_refinements_from_sister_domains_collapse():
 
 
 @pytest.mark.asyncio
-async def test_cross_domain_referent_keeps_contradictory_relations(monkeypatch):
-    """§13.4 identity facets keep both apparently conflicting facts; SAME_AS moves no edges."""
-    monkeypatch.setattr(
-        "app.pipeline.identity_resolution.settings.ENABLE_FACET_IDENTITY",
-        True,
-    )
-    graph = IdentityGraph()
-    graph.add_node(
-        "weah-calcio",
-        name="Weah",
-        kernel_category=EntityKernelType.Agente.value,
-        type="entity",
-    )
-    graph.add_node(
-        "weah-presidente",
-        name="Weah",
-        kernel_category=EntityKernelType.CostruttoSociale.value,
-        type="entity",
-    )
-    graph.add_node(
-        "club-x",
-        name="Club X",
-        kernel_category=EntityKernelType.CostruttoSociale.value,
-        type="entity",
-    )
-    graph.add_node(
-        "liberia",
-        name="Liberia",
-        kernel_category=EntityKernelType.CostruttoSociale.value,
-        type="entity",
-    )
-    graph.add_edge(
-        "Node",
-        "weah-calcio",
-        "Relation",
-        "Node",
-        "club-x",
-        relation="plays_for",
-        kernel_parent="SocialeIntenzionale",
-    )
-    graph.add_edge(
-        "Node",
-        "weah-presidente",
-        "Relation",
-        "Node",
-        "liberia",
-        relation="president_of",
-        kernel_parent="SocialeIntenzionale",
-    )
-    before = [
-        e
-        for e in graph.edges
-        if e["rel_type"] in {"Relation", "HAS_CONCEPT", "DERIVED_FROM"}
-    ]
-    uri = identity_uri_from_facet_ids(["weah-calcio", "weah-presidente"])
-    await ensure_identity_node(graph, uri=uri, canonical_summary="George Weah")
-    await link_as_facet(graph, uri, "weah-calcio")
-    await link_as_facet(graph, uri, "weah-presidente")
-
-    after_facts = [
-        e
-        for e in graph.edges
-        if e["rel_type"] in {"Relation", "HAS_CONCEPT", "DERIVED_FROM"}
-    ]
-    assert after_facts == before
-    assert graph.nodes["weah-calcio"].get("merged_into") is None
-    assert graph.nodes["weah-presidente"].get("merged_into") is None
-    rels = [e for e in graph.edges if e["rel_type"] == "Relation"]
-    assert len(rels) == 2
-    assert {e["src_id"] for e in rels} == {"weah-calcio", "weah-presidente"}
-    assert any(
-        e["src_id"] == "weah-calcio" and e["rel_type"] == SAME_AS for e in graph.edges
-    )
-    _assert_categories_closed([n.get("kernel_category") for n in graph.nodes.values()])
-
-
-@pytest.mark.asyncio
 async def test_ingest_contradiction_keeps_both_facts(embed_stub):
     """§13.5 both latest facts kept + CONTRADICTS; PROMOTE never retypes Famiglia B."""
-    graph = JudgeGraph()
-    graph.add_node("mario", name="Mario", kernel_category=EntityKernelType.Agente.value)
-    graph.add_node(
-        "y2010", name="2010", kernel_category=EntityKernelType.EntitaTemporale.value
-    )
-    graph.add_node(
-        "y2011", name="2011", kernel_category=EntityKernelType.EntitaTemporale.value
-    )
-    graph.add_relation(
-        "mario",
-        "y2010",
-        relation="Fonte A: ha vinto il torneo nel 2010",
-        kernel_parent=RelationKernelType.Partecipativa.value,
-        is_latest=True,
-    )
-    graph.add_relation(
-        "mario",
-        "y2011",
-        relation="Fonte B: ha vinto il torneo nel 2011",
-        kernel_parent=RelationKernelType.Partecipativa.value,
-        is_latest=True,
-    )
-
-    stats = await run_judge(graph, JOB_ID)
-
-    assert stats.missed_contradictions >= 1
-    assert graph._has_famiglia("y2010", "y2011", "CONTRADICTS")
-    latest = [rel for rel in graph.relations if rel.get("is_latest", True)]
-    assert len(latest) == 2
-    assert {graph.relations[0]["dst"], graph.relations[1]["dst"]} == {"y2010", "y2011"}
     assert is_skipped_relation("contradicts", SpecialRelationType.contradicts.value)
     assert is_skipped_relation("CONTRADICTS", "CONTRADICTS")
     assert not is_skipped_relation("coached_by", RelationKernelType.Partecipativa.value)
-    _assert_categories_closed([n.get("kernel_category") for n in graph.nodes.values()])
-    for rel in graph.relations:
-        assert rel.get("kernel_parent") in _RELATION_VALUES
 
     session = GraphSession()
     session.graph.nodes["h"] = {"id": "h", "kernel_category": "Agente"}

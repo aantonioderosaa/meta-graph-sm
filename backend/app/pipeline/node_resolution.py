@@ -7,10 +7,8 @@ from typing import Any, Literal
 
 from neo4j import AsyncSession
 
-from app.core.config import settings
 from app.core.llm_client import call_structured
 from app.models.node_extraction import NodeDedupResult
-from app.pipeline.identity_resolution import link_possibly_same_as
 
 HIGH_CONFIDENCE_SCORE = 0.90  # identity, not mere similarity
 
@@ -432,11 +430,7 @@ async def resolve_node(
     embedding: list[float],
     job_id: str | None = None,
 ) -> str:
-    """Return the canonical node id, merging into a duplicate when one is found.
-
-    With ``ENABLE_FACET_IDENTITY``, a candidate becomes ``POSSIBLY_SAME_AS``
-    (never ``SAME_AS``, never ``merge_nodes``) and this node keeps its own id.
-    """
+    """Return the canonical node id, merging into a duplicate when one is found."""
     candidates = await find_node_candidates(
         session,
         node_id,
@@ -453,10 +447,6 @@ async def resolve_node(
         canon_id = verdict.duplicate_of
 
     if canon_id is None or canon_id == node_id:
-        return node_id
-
-    if settings.ENABLE_FACET_IDENTITY:
-        await link_possibly_same_as(session, node_id, canon_id)
         return node_id
 
     await merge_nodes(session, node_id, canon_id)

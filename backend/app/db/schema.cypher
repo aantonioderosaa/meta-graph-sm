@@ -81,16 +81,13 @@ CREATE INDEX concept_parent_uri IF NOT EXISTS FOR (c:Concept) ON (c.parent_uri);
 // :Node kernel_category (EntityKernelType string)
 CREATE INDEX node_kernel_category IF NOT EXISTS FOR (n:Node) ON (n.kernel_category);
 
-// :IdentityNode properties: uri, canonical_summary
-CREATE CONSTRAINT identity_node_uri IF NOT EXISTS FOR (i:IdentityNode) REQUIRE i.uri IS UNIQUE;
-
 // Famiglia B dedicated relationship types (Neo4j has no CREATE TYPE):
 //   SAME_AS, POSSIBLY_SAME_AS, CONTRADICTS, SUPERSEDES, UPDATED_BY, EQUIVALENT_TO, DERIVED_FROM
 // DERIVED_FROM already exists in the pipeline toward :Chunk; generalized: also allowed
 // as assertion-provenance toward :Node / :Relation (pipeline Cypher unchanged in this phase).
-// Identity blocking (Fase 8): NOT_SAME_AS between :Node pairs (judge-declassified
-// omonimia). Not a Famiglia B kernel member; dedicated rel type so blocking can skip
-// the pair without a property on POSSIBLY_SAME_AS.
+// SAME_AS / POSSIBLY_SAME_AS are closed Famiglia B vocabulary (app/models/kernel.py
+// SpecialRelationType — frozen, never removed on its own) but currently unwritten:
+// identity_resolution.py (Fase 8, the only writer) was removed with ENABLE_FACET_IDENTITY.
 
 // :Relation additive properties (do not drop relation, normalized_relation, is_latest, embedding):
 //   witnesses_a, witnesses_b, provenance, valid_time, system_time
@@ -119,18 +116,11 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 
 // :JudgeRun (Fase 10) — structured log of each post-batch judge pass.
 // Properties: id, batch_id, timestamp, anti_blur, equivalent_to, reraffine,
-// identity, missed_contradictions, temporal. No uniqueness constraint required;
-// pipeline MERGEs on id = job_id.
-
-// :AgentSearchRun (Fase 22) — structured log of one ReAct verification pass
-// per promoted :PendingHypothesis (including fallback). Same pattern as
-// :JudgeRun: pipeline MERGEs on id; no uniqueness constraint required.
-// Properties: id, hypothesis_id, steps (JSON: tool + reasoning), verdict,
-// turns_used, timestamp.
+// temporal. No uniqueness constraint required; pipeline MERGEs on id = job_id.
 
 // :EventTriageRun (ENABLE_EVENT_TRIAGE) — structured log of one event-triage
-// pass per :Evento. Same pattern as :JudgeRun / :AgentSearchRun: pipeline
-// MERGEs on id = event_id; no uniqueness constraint required.
+// pass per :Evento. Same pattern as :JudgeRun: pipeline MERGEs on id =
+// event_id; no uniqueness constraint required.
 // Properties: id, event_id, verdict (confirmed|waiting|incomplete), run_id,
 // timestamp.
 
@@ -140,11 +130,3 @@ CREATE CONSTRAINT corpus_context_id IF NOT EXISTS FOR (c:CorpusContext) REQUIRE 
 // Macrotask 7 GET /graph/event-incompleteness lists by verdict without one).
 // Properties: event_id, missing_context, first_seen_run_id,
 // last_checked_run_id, checks_without_progress.
-
-// :PendingHypothesis (Fase 20) — open context hypotheses. Never an S0 fact.
-// Properties: id, claim_target, evidence_span, witness_fragments, evidence_gap,
-// confidence (low|medium|high), status (open|confirmed|dismissed),
-// created_at, updated_at. Extra ingest fields (kind, marker_category,
-// origin_doc_id, origin_doc_count, listen_count, promoted) are optional.
-CREATE CONSTRAINT pending_hypothesis_id IF NOT EXISTS
-FOR (h:PendingHypothesis) REQUIRE h.id IS UNIQUE;

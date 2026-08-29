@@ -15,10 +15,8 @@ from app.db.schema import (
 from tests.neo4j_gds import neo4j_gds_container, wait_for_gds
 
 METAGRAPH_CONSTRAINTS = {
-    "identity_node_uri",
     "connectivity_rule_triple",
     "corpus_context_id",
-    "pending_hypothesis_id",
 }
 METAGRAPH_BTREE = {
     "concept_kernel_category",
@@ -82,25 +80,17 @@ def test_fase2_constraints_indexes_and_merge_labels(neo4j_driver):
             })
             """
         ).consume()
-        session.run("MERGE (i:IdentityNode {uri: 'identity:schema-f14:Agente'})").consume()
         session.run("MERGE (c:CorpusContext {id: 'default'})").consume()
         session.run("MERGE (j:JudgeRun {id: 'job-schema-f14'})").consume()
-        session.run("MERGE (h:PendingHypothesis {id: 'hyp-schema-f20'})").consume()
         row = session.run(
             """
             MATCH (r:ConnectivityRule {source_category: 'Agente'})
-            MATCH (i:IdentityNode {uri: 'identity:schema-f14:Agente'})
             MATCH (c:CorpusContext {id: 'default'})
             MATCH (j:JudgeRun {id: 'job-schema-f14'})
-            MATCH (h:PendingHypothesis {id: 'hyp-schema-f20'})
-            RETURN count(r) AS rules, count(i) AS identities,
-                   count(c) AS contexts, count(j) AS runs,
-                   count(h) AS hypotheses
+            RETURN count(r) AS rules, count(c) AS contexts, count(j) AS runs
             """
         ).single()
     assert row is not None
     assert row["rules"] >= 1
-    assert row["identities"] >= 1
     assert row["contexts"] >= 1
     assert row["runs"] >= 1
-    assert row["hypotheses"] >= 1

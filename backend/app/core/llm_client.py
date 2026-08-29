@@ -32,7 +32,11 @@ class LLMValidationError(Exception):
 def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=CALL_TIMEOUT_SECONDS)
+        _client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL or None,
+            timeout=CALL_TIMEOUT_SECONDS,
+        )
     return _client
 
 

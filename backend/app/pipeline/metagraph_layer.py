@@ -1,8 +1,7 @@
-"""Read-only Metagraph layer views for Fase 12 UI panels (identities, S1, judge, incompleteness)."""
+"""Read-only Metagraph layer views for Fase 12 UI panels (S1, judge, incompleteness)."""
 
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 
 from neo4j import AsyncSession
@@ -14,33 +13,9 @@ from app.api.schemas import (
     ContradictionListResponse,
     EventIncompletenessItem,
     EventIncompletenessListResponse,
-    IdentityFacet,
-    IdentityItem,
-    IdentityListResponse,
     JudgeRunItem,
     JudgeRunListResponse,
-    UnlinkFacetResponse,
 )
-from app.pipeline.identity_resolution import unlink_facet
-
-LIST_IDENTITIES_CYPHER = """
-MATCH (i:IdentityNode)
-OPTIONAL MATCH (f:Node)-[:SAME_AS]->(i)
-RETURN i.uri AS uri,
-       f.id AS facet_id,
-       f.name AS facet_name,
-       f.kernel_category AS kernel_category
-ORDER BY i.uri
-"""
-
-GET_IDENTITY_CYPHER = """
-MATCH (i:IdentityNode {uri: $uri})
-OPTIONAL MATCH (f:Node)-[:SAME_AS]->(i)
-RETURN i.uri AS uri,
-       f.id AS facet_id,
-       f.name AS facet_name,
-       f.kernel_category AS kernel_category
-"""
 
 LIST_CONTRADICTIONS_CYPHER = """
 MATCH (a:Node)-[c:CONTRADICTS]->(b:Node)
@@ -70,8 +45,6 @@ RETURN j.id AS id,
        coalesce(j.anti_blur, 0) AS anti_blur,
        coalesce(j.equivalent_to, 0) AS equivalent_to,
        coalesce(j.reraffine, 0) AS reraffine,
-       coalesce(j.identity, 0) AS identity,
-       coalesce(j.missed_contradictions, 0) AS missed_contradictions,
        coalesce(j.temporal, 0) AS temporal
 ORDER BY j.timestamp DESC
 """
@@ -121,38 +94,6 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def _facet_from_row(row: Any) -> IdentityFacet | None:
-    facet_id = _get(row, "facet_id")
-    if facet_id is None:
-        return None
-    name = _get(row, "facet_name")
-    kernel = _get(row, "kernel_category")
-    return IdentityFacet(
-        id=str(facet_id),
-        name=_as_str(name, str(facet_id)),
-        kernel_category=None if kernel is None else str(kernel),
-    )
-
-
-def _identities_from_rows(rows: list[Any]) -> list[IdentityItem]:
-    grouped: dict[str, list[IdentityFacet]] = defaultdict(list)
-    seen_facets: dict[str, set[str]] = defaultdict(set)
-    order: list[str] = []
-    for row in rows:
-        uri = _get(row, "uri")
-        if uri is None:
-            continue
-        uri_s = str(uri)
-        if uri_s not in grouped:
-            order.append(uri_s)
-        facet = _facet_from_row(row)
-        if facet is None or facet.id in seen_facets[uri_s]:
-            continue
-        seen_facets[uri_s].add(facet.id)
-        grouped[uri_s].append(facet)
-    return [IdentityItem(uri=uri, facets=grouped[uri]) for uri in order]
-
-
 async def _collect_rows(result: Any) -> list[Any]:
     rows: list[Any] = []
     if result is None:
@@ -166,33 +107,6 @@ async def _collect_rows(result: Any) -> list[Any]:
     if records is not None:
         return list(records)
     return rows
-
-
-async def list_identities(session: AsyncSession) -> IdentityListResponse:
-    result = await session.run(LIST_IDENTITIES_CYPHER)
-    rows = await _collect_rows(result)
-    return IdentityListResponse(items=_identities_from_rows(rows))
-
-
-async def get_identity(session: AsyncSession, uri: str) -> IdentityItem:
-    result = await session.run(GET_IDENTITY_CYPHER, uri=uri)
-    rows = await _collect_rows(result)
-    items = _identities_from_rows(rows)
-    if items:
-        return items[0]
-    return IdentityItem(uri=uri, facets=[])
-
-
-async def unlink_identity_facet(
-    session: AsyncSession, uri: str, facet_node_id: str
-) -> UnlinkFacetResponse:
-    """Detach a facet: DELETE SAME_AS/POSSIBLY_SAME_AS only. Never deletes ``:Node``."""
-    await unlink_facet(session, identity_id=uri, facet_node_id=facet_node_id)
-    return UnlinkFacetResponse(
-        unlinked=True,
-        identity_uri=uri,
-        facet_node_id=facet_node_id,
-    )
 
 
 async def list_contradictions(session: AsyncSession) -> ContradictionListResponse:
@@ -247,8 +161,6 @@ async def list_judge_runs(session: AsyncSession) -> JudgeRunListResponse:
                 anti_blur=_as_int(_get(row, "anti_blur")),
                 equivalent_to=_as_int(_get(row, "equivalent_to")),
                 reraffine=_as_int(_get(row, "reraffine")),
-                identity=_as_int(_get(row, "identity")),
-                missed_contradictions=_as_int(_get(row, "missed_contradictions")),
                 temporal=_as_int(_get(row, "temporal")),
             )
         )

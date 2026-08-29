@@ -11,7 +11,6 @@ from app.pipeline.entity_relation_resolution import (
     reconcile_different_tail_pairs,
 )
 from app.pipeline.ingestion import CREATE_CONTRADICTS_CYPHER
-from app.pipeline.judge import FIND_MISSED_CONTRADICTIONS_CYPHER, run_judge
 from app.pipeline.node_resolution import (
     COPY_MISSING_KERNEL_CATEGORY_CYPHER,
     FIND_MERGED_INTO_CYPHER,
@@ -21,9 +20,6 @@ from app.pipeline.node_resolution import (
     merge_nodes,
     node_history,
 )
-from tests.test_acceptance_judge import JudgeGraph
-
-JOB_ID = "job-graph-update-f18"
 
 
 class FakeResult:
@@ -237,10 +233,6 @@ class QueueSession:
         return FakeResult([])
 
 
-def _is_missed_query(cypher: str) -> bool:
-    return cypher == FIND_MISSED_CONTRADICTIONS_CYPHER
-
-
 @pytest.mark.asyncio
 async def test_a_canonical_summary_is_newest_previous_via_history():
     session = GraphUpdateSession()
@@ -340,79 +332,6 @@ async def test_b_succession_marker_resolves_in_batch_without_judge():
         "DELETE" in cypher and ":Relation" in cypher and "SET old.is_latest" not in cypher
         for cypher, _ in session.calls
     )
-    assert not any(_is_missed_query(cypher) for cypher, _ in session.calls)
-
-
-@pytest.mark.asyncio
-async def test_c_missed_contradictions_touched_ids_skips_outside_batch():
-    graph = JudgeGraph()
-    graph.add_node("batch-head")
-    graph.add_node("t-batch-a")
-    graph.add_node("t-batch-b")
-    graph.add_node("other-head")
-    graph.add_node("t-other-a")
-    graph.add_node("t-other-b")
-    graph.add_relation(
-        "batch-head",
-        "t-batch-a",
-        relation="Fonte A: ha vinto il torneo nel 2010.",
-        kernel_parent="Temporale",
-        is_latest=True,
-    )
-    graph.add_relation(
-        "batch-head",
-        "t-batch-b",
-        relation="Fonte B: ha vinto il torneo nel 2011.",
-        kernel_parent="Temporale",
-        is_latest=True,
-    )
-    graph.add_relation(
-        "other-head",
-        "t-other-a",
-        relation="Fonte A: ha vinto il torneo nel 2010.",
-        kernel_parent="Temporale",
-        is_latest=True,
-    )
-    graph.add_relation(
-        "other-head",
-        "t-other-b",
-        relation="Fonte B: ha vinto il torneo nel 2011.",
-        kernel_parent="Temporale",
-        is_latest=True,
-    )
-
-    stats = await run_judge(graph, JOB_ID, touched_ids=["batch-head"])
-
-    missed_calls = [kw for cy, kw in graph.calls if _is_missed_query(cy)]
-    assert missed_calls
-    assert missed_calls[0]["touched_ids"] == ["batch-head"]
-    assert stats.missed_contradictions == 1
-    assert graph._has_famiglia("t-batch-a", "t-batch-b", "CONTRADICTS")
-    assert not graph._has_famiglia("t-other-a", "t-other-b", "CONTRADICTS")
-
-
-@pytest.mark.asyncio
-async def test_c_omitted_touched_ids_still_full_scans():
-    graph = JudgeGraph()
-    graph.add_node("h1")
-    graph.add_node("a1")
-    graph.add_node("a2")
-    graph.add_node("h2")
-    graph.add_node("b1")
-    graph.add_node("b2")
-    graph.add_relation("h1", "a1", relation="nel 2010", kernel_parent="Temporale")
-    graph.add_relation("h1", "a2", relation="nel 2011", kernel_parent="Temporale")
-    graph.add_relation("h2", "b1", relation="nel 2010", kernel_parent="Temporale")
-    graph.add_relation("h2", "b2", relation="nel 2011", kernel_parent="Temporale")
-
-    stats = await run_judge(graph, JOB_ID)
-
-    missed_calls = [kw for cy, kw in graph.calls if _is_missed_query(cy)]
-    assert missed_calls
-    assert missed_calls[0]["touched_ids"] == []
-    assert stats.missed_contradictions == 2
-    assert graph._has_famiglia("a1", "a2", "CONTRADICTS")
-    assert graph._has_famiglia("b1", "b2", "CONTRADICTS")
 
 
 @pytest.mark.asyncio
@@ -481,8 +400,6 @@ def test_no_new_delete_of_node_in_f18_helpers():
     assert "SET old.is_latest = false" in APPLY_DIFFERENT_TAIL_SUPERSEDES_CYPHER
     assert "CREATE (new_tail)-[:SUPERSEDES" in APPLY_DIFFERENT_TAIL_SUPERSEDES_CYPHER
     assert "WHERE h.id IN $touched_ids" in FIND_DIFFERENT_TAIL_PAIRS_CYPHER
-    assert "$touched_ids" in FIND_MISSED_CONTRADICTIONS_CYPHER
-    assert "size($touched_ids) = 0" in FIND_MISSED_CONTRADICTIONS_CYPHER
     node_src = Path(sources[1]).read_text(encoding="utf-8")
     assert "PROMOTE_NEWER_SUMMARY_CYPHER" in node_src
     assert "DELETE (dup" not in node_src

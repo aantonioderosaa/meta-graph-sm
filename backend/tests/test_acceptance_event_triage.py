@@ -1,7 +1,6 @@
 """Macrotask 8–9: event-triage non-regression on a fixed corpus.
 
-FakeSession, no Neo4j/OpenAI. Quantifier (Fase 21.1) and retraction (Fase 21.2)
-are called directly — they must not route through event triage.
+FakeSession, no Neo4j/OpenAI.
 
 Macrotask 9 Phase 5 adds the unlinked-entity search case: the same esperimento-5
 story without `_prelink`, resolved via scripted `search_fulltext` + real
@@ -9,8 +8,6 @@ story without `_prelink`, resolved via scripted `search_fulltext` + real
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import pytest
 
@@ -21,27 +18,14 @@ from app.models.kernel import (
     SpecialRelationType,
 )
 from app.pipeline.context_retrieval import NODE_RELATIONS_CYPHER
-from app.pipeline.event_relation_resolution import SITUATION_NORMALIZED_RELATION
 from app.pipeline.event_slots import Slot, slot_id_for
 from app.pipeline.event_triage import (
     EVENT_TRIAGE_MAX_SLOT_FANOUT,
     EventSlotItem,
-    EventTriageAction,
-    EventTriageStep,
+    EventSlotProposal,
+    InspectPhaseDecision,
+    SearchPhaseDecision,
     run_event_triage,
-)
-from app.pipeline.quantifier_events import resolve_quantifier_scope
-from app.pipeline.retraction import resolve_retraction_scope
-from tests.test_acceptance_quantifier_events import (
-    BOBI,
-    COLLECTIVE_NAMES,
-    CUCINA,
-    FIDO,
-    REX,
-    SPOT,
-    SceneSession,
-    _closed_chunk,
-    _three_dogs_scene,
 )
 from tests.test_event_slots import (
     FakeResult,
@@ -59,9 +43,11 @@ from tests.test_event_triage import (
     FIND_WAITING_EVENTS_CYPHER,
     MERGE_EVENT_TRIAGE_RUN_CYPHER,
     MERGE_PENDING_EVENT_CONTEXT_CYPHER,
+    _decide,
     _hit,
+    _inspect,
     _prelink,
-    _propose,
+    _search,
 )
 from tests.test_event_triage import (
     _dispatch as triage_dispatch,
@@ -313,13 +299,16 @@ async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatc
     """Prelinked / no extra search: no-cost regression vs Macrotask 8 one-shot."""
     _enable_triage(monkeypatch)
     search_calls = _stub_search_unused(monkeypatch)
-    llm_calls: list[int] = []
+    llm_calls: list[type] = []
 
     async def fake_llm(_system, user, model, **_kwargs):
-        llm_calls.append(1)
-        assert model is EventTriageStep
+        llm_calls.append(model)
         assert "esperimento 5" in user.casefold() or "fallato" in user.casefold()
-        return _propose(
+        if model is SearchPhaseDecision:
+            return _search()
+        if model is InspectPhaseDecision:
+            return _inspect()
+        return _decide(
             _item(),
             reasoning="l'esperimento 5 era fallato: Stato → fallato",
         )
@@ -332,7 +321,7 @@ async def test_esperimento_5_era_fallato(stub_ingestion_side_effects, monkeypatc
 
     await run_event_triage(session, RUN_ID, touched_ids=[EVENT_FAILED])
 
-    assert len(llm_calls) == 1
+    assert llm_calls == [SearchPhaseDecision, InspectPhaseDecision, EventSlotProposal]
     assert search_calls == []
     assert graph.triage_runs[EVENT_FAILED]["verdict"] == "confirmed"
     _assert_esperimento_5_lww(graph)
@@ -364,25 +353,21 @@ async def test_esperimento_5_unlinked_entity_resolved_via_search(
         return hits
 
     monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", fake_search)
+    monkeypatch.setattr("app.pipeline.event_triage.search_vector", fake_search)
 
-    async def boom_vector(*_args, **_kwargs):
-        raise AssertionError("this test scripts search_fulltext only")
-
-    monkeypatch.setattr("app.pipeline.event_triage.search_vector", boom_vector)
-
-    turns = {"n": 0}
+    llm_calls: list[type] = []
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventTriageStep
-        turns["n"] += 1
-        if turns["n"] == 1:
-            return EventTriageStep(
-                action=EventTriageAction.search_fulltext,
+        llm_calls.append(model)
+        if model is SearchPhaseDecision:
+            return _search(
+                ["esperimento 5 fallato"],
                 reasoning="turno 0 vuoto: cerco l'entità nominata nel testo",
-                query="esperimento 5 fallato",
             )
+        if model is InspectPhaseDecision:
+            return _inspect()
         assert HEAD in user
-        return _propose(
+        return _decide(
             _item(head=HEAD, tail=NEW_TAIL),
             reasoning="Stato → fallato sull'id restituito da search",
         )
@@ -397,7 +382,7 @@ async def test_esperimento_5_unlinked_entity_resolved_via_search(
     await run_event_triage(session, RUN_ID, touched_ids=[EVENT_FAILED])
 
     assert search_queries
-    assert turns["n"] == 2
+    assert llm_calls == [SearchPhaseDecision, InspectPhaseDecision, EventSlotProposal]
     assert graph.triage_runs[EVENT_FAILED]["verdict"] == "confirmed"
     _assert_esperimento_5_lww(graph)
     applied = [
@@ -427,24 +412,14 @@ async def test_esperimento_5_unlinked_unobserved_id_not_confirmed(
         return [_hit(SEARCH_DECOY, "decoy")]
 
     monkeypatch.setattr("app.pipeline.event_triage.search_fulltext", fake_search)
-
-    async def boom_vector(*_args, **_kwargs):
-        raise AssertionError("this test scripts search_fulltext only")
-
-    monkeypatch.setattr("app.pipeline.event_triage.search_vector", boom_vector)
-
-    turns = {"n": 0}
+    monkeypatch.setattr("app.pipeline.event_triage.search_vector", fake_search)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventTriageStep
-        turns["n"] += 1
-        if turns["n"] == 1:
-            return EventTriageStep(
-                action=EventTriageAction.search_fulltext,
-                reasoning="cerco l'esperimento 5",
-                query="esperimento 5 fallato",
-            )
-        return _propose(
+        if model is SearchPhaseDecision:
+            return _search(["esperimento 5 fallato"], reasoning="cerco l'esperimento 5")
+        if model is InspectPhaseDecision:
+            return _inspect()
+        return _decide(
             _item(head=HEAD, tail=NEW_TAIL),
             reasoning="propongo HEAD che esiste nel grafo ma non è nei hit",
         )
@@ -479,67 +454,6 @@ async def test_esperimento_5_unlinked_unobserved_id_not_confirmed(
 
 
 @pytest.mark.asyncio
-async def test_tutti_i_cani_sono_usciti_invariato_vs_fase_21(monkeypatch):
-    assert Settings.model_fields["ENABLE_EVENT_TRIAGE"].default is False
-    monkeypatch.setattr("app.pipeline.judge.settings.ENABLE_EVENT_TRIAGE", False)
-
-    graph = _three_dogs_scene()
-    session = SceneSession(graph)
-    result = await resolve_quantifier_scope(session, _closed_chunk(), concept_hint="cane")
-
-    assert result.closed is True
-    assert result.event_id
-    assert set(result.member_ids) == {FIDO, REX, BOBI}
-    assert SPOT not in result.member_ids
-
-    event = graph.nodes[result.event_id]
-    assert event["type"] == "event"
-    assert event["name"].casefold() not in COLLECTIVE_NAMES
-    collective = [
-        n
-        for n in graph.nodes.values()
-        if n.get("type") != "event" and str(n.get("name") or "").casefold() in COLLECTIVE_NAMES
-    ]
-    assert collective == []
-
-    participates = [
-        rel
-        for rel in graph.relations
-        if rel.get("normalized_relation") == SITUATION_NORMALIZED_RELATION
-    ]
-    assert len(participates) == 3
-    assert {rel["to_id"] for rel in participates} == {FIDO, REX, BOBI}
-    assert all(
-        rel["kernel_parent"] == RelationKernelType.Partecipativa.value for rel in participates
-    )
-    for rel in graph.relations:
-        if rel["to_id"] == CUCINA and rel["from_id"] in {FIDO, REX, BOBI}:
-            assert rel["is_latest"] is False
-        kp = rel.get("kernel_parent")
-        if kp:
-            assert kp in CLOSED_KERNEL, kp
-            assert kp not in FAMIGLIA_B
-    _assert_no_delete(session)
-
-    source = Path(resolve_quantifier_scope.__code__.co_filename).read_text(encoding="utf-8")
-    assert "event_triage" not in source
-    assert "_task_event_triage" not in source
-    assert "assert_slot" not in source
-    assert "run_event_triage" not in source
-
-    monkeypatch.setattr("app.pipeline.judge.settings.ENABLE_EVENT_TRIAGE", True)
-    graph_on = _three_dogs_scene()
-    session_on = SceneSession(graph_on)
-    again = await resolve_quantifier_scope(
-        session_on, _closed_chunk(), concept_hint="cane"
-    )
-    assert again.closed is True
-    assert set(again.member_ids) == {FIDO, REX, BOBI}
-    assert SPOT not in again.member_ids
-    _assert_no_delete(session_on)
-
-
-@pytest.mark.asyncio
 async def test_mike_and_story_fanout_direct_members_only(
     stub_ingestion_side_effects, monkeypatch
 ):
@@ -547,8 +461,11 @@ async def test_mike_and_story_fanout_direct_members_only(
     search_calls = _stub_search_unused(monkeypatch)
 
     async def fake_llm(_system, user, model, **_kwargs):
-        assert model is EventTriageStep
-        return _propose(
+        if model is SearchPhaseDecision:
+            return _search()
+        if model is InspectPhaseDecision:
+            return _inspect()
+        return _decide(
             _item(
                 head=SAID_ONE,
                 kernel_parent=AttributeKernelType.Descrizione.value,
@@ -664,12 +581,6 @@ async def test_mike_and_story_fanout_direct_members_only(
         assert rel["kernel_parent"] not in FAMIGLIA_B
     _assert_no_delete(session)
 
-    retraction_src = Path(resolve_retraction_scope.__code__.co_filename).read_text(
-        encoding="utf-8"
-    )
-    assert "run_event_triage" not in retraction_src
-    assert "assert_slot" not in retraction_src
-
 
 def test_written_kernel_parents_are_closed_enum_members():
     for kp in CLOSED_KERNEL:
@@ -686,4 +597,3 @@ def test_written_kernel_parents_are_closed_enum_members():
 
 def test_enable_event_triage_default_still_false():
     assert Settings.model_fields["ENABLE_EVENT_TRIAGE"].default is False
-    assert Settings.model_fields["ENABLE_CONTEXT_LAYER"].default is False

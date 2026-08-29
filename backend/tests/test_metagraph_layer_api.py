@@ -14,29 +14,19 @@ from app.api.schemas import (
     ConnectivityRuleListResponse,
     ContradictionListResponse,
     EventIncompletenessListResponse,
-    IdentityItem,
-    IdentityListResponse,
     JudgeRunListResponse,
-    UnlinkFacetResponse,
 )
 from app.core.neo4j_client import get_neo4j_session
 from app.main import app
-from app.pipeline import metagraph_layer
-from app.pipeline.identity_resolution import UNLINK_FACET_CYPHER
 from app.pipeline.metagraph_layer import (
-    GET_IDENTITY_CYPHER,
     LIST_CONNECTIVITY_RULES_CYPHER,
     LIST_CONTRADICTIONS_CYPHER,
     LIST_EVENT_INCOMPLETENESS_CYPHER,
-    LIST_IDENTITIES_CYPHER,
     LIST_JUDGE_RUNS_CYPHER,
-    get_identity,
     list_connectivity_rules,
     list_contradictions,
     list_event_incompleteness,
-    list_identities,
     list_judge_runs,
-    unlink_identity_facet,
 )
 
 
@@ -79,66 +69,6 @@ async def client():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.pop(get_neo4j_session, None)
-
-
-@pytest.mark.asyncio
-async def test_list_identities_groups_facets():
-    session = FakeSession()
-    session.enqueue(
-        [
-            {
-                "uri": "identity:alice:Agente",
-                "facet_id": "alice-ceo",
-                "facet_name": "Alice CEO",
-                "kernel_category": "Agente",
-            },
-            {
-                "uri": "identity:alice:Agente",
-                "facet_id": "alice-author",
-                "facet_name": "Alice autrice",
-                "kernel_category": "Agente",
-            },
-        ]
-    )
-
-    body = await list_identities(session)
-
-    assert session.calls[0][0] == LIST_IDENTITIES_CYPHER
-    assert len(body.items) == 1
-    assert body.items[0].uri == "identity:alice:Agente"
-    assert [f.id for f in body.items[0].facets] == ["alice-ceo", "alice-author"]
-
-
-@pytest.mark.asyncio
-async def test_get_identity_missing_returns_empty_facets():
-    session = FakeSession()
-    session.enqueue([])
-
-    item = await get_identity(session, "identity:missing:Agente")
-
-    assert item.uri == "identity:missing:Agente"
-    assert item.facets == []
-    assert session.calls[0][0] == GET_IDENTITY_CYPHER
-
-
-@pytest.mark.asyncio
-async def test_unlink_facet_calls_identity_resolution_not_merge():
-    session = FakeSession()
-    session.enqueue([])
-
-    result = await unlink_identity_facet(
-        session, "identity:alice:Agente", "alice-ceo"
-    )
-
-    assert result.unlinked is True
-    assert result.identity_uri == "identity:alice:Agente"
-    assert result.facet_node_id == "alice-ceo"
-    assert session.calls[0][0] == UNLINK_FACET_CYPHER
-    assert session.calls[0][1]["facet_node_id"] == "alice-ceo"
-    assert session.calls[0][1]["identity_id"] == "identity:alice:Agente"
-    blob = " ".join(cypher for cypher, _ in session.calls)
-    assert "merged_into" not in blob
-    assert "DETACH DELETE" not in blob
 
 
 @pytest.mark.asyncio
@@ -202,8 +132,6 @@ async def test_list_judge_runs_newest_first_shape():
                 "anti_blur": 1,
                 "equivalent_to": 0,
                 "reraffine": 2,
-                "identity": 1,
-                "missed_contradictions": 0,
                 "temporal": 3,
             }
         ]
@@ -310,46 +238,6 @@ async def test_http_event_incompleteness_empty_graph_is_200_not_500():
 
 
 @pytest.mark.asyncio
-async def test_http_identities_and_unlink(client: AsyncClient):
-    async def mock_list(session) -> IdentityListResponse:
-        _ = session
-        return IdentityListResponse(
-            items=[
-                IdentityItem(
-                    uri="identity:alice:Agente",
-                    facets=[],
-                )
-            ]
-        )
-
-    async def mock_unlink(session, uri: str, facet_node_id: str) -> UnlinkFacetResponse:
-        _ = session
-        return UnlinkFacetResponse(
-            unlinked=True, identity_uri=uri, facet_node_id=facet_node_id
-        )
-
-    with (
-        patch.object(metagraph_layer, "list_identities", mock_list),
-        patch("app.api.metagraph.metagraph_layer.list_identities", mock_list),
-        patch(
-            "app.api.metagraph.metagraph_layer.unlink_identity_facet", mock_unlink
-        ),
-    ):
-        listed = await client.get("/graph/identities")
-        assert listed.status_code == 200
-        assert listed.json()["items"][0]["uri"] == "identity:alice:Agente"
-
-        unlinked = await client.post(
-            "/graph/identities/identity:alice:Agente/unlink",
-            json={"facet_node_id": "alice-ceo"},
-        )
-        assert unlinked.status_code == 200
-        body = unlinked.json()
-        assert body["unlinked"] is True
-        assert body["facet_node_id"] == "alice-ceo"
-
-
-@pytest.mark.asyncio
 async def test_http_contradictions_rules_judge(client: AsyncClient):
     async def mock_contra(session) -> ContradictionListResponse:
         _ = session
@@ -396,14 +284,10 @@ async def test_http_contradictions_rules_judge(client: AsyncClient):
 
 def test_openapi_registers_metagraph_routes():
     paths = app.openapi()["paths"]
-    assert "/graph/identities" in paths
-    assert "/graph/identities/{uri}" in paths
-    assert "/graph/identities/{uri}/unlink" in paths
     assert "/graph/contradictions" in paths
     assert "/graph/connectivity-rules" in paths
     assert "/graph/judge-runs" in paths
     assert "/graph/event-incompleteness" in paths
-    assert "get" in paths["/graph/identities"]
     assert "get" in paths["/graph/event-incompleteness"]
     assert "post" not in paths["/graph/event-incompleteness"]
-    assert "post" in paths["/graph/identities/{uri}/unlink"]
+    assert "/graph/identities" not in paths

@@ -148,15 +148,6 @@ RETURN n.id AS id, n.name AS name, n.type AS type,
        n.kernel_category AS kernel_category
 """
 
-ENTITY_FACET_COUNTS_CYPHER = """
-MATCH (n:Node)-[:SAME_AS]->(i:IdentityNode)
-WHERE n.id IN $ids
-MATCH (facet:Node)-[:SAME_AS]->(i)
-WITH n.id AS id, count(DISTINCT facet) AS facet_count
-WHERE facet_count > 1
-RETURN id, facet_count
-"""
-
 _CONCEPT_PROP_KEYS = ("parent_uri", "kernel_category", "definition")
 
 
@@ -244,24 +235,6 @@ async def _typed_node_graph(
     return GraphResponse(nodes=nodes, relationships=relationships)
 
 
-async def _annotate_multi_facet_identities(
-    session: AsyncSession, nodes: list[GraphNode]
-) -> None:
-    """Mark entity nodes that share an IdentityNode with more than one facet."""
-    ids = [node.id for node in nodes]
-    if not ids:
-        return
-    result = await session.run(ENTITY_FACET_COUNTS_CYPHER, ids=ids)
-    counts: dict[str, int] = {}
-    async for record in result:
-        counts[str(record["id"])] = int(record["facet_count"])
-    for node in nodes:
-        count = counts.get(node.id)
-        if count is not None and count > 1:
-            node.properties["has_facets"] = True
-            node.properties["facet_count"] = count
-
-
 async def _append_concept_bridge(
     session: AsyncSession,
     base: GraphResponse,
@@ -315,7 +288,6 @@ async def get_entity_graph(
         is_latest=is_latest,
         limit=limit,
     )
-    await _annotate_multi_facet_identities(session, base.nodes)
     return await _append_concept_bridge(
         session,
         base,
@@ -579,11 +551,6 @@ MACRO_MEMBER_COUNT_CYPHER = """
 MATCH (n:Node)-[:MEMBER_OF]->(c:Concept {id: $id})
 WHERE n.merged_into IS NULL
 RETURN count(n) AS n
-"""
-
-MACRO_NODE_IDENTITIES_CYPHER = """
-MATCH (n:Node {id: $id})-[:SAME_AS]->(i:IdentityNode)
-RETURN i.uri AS uri
 """
 
 _NODE_ATTR_SKIP = frozenset(
@@ -865,12 +832,6 @@ async def get_node_metadata(
             member_count=member_count,
         )
     if node is not None:
-        ident_result = await session.run(MACRO_NODE_IDENTITIES_CYPHER, id=node_id)
-        uris: list[str] = []
-        async for row in ident_result:
-            uri = row["uri"]
-            if uri:
-                uris.append(str(uri))
         nid = str(_get(node, "id"))
         raw_type = _get(node, "type")
         node_type = None if raw_type in (None, "") else str(raw_type)
@@ -881,7 +842,6 @@ async def get_node_metadata(
             kernel_category=_get(node, "kernel_category"),
             summary=_get(node, "summary"),
             attributes=_node_attributes(node),
-            identity_uris=uris,
             node_type=node_type,
         )
     return None

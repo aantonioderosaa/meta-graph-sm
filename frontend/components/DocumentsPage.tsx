@@ -71,6 +71,11 @@ export function DocumentsPage() {
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
 
+  // Tracks the job_id of an ingest we started, so we can auto-start dreaming
+  // exactly when *that* ingest completes — never on a dreaming job's own
+  // completion event (same stage/event names), which would loop forever.
+  const autoDreamAfterJobIdRef = useRef<string | null>(null);
+
   const loadDocuments = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -93,6 +98,27 @@ export function DocumentsPage() {
     void loadDocuments();
   }, [loadDocuments, reloadToken]);
 
+  const startDream = useCallback(
+    async ({ auto }: { auto: boolean }) => {
+      setBusy(true);
+      if (!auto) setStatus(null);
+      try {
+        const { job_id } = await postDreamingRun({});
+        setActiveJobId(job_id);
+        setStatus(
+          auto
+            ? `Ingest completato — dream avviato automaticamente · job_id=${job_id}`
+            : `Dreaming avviato · job_id=${job_id}`,
+        );
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : "Dreaming fallito");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [setActiveJobId],
+  );
+
   useEffect(() => {
     if (!lastPipelineEvent) return;
     if (
@@ -101,7 +127,21 @@ export function DocumentsPage() {
     ) {
       setReloadToken((t) => t + 1);
     }
-  }, [lastPipelineEvent]);
+
+    const awaitedJobId = autoDreamAfterJobIdRef.current;
+    if (!awaitedJobId || lastPipelineEvent.job_id !== awaitedJobId) return;
+
+    if (
+      lastPipelineEvent.stage === "done" &&
+      lastPipelineEvent.event === "pipeline_complete"
+    ) {
+      autoDreamAfterJobIdRef.current = null;
+      void startDream({ auto: true });
+    } else if (lastPipelineEvent.stage === "failed") {
+      autoDreamAfterJobIdRef.current = null;
+      setStatus("Ingest fallito — dream non avviato automaticamente.");
+    }
+  }, [lastPipelineEvent, startDream]);
 
   async function onIngest() {
     if (!docText.trim()) return;
@@ -112,8 +152,9 @@ export function DocumentsPage() {
         doc_id: docId || "doc-1",
         text: docText,
       });
+      autoDreamAfterJobIdRef.current = job_id;
       setActiveJobId(job_id);
-      setStatus(`Ingest avviato · job_id=${job_id}`);
+      setStatus(`Ingest avviato · job_id=${job_id} — il dream partirà da solo al completamento.`);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Ingest fallito");
     } finally {
@@ -149,17 +190,7 @@ export function DocumentsPage() {
   }
 
   async function onDream() {
-    setBusy(true);
-    setStatus(null);
-    try {
-      const { job_id } = await postDreamingRun({});
-      setActiveJobId(job_id);
-      setStatus(`Dreaming avviato · job_id=${job_id}`);
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Dreaming fallito");
-    } finally {
-      setBusy(false);
-    }
+    await startDream({ auto: false });
   }
 
   function openResetDialog() {
@@ -300,8 +331,9 @@ export function DocumentsPage() {
               variant="outline"
               disabled={busy}
               onClick={() => void onDream()}
+              title="Ingest avvia il dream da solo al termine — usa questo solo per rilanciarlo a parte."
             >
-              Dream
+              Dream (manuale)
             </Button>
           </div>
         </div>

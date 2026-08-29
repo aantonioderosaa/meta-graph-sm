@@ -92,20 +92,6 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export function nodeHasFacets(
-  properties: Record<string, unknown> | undefined,
-): boolean {
-  if (!properties) return false;
-  if (properties.has_facets === true) return true;
-  const count = Number(properties.facet_count);
-  return Number.isFinite(count) && count > 1;
-}
-
-export function facetCaption(base: string, hasFacets: boolean): string {
-  const withSuffix = hasFacets ? `${base} · faccette` : base;
-  return withSuffix.length > 48 ? `${withSuffix.slice(0, 45)}…` : withSuffix;
-}
-
 function nodeTypeOf(node: GraphNode): keyof typeof NODE_TYPE_COLORS {
   const raw = String(node.properties?.type ?? "entity");
   if (raw in NODE_TYPE_COLORS) {
@@ -127,14 +113,12 @@ export function encodeNode(
   const selected = options.selectedId === node.id;
   const highlighted = options.highlighted === true;
   const dimmed = options.dimmed === true;
-  const hasFacets = nodeHasFacets(node.properties);
 
   const signature = [
     type,
     selected ? "1" : "0",
     dimmed ? "1" : "0",
     highlighted ? "1" : "0",
-    hasFacets ? "1" : "0",
     node.caption || node.id,
   ].join("|");
 
@@ -149,7 +133,8 @@ export function encodeNode(
   }
 
   const captionBase = node.caption || node.id;
-  const caption = facetCaption(captionBase, hasFacets);
+  const caption =
+    captionBase.length > 48 ? `${captionBase.slice(0, 45)}…` : captionBase;
 
   const value: NvlNode = {
     id: node.id,

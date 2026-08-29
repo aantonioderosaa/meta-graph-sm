@@ -547,8 +547,6 @@ def test_fase_path_does_not_call_slot_writes_or_revisions():
         "dreaming.py",
         "ingestion.py",
         "judge.py",
-        "quantifier_events.py",
-        "retraction.py",
     ):
         text = (PIPELINE / name).read_text(encoding="utf-8")
         assert "assert_slot" not in text

@@ -19,16 +19,6 @@ from app.pipeline.entity_relation_resolution import (
     APPLY_SUPERSEDES_CYPHER,
     APPLY_UPDATED_BY_CYPHER,
 )
-from app.pipeline.identity_resolution import (
-    LINK_SAME_AS_CYPHER,
-    MARK_NOT_SAME_AS_CYPHER,
-    MERGE_IDENTITY_NODE_CYPHER,
-    SAME_AS,
-    UNLINK_FACET_CYPHER,
-    ensure_identity_node,
-    identity_uri_from_facet_ids,
-    link_as_facet,
-)
 from app.pipeline.ingestion import (
     CREATE_CONTRADICTS_CYPHER,
     CREATE_NODE_CYPHER,
@@ -41,13 +31,10 @@ from app.pipeline.judge import (
     CREATE_SUPERSEDES_BETWEEN_CYPHER,
     CREATE_UPDATED_BY_BETWEEN_CYPHER,
     DELETE_CONTRADICTS_BETWEEN_CYPHER,
-    DELETE_POSSIBLY_SAME_AS_CYPHER,
     FIND_BLURRED_RELATIONS_CYPHER,
     FIND_CONTRADICTS_PAIRS_CYPHER,
     FIND_EQUIVALENT_CONCEPT_PAIRS_CYPHER,
-    FIND_MISSED_CONTRADICTIONS_CYPHER,
     FIND_PARENT_MEMBERS_CYPHER,
-    FIND_POSSIBLY_SAME_AS_CYPHER,
     FIND_PROMOTED_CHILDREN_CYPHER,
     MARK_ABSORBED_CONCEPT_CYPHER,
     MARK_BLURRED_RELATION_CYPHER,
@@ -138,12 +125,11 @@ class FakeResult:
 
 
 class MetaGraph:
-    """In-memory graph interpreting ingest / promote / identity / judge / S2 Cypher."""
+    """In-memory graph interpreting ingest / promote / judge / S2 Cypher."""
 
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
         self.concepts: dict[str, dict] = {}
-        self.identity_nodes: dict[str, dict] = {}
         self.chunks: dict[str, dict] = {}
         self.member_of: dict[str, str] = {}
         self.member_of_meta: dict[str, dict] = {}
@@ -170,7 +156,7 @@ class MetaGraph:
         return False
 
     def _add_famiglia(self, src_id: str, rel_type: str, dst_id: str, **props) -> None:
-        if rel_type in {SAME_AS} or not self._has_famiglia(src_id, dst_id, rel_type):
+        if rel_type == "SAME_AS" or not self._has_famiglia(src_id, dst_id, rel_type):
             self.famiglia.append(
                 {"src": src_id, "dst": dst_id, "rel_type": rel_type, "props": dict(props)}
             )
@@ -421,24 +407,6 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
                 }
             )
         return []
-    if cypher == MERGE_IDENTITY_NODE_CYPHER:
-        uri = kwargs["uri"]
-        summary = kwargs.get("canonical_summary") or ""
-        existing = graph.identity_nodes.get(uri)
-        if existing is None:
-            graph.identity_nodes[uri] = {"uri": uri, "canonical_summary": summary}
-        else:
-            existing["canonical_summary"] = summary
-        return [{"uri": uri}]
-    if cypher == LINK_SAME_AS_CYPHER:
-        facet_id = kwargs["facet_node_id"]
-        identity_id = kwargs["identity_id"]
-        if facet_id in graph.nodes and identity_id in graph.identity_nodes:
-            graph._add_famiglia(facet_id, SAME_AS, identity_id)
-        return []
-    if cypher == UNLINK_FACET_CYPHER:
-        graph._drop_famiglia(kwargs["facet_node_id"], kwargs["identity_id"], SAME_AS)
-        return []
     if cypher == APPLY_SUPERSEDES_CYPHER:
         _apply_temporal(graph, kwargs, "SUPERSEDES")
         return []
@@ -552,51 +520,6 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
         if graph.member_of.get(node_id) == kwargs["parent_id"]:
             graph.member_of[node_id] = kwargs["child_id"]
         return []
-    if cypher == FIND_POSSIBLY_SAME_AS_CYPHER:
-        return []
-    if cypher == DELETE_POSSIBLY_SAME_AS_CYPHER:
-        graph._drop_famiglia(kwargs["src_id"], kwargs["dst_id"], "POSSIBLY_SAME_AS")
-        return []
-    if cypher == FIND_MISSED_CONTRADICTIONS_CYPHER or (
-        "NOT (t1)-[:CONTRADICTS]-(t2)" in cypher and "$touched_ids" in cypher
-    ):
-        touched = {str(nid) for nid in (kwargs.get("touched_ids") or []) if nid}
-        rows = []
-        latest = [rel for rel in graph.relations if rel.get("is_latest", True)]
-        for i, left in enumerate(latest):
-            for right in latest[i + 1 :]:
-                if graph._src(left) != graph._src(right):
-                    continue
-                t1, t2 = graph._tgt(left), graph._tgt(right)
-                if t1 == t2:
-                    continue
-                first, second = (left, right) if t1 < t2 else (right, left)
-                t1, t2 = graph._tgt(first), graph._tgt(second)
-                kp1 = first.get("kernel_parent") or ""
-                kp2 = second.get("kernel_parent") or ""
-                if kp1 != kp2:
-                    continue
-                if graph._has_famiglia(t1, t2, "CONTRADICTS"):
-                    continue
-                if graph._has_famiglia(t1, t2, "SUPERSEDES"):
-                    continue
-                if graph._has_famiglia(t1, t2, "UPDATED_BY"):
-                    continue
-                head = graph._src(first)
-                if touched and not (
-                    str(head) in touched or str(t1) in touched or str(t2) in touched
-                ):
-                    continue
-                rows.append(
-                    {
-                        "head_id": head,
-                        "tail_a": t1,
-                        "tail_b": t2,
-                        "relation": first.get("relation") or "",
-                        "kernel_parent": kp1,
-                    }
-                )
-        return rows
     if cypher == FIND_CONTRADICTS_PAIRS_CYPHER:
         rows = []
         for edge in graph.famiglia:
@@ -644,9 +567,6 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
         return []
     if cypher == MERGE_JUDGE_RUN_CYPHER:
         graph.judge_runs[kwargs["id"]] = dict(kwargs)
-        return []
-    if cypher == MARK_NOT_SAME_AS_CYPHER:
-        graph._add_famiglia(kwargs["src_id"], "NOT_SAME_AS", kwargs["dst_id"])
         return []
     return []
 
@@ -719,10 +639,6 @@ def e2e_stubs(monkeypatch):
     monkeypatch.setattr("app.pipeline.ingestion.embeddings.embed", lambda _t: [0.1] * 8)
     monkeypatch.setattr("app.pipeline.promote.embeddings.embed", lambda _t: [0.1] * 8)
     monkeypatch.setattr("app.pipeline.promote.settings.OPENAI_API_KEY", "")
-    monkeypatch.setattr(
-        "app.pipeline.identity_resolution.settings.ENABLE_FACET_IDENTITY",
-        True,
-    )
 
 
 async def _seed_ingest(session: MetaGraphSession) -> None:
@@ -975,21 +891,9 @@ async def test_metagraph_e2e_fixed_corpus_pipeline(e2e_stubs):
     for pid in PLAYER_IDS:
         assert session.graph.member_of[pid] == promoted_id
 
-    uri = identity_uri_from_facet_ids([MARIO_ID, DITTA_ID])
-    await ensure_identity_node(
-        session, uri=uri, canonical_summary="Ditta individuale Mario Rossi"
-    )
-    await link_as_facet(session, uri, MARIO_ID)
-    await link_as_facet(session, uri, DITTA_ID)
     assert session.graph.nodes[MARIO_ID]["kernel_category"] == "Agente"
     assert session.graph.nodes[DITTA_ID]["kernel_category"] == "CostruttoSociale"
     assert MARIO_ID in session.graph.nodes and DITTA_ID in session.graph.nodes
-    same_as = [
-        e
-        for e in session.graph.famiglia
-        if e["rel_type"] == SAME_AS and e["dst"] == uri
-    ]
-    assert {e["src"] for e in same_as} == {MARIO_ID, DITTA_ID}
 
     old_role = _rel_id(session, MARIO_ID, ROLE_ID, "Weah era calciatore")
     new_role = _rel_id(

@@ -165,8 +165,8 @@ _STOPWORDS = frozenset(
 
 
 def temporal_transitions_enabled() -> bool:
-    """Fase 9 flag, also on when facet identity is on (OR)."""
-    return bool(settings.ENABLE_TEMPORAL_TRANSITIONS or settings.ENABLE_FACET_IDENTITY)
+    """Fase 9 flag."""
+    return bool(settings.ENABLE_TEMPORAL_TRANSITIONS)
 
 
 def _has_error_marker(text: str) -> bool:

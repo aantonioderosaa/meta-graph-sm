@@ -265,7 +265,7 @@ async def test_metadata_concept_breadcrumb_to_kernel():
 
 
 @pytest.mark.asyncio
-async def test_metadata_node_summary_and_identities():
+async def test_metadata_node_summary():
     session = FakeSession()
     node = FakeNode(
         id="alice",
@@ -277,7 +277,6 @@ async def test_metadata_node_summary_and_identities():
         embedding=[0.1],
     )
     session.enqueue([{"c": None, "n": node}])
-    session.enqueue([{"uri": "identity:alice:Agente"}])
 
     meta = await get_node_metadata(session, "alice")
 
@@ -286,7 +285,6 @@ async def test_metadata_node_summary_and_identities():
     assert meta.node_type == "entity"
     assert meta.summary == "giocatrice"
     assert meta.kernel_category == "Agente"
-    assert meta.identity_uris == ["identity:alice:Agente"]
     assert "embedding" not in meta.attributes
     assert meta.attributes.get("aliases") == ["A. Rossi"]
 

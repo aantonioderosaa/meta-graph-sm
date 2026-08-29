@@ -124,41 +124,14 @@ describe("graph visual encoding", () => {
     expect(getEncodingCacheSize().rels).toBe(0);
   });
 
-  it("appends · faccette when has_facets or facet_count > 1 and includes it in the cache signature", () => {
-    const withFlag = encodeNode({
-      id: "entity-alice",
-      caption: "Alice",
-      properties: { type: "entity", has_facets: true },
-    });
-    expect(withFlag.caption).toBe("Alice · faccette");
-
-    const withCount = encodeNode({
-      id: "entity-acme",
-      caption: "Acme",
-      properties: { type: "entity", facet_count: 2 },
-    });
-    expect(withCount.caption).toBe("Acme · faccette");
-
-    const single = encodeNode({
-      id: "entity-solo",
-      caption: "Solo",
-      properties: { type: "entity", facet_count: 1 },
-    });
-    expect(single.caption).toBe("Solo");
-
-    clearEncodingCache();
-    const first = encodeNode({
-      id: "entity-alice",
-      caption: "Alice",
+  it("truncates long captions at 48 chars", () => {
+    const longName = "A".repeat(60);
+    const encoded = encodeNode({
+      id: "entity-long",
+      caption: longName,
       properties: { type: "entity" },
     });
-    const second = encodeNode({
-      id: "entity-alice",
-      caption: "Alice",
-      properties: { type: "entity", has_facets: true },
-    });
-    expect(second).not.toBe(first);
-    expect(second.caption).toContain("faccette");
+    expect(encoded.caption).toBe(`${"A".repeat(45)}…`);
   });
 
   it("colorByKernelCategory uses kernel map and leaves encodeNode type colors unchanged", () => {

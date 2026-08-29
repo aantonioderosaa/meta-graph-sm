@@ -16,8 +16,6 @@ import type {
   GetEntityEventGraphParams,
   GetGraphLimitParams,
   GraphResponse,
-  IdentityItem,
-  IdentityListResponse,
   JobResponse,
   JudgeRunListResponse,
   NodeMetadataResponse,
@@ -25,7 +23,6 @@ import type {
   NodeQueryResponse,
   QueryHistoryResponse,
   ReconcileResponse,
-  UnlinkFacetResponse,
 } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -244,27 +241,6 @@ export function getGraphBundle(
 export function getNodeMetadata(nodeId: string): Promise<NodeMetadataResponse> {
   return request<NodeMetadataResponse>(
     `/graph/metadata/${encodeURIComponent(nodeId)}`,
-  );
-}
-
-export function getIdentities(): Promise<IdentityListResponse> {
-  return request<IdentityListResponse>("/graph/identities");
-}
-
-export function getIdentity(uri: string): Promise<IdentityItem> {
-  return request<IdentityItem>(`/graph/identities/${encodeURIComponent(uri)}`);
-}
-
-export function postUnlinkFacet(
-  uri: string,
-  facetNodeId: string,
-): Promise<UnlinkFacetResponse> {
-  return request<UnlinkFacetResponse>(
-    `/graph/identities/${encodeURIComponent(uri)}/unlink`,
-    {
-      method: "POST",
-      body: JSON.stringify({ facet_node_id: facetNodeId }),
-    },
   );
 }
 

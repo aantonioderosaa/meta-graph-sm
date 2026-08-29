@@ -60,31 +60,6 @@ class GraphResetResponse(BaseModel):
     deleted: bool
 
 
-class IdentityFacet(BaseModel):
-    id: str
-    name: str
-    kernel_category: str | None = None
-
-
-class IdentityItem(BaseModel):
-    uri: str
-    facets: list[IdentityFacet] = Field(default_factory=list)
-
-
-class IdentityListResponse(BaseModel):
-    items: list[IdentityItem]
-
-
-class UnlinkFacetRequest(BaseModel):
-    facet_node_id: str
-
-
-class UnlinkFacetResponse(BaseModel):
-    unlinked: bool
-    identity_uri: str
-    facet_node_id: str
-
-
 class ContradictionItem(BaseModel):
     id: str
     left_id: str
@@ -117,8 +92,6 @@ class JudgeRunItem(BaseModel):
     anti_blur: int = 0
     equivalent_to: int = 0
     reraffine: int = 0
-    identity: int = 0
-    missed_contradictions: int = 0
     temporal: int = 0
 
 
@@ -201,7 +174,6 @@ class NodeMetadataResponse(BaseModel):
     member_count: int | None = None
     summary: str | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
-    identity_uris: list[str] = Field(default_factory=list)
     node_type: str | None = None
 
 
@@ -255,17 +227,12 @@ __all__ = [
     "BundleResponse",
     "GraphResetResponse",
     "HealthResponse",
-    "IdentityFacet",
     "MetadataBreadcrumbItem",
     "NodeMetadataResponse",
-    "IdentityItem",
-    "IdentityListResponse",
     "JobResponse",
     "JudgeRunItem",
     "JudgeRunListResponse",
     "NodeQueryRequest",
     "QueryHistoryEntry",
     "QueryHistoryResponse",
-    "UnlinkFacetRequest",
-    "UnlinkFacetResponse",
 ]

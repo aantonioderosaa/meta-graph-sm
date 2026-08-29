@@ -12,7 +12,6 @@ from itertools import combinations
 from neo4j import AsyncSession
 
 from app.core import event_bus
-from app.core.config import settings
 from app.core.llm_client import LLMValidationError, call_structured, get_token_usage
 from app.core.neo4j_client import get_driver
 from app.models.kernel import EntityKernelType, RelationKernelType
@@ -32,6 +31,16 @@ from app.pipeline.node_extraction_prompts import build_corpus_summary_prompt
 logger = logging.getLogger(__name__)
 
 CORPUS_CONTEXT_ID = "default"
+
+# Chunks processed concurrently in run_ingestion_pipeline. The real throttle on
+# LLM traffic stays call_structured's LLM_MAX_CONCURRENCY semaphore in
+# llm_client.py — this only bounds how many chunks (and their own Neo4j
+# sessions) are in flight at once, so the next chunk's calls can queue up on
+# that semaphore instead of the whole pipeline sitting idle while one chunk
+# finishes its O(k^2) pairwise entity-relation classification before the next
+# chunk's extraction even starts. Not a Settings flag, same spirit as
+# EVENT_TRIAGE_MAX_SLOT_FANOUT — bounds cost, not something to retune per corpus.
+CHUNK_CONCURRENCY = 8
 
 MERGE_CHUNK_CYPHER = """
 MERGE (c:Chunk {id: $id})
@@ -556,23 +565,6 @@ async def process_chunk_node_extraction(
 
     await _write_same_chunk_contradicts(session, written_facts)
 
-    if settings.ENABLE_CONTEXT_LAYER:
-        from app.pipeline.pending_hypothesis import route_chunk_signal
-        from app.pipeline.quantifier_events import maybe_resolve_quantifier_scope
-        from app.pipeline.retraction import maybe_resolve_retraction_scope
-
-        await route_chunk_signal(
-            session,
-            chunk_text=chunk.text,
-            pair_entities=pair_entities,
-            s0_written=bool(written_facts),
-            node_ids=[nid for nid, _ent in pair_entities],
-            doc_id=doc_id,
-            job_id=job_id,
-        )
-        await maybe_resolve_quantifier_scope(session, chunk)
-        await maybe_resolve_retraction_scope(session, chunk)
-
     for triple in event_rel.triples:
         head = triple.head.strip()
         tail = triple.tail.strip()
@@ -646,7 +638,6 @@ async def run_ingestion_pipeline(doc_id: str, text: str, job_id: str) -> None:
     """F3.0 corpus context → chunking → embed → write chunks → two-pass extract → complete."""
     driver = get_driver()
     chunks: list[Chunk] = []
-    total_nodes = 0
     async with driver.session() as session:
         corpus_summary = await update_corpus_context(session, text, job_id)
 
@@ -657,20 +648,21 @@ async def run_ingestion_pipeline(doc_id: str, text: str, job_id: str) -> None:
             for chunk, embedding in zip(chunks, chunk_embeddings, strict=True):
                 await write_chunk(session, chunk, embedding, job_id)
 
-        for chunk in chunks:
-            total_nodes += await process_chunk_node_extraction(
-                session, chunk, doc_id, job_id, corpus_summary=corpus_summary
-            )
+    total_nodes = 0
+    if chunks:
+        semaphore = asyncio.Semaphore(CHUNK_CONCURRENCY)
 
-        if settings.ENABLE_CONTEXT_LAYER:
-            from app.pipeline.pending_hypothesis import listen_open_hypotheses
+        async def _extract_one(chunk: Chunk) -> int:
+            # Each concurrently-running chunk gets its own Neo4j session — an
+            # AsyncSession is not safe to share across coroutines awaiting on
+            # it at the same time.
+            async with semaphore, driver.session() as chunk_session:
+                return await process_chunk_node_extraction(
+                    chunk_session, chunk, doc_id, job_id, corpus_summary=corpus_summary
+                )
 
-            await listen_open_hypotheses(
-                session,
-                doc_id=doc_id,
-                chunks=chunks,
-                job_id=job_id,
-            )
+        results = await asyncio.gather(*(_extract_one(chunk) for chunk in chunks))
+        total_nodes = sum(results)
 
     tokens = get_token_usage(job_id)
     stats: dict[str, int] = {"chunks": len(chunks), "nodes": total_nodes}

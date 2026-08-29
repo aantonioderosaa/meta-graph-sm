@@ -44,20 +44,29 @@ def test_metagraph_flag_defaults_locked():
     assert fields["ENABLE_PROMOTE"].default is False
     assert fields["ENABLE_TEMPORAL_TRANSITIONS"].default is True
     assert fields["ENABLE_JUDGE"].default is True
-    assert fields["ENABLE_FACET_IDENTITY"].default is False
     assert fields["ENABLE_DERIVES"].default is False
-    assert fields["ENABLE_CONTEXT_LAYER"].default is False
     assert fields["ENABLE_EVENT_TRIAGE"].default is False
     assert fields["PENDING_HYPOTHESIS_LISTEN_WINDOW"].default == 5
-    assert fields["CONTEXT_AGENT_MAX_TURNS"].default == 4
-    assert fields["EVENT_TRIAGE_MAX_TURNS"].default == 3
+    # EVENT_TRIAGE_MAX_TURNS removed: the per-event loop is a fixed three-phase
+    # pipeline now (search, inspect, decide), not an open turn budget — see
+    # EVENT_TRIAGE_MAX_SEARCH_QUERIES / EVENT_TRIAGE_MAX_INSPECT_NODES in
+    # event_triage.py (module constants, not Settings, same as EVENT_TRIAGE_MAX_SLOT_FANOUT).
+    assert "EVENT_TRIAGE_MAX_TURNS" not in fields
+    # ENABLE_FACET_IDENTITY / ENABLE_CONTEXT_LAYER / CONTEXT_AGENT_MAX_TURNS
+    # removed with identity_resolution.py / relevance_gate.py /
+    # pending_hypothesis.py / context_agent.py / quantifier_events.py /
+    # retraction.py — dead flags, no remaining code path to gate.
+    assert "ENABLE_FACET_IDENTITY" not in fields
+    assert "ENABLE_CONTEXT_LAYER" not in fields
+    assert "CONTEXT_AGENT_MAX_TURNS" not in fields
 
 
-def test_merge_nodes_still_present_and_called_when_facet_flag_off():
+def test_merge_nodes_always_called_identity_is_destructive_merge_only():
+    """Facet identity (Fase 8) is gone: resolve_node has one dedup path now."""
     source = Path(resolve_node.__code__.co_filename).read_text(encoding="utf-8")
     assert "async def merge_nodes" in source
     assert "await merge_nodes(session, node_id, canon_id)" in source
-    assert "if settings.ENABLE_FACET_IDENTITY:" in source
+    assert "ENABLE_FACET_IDENTITY" not in source
     assert merge_nodes.__name__ == "merge_nodes"
     assert RelationLabel.replaces.value == "replaces"
     assert RelationLabel.extends.value == "extends"

@@ -244,10 +244,9 @@ async def test_entity_graph_default_does_not_query_concepts():
 
     graph = await get_entity_graph(session)
 
-    assert len(session.calls) == 3
+    assert len(session.calls) == 2
     assert session.calls[0][0] == node_graph_engine.ENTITY_GRAPH_NODES_CYPHER
     assert session.calls[1][0] == ENTITY_GRAPH_RELS_CYPHER
-    assert session.calls[2][0] == node_graph_engine.ENTITY_FACET_COUNTS_CYPHER
     assert all("HAS_CONCEPT" not in cypher for cypher, _ in session.calls)
     assert [node.properties.get("type") for node in graph.nodes] == ["entity"]
     assert graph.relationships == []
@@ -286,14 +285,13 @@ async def test_entity_graph_include_concepts_false_matches_default():
     explicit_graph = await get_entity_graph(session_explicit, include_concepts=False)
 
     assert default_graph.model_dump() == explicit_graph.model_dump()
-    assert len(session_explicit.calls) == 3
+    assert len(session_explicit.calls) == 2
 
 
 @pytest.mark.asyncio
 async def test_entity_graph_include_concepts_appends_has_concept_bridge():
     session = FakeSession()
     session.enqueue([{"n": FakeNode(id="alice", name="Alice", type="entity")}])
-    session.enqueue([])
     session.enqueue([])
     session.enqueue(
         [
@@ -307,10 +305,9 @@ async def test_entity_graph_include_concepts_appends_has_concept_bridge():
 
     graph = await get_entity_graph(session, include_concepts=True)
 
-    assert len(session.calls) == 4
-    assert session.calls[2][0] == node_graph_engine.ENTITY_FACET_COUNTS_CYPHER
-    assert session.calls[3][0] == node_graph_engine.ENTITY_GRAPH_CONCEPT_RELS_CYPHER
-    assert session.calls[3][1]["ids"] == ["alice"]
+    assert len(session.calls) == 3
+    assert session.calls[2][0] == node_graph_engine.ENTITY_GRAPH_CONCEPT_RELS_CYPHER
+    assert session.calls[2][1]["ids"] == ["alice"]
     by_id = {node.id: node for node in graph.nodes}
     assert by_id["alice"].properties["type"] == "entity"
     assert by_id["tech"].properties["type"] == "concept"
@@ -470,19 +467,6 @@ async def test_concept_neighbors_adds_isa_and_member_of():
     by_id = {node.id: node for node in graph.nodes}
     assert by_id["genre"].properties["definition"] == "organizzazioni"
     assert by_id["acme"].properties["kernel_category"] == "CostruttoSociale"
-
-
-@pytest.mark.asyncio
-async def test_entity_graph_marks_multi_facet_identities():
-    session = FakeSession()
-    session.enqueue([{"n": FakeNode(id="alice-ceo", name="Alice CEO", type="entity")}])
-    session.enqueue([])
-    session.enqueue([{"id": "alice-ceo", "facet_count": 2}])
-
-    graph = await get_entity_graph(session)
-
-    assert graph.nodes[0].properties["has_facets"] is True
-    assert graph.nodes[0].properties["facet_count"] == 2
 
 
 @pytest.mark.asyncio

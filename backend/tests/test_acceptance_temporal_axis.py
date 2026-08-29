@@ -18,7 +18,6 @@ from app.pipeline.entity_relation_resolution import (
     map_temporal_transition,
     temporal_transitions_enabled,
 )
-from app.pipeline.identity_resolution import LINK_SAME_AS_CYPHER, index_entity_version
 from app.pipeline.ingestion import (
     CREATE_CONTRADICTS_CYPHER,
     CREATE_NODE_RELATION_CYPHER,
@@ -84,39 +83,19 @@ async def _async_noop(*_args, **_kwargs):
 
 def test_flag_defaults():
     assert Settings.model_fields["ENABLE_TEMPORAL_TRANSITIONS"].default is True
-    assert Settings.model_fields["ENABLE_FACET_IDENTITY"].default is False
 
 
-def test_temporal_flag_or_facet_identity(monkeypatch):
+def test_temporal_flag_gates_transitions(monkeypatch):
     monkeypatch.setattr(
         "app.pipeline.entity_relation_resolution.settings.ENABLE_TEMPORAL_TRANSITIONS",
         False,
     )
+    assert temporal_transitions_enabled() is False
     monkeypatch.setattr(
-        "app.pipeline.entity_relation_resolution.settings.ENABLE_FACET_IDENTITY",
+        "app.pipeline.entity_relation_resolution.settings.ENABLE_TEMPORAL_TRANSITIONS",
         True,
     )
     assert temporal_transitions_enabled() is True
-    monkeypatch.setattr(
-        "app.pipeline.entity_relation_resolution.settings.ENABLE_FACET_IDENTITY",
-        False,
-    )
-    assert temporal_transitions_enabled() is False
-
-
-@pytest.mark.asyncio
-async def test_index_entity_version_merges_same_as():
-    session = FakeSession()
-    await index_entity_version(session, "identity:weah:Agente", "weah-2018")
-    assert len(session.calls) == 1
-    cypher, kwargs = session.calls[0]
-    assert cypher == LINK_SAME_AS_CYPHER
-    assert kwargs["identity_id"] == "identity:weah:Agente"
-    assert kwargs["facet_node_id"] == "weah-2018"
-    compact = _compact(cypher)
-    assert "[:SAME_AS]" in compact
-    assert "DELETE" not in compact
-    assert "merged_into" not in compact
 
 
 def test_map_contradicts_authoritative_conflict_no_error_marker():

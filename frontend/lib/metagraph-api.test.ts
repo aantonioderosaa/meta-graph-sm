@@ -5,12 +5,9 @@ import {
   getConnectivityRules,
   getContradictions,
   getEventIncompleteness,
-  getIdentities,
-  getIdentity,
   getJudgeRuns,
   getNodeMetadata,
   NetworkError,
-  postUnlinkFacet,
   userFacingApiError,
 } from "./api-client";
 
@@ -33,40 +30,6 @@ describe("metagraph layer API client paths", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  it("getIdentities hits /graph/identities", async () => {
-    await getIdentities();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/graph/identities",
-      expect.any(Object),
-    );
-  });
-
-  it("getIdentity encodes the uri", async () => {
-    await getIdentity("identity:alice:Agente");
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/graph/identities/identity%3Aalice%3AAgente",
-      expect.any(Object),
-    );
-  });
-
-  it("postUnlinkFacet POSTs facet_node_id to /unlink", async () => {
-    fetchMock.mockResolvedValue(
-      okResponse({
-        unlinked: true,
-        identity_uri: "identity:alice:Agente",
-        facet_node_id: "alice-ceo",
-      }),
-    );
-    await postUnlinkFacet("identity:alice:Agente", "alice-ceo");
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/graph/identities/identity%3Aalice%3AAgente/unlink",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ facet_node_id: "alice-ceo" }),
-      }),
-    );
   });
 
   it("getContradictions hits /graph/contradictions", async () => {
@@ -103,10 +66,10 @@ describe("metagraph layer API client paths", () => {
 
   it("wraps fetch failures as NetworkError with the path", async () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
-    await expect(getIdentities()).rejects.toBeInstanceOf(NetworkError);
-    await expect(getIdentities()).rejects.toMatchObject({
-      path: "/graph/identities",
-      message: "GET /graph/identities: richiesta di rete non completata",
+    await expect(getContradictions()).rejects.toBeInstanceOf(NetworkError);
+    await expect(getContradictions()).rejects.toMatchObject({
+      path: "/graph/contradictions",
+      message: "GET /graph/contradictions: richiesta di rete non completata",
     });
     await expect(getNodeMetadata("alice")).rejects.toMatchObject({
       path: "/graph/metadata/alice",
@@ -118,8 +81,10 @@ describe("metagraph layer API client paths", () => {
       "Metadati non disponibili (404)",
     );
     expect(
-      userFacingApiError(new NetworkError("/graph/identities"), "Identità"),
-    ).toBe("Identità — GET /graph/identities: richiesta di rete non completata");
+      userFacingApiError(new NetworkError("/graph/contradictions"), "Contraddizioni"),
+    ).toBe(
+      "Contraddizioni — GET /graph/contradictions: richiesta di rete non completata",
+    );
     expect(userFacingApiError(new TypeError("Failed to fetch"), "Metadati")).toBe(
       "Metadati: richiesta di rete fallita",
     );

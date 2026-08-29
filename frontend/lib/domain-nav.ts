@@ -1,9 +1,4 @@
-import type { GraphNode, NodeMetadataResponse } from "./types";
-
-/** Facet card under metadata only when the node already has identity URIs. */
-export function shouldEmbedIdentityPanel(data: NodeMetadataResponse): boolean {
-  return data.kind === "node" && (data.identity_uris?.length ?? 0) > 0;
-}
+import type { GraphNode } from "./types";
 
 /** Push a domain onto the nested-scope stack. No-op if already current. */
 export function pushDrill(path: string[], id: string): string[] {

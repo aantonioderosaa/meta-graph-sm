@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "changeme"
     OPENAI_API_KEY: str = ""
+    # Empty = official OpenAI endpoint (SDK default). Set to reach any
+    # OpenAI-compatible server instead (LM Studio, vLLM, llama.cpp, ...) —
+    # e.g. http://localhost:1234/v1. The "OPENAI_" prefix stays regardless of
+    # which backend actually answers: the `openai` SDK is the client, the
+    # server just has to speak its wire protocol.
+    OPENAI_BASE_URL: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
     EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
     RERANK_MODEL: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
@@ -53,12 +59,7 @@ class Settings(BaseSettings):
     BACKBONE_MDL_MIN_PAYLOAD: int = 1
     # Fase 7: S1 generalization up the Concept IS_A lattice. Stop before kernel catch-all.
     CONNECTIVITY_MAX_GENERALIZATION_HOPS: int = 1
-    # Fase 8: identity-as-facets instead of destructive merge_nodes. Default off so
-    # existing node-resolution / dreaming tests stay on today's merge path.
-    ENABLE_FACET_IDENTITY: bool = False
     # Fase 9: three-way temporal transitions (supersedes / updated_by / contradicts).
-    # Also treated as on when ENABLE_FACET_IDENTITY is True (OR). Both false → T1
-    # replaces/extends/none apply path.
     ENABLE_TEMPORAL_TRANSITIONS: bool = True
     # Blocking cosine on summary embeddings (doc4 §2). Same kernel_category required.
     IDENTITY_BLOCK_THRESHOLD: float = 0.82
@@ -66,22 +67,12 @@ class Settings(BaseSettings):
     ENABLE_JUDGE: bool = True
     # ϕ_collapse for equivalent_to between promoted sibling Concepts (doc4 §5).
     BACKBONE_COLLAPSE_THRESHOLD: float = 0.90
-    # Fase 20–22: agentic context layer (relevance gate, :PendingHypothesis, later
-    # quantifier/retraction/agent). Default off → Fase 0–18 ingest/dreaming unchanged.
-    ENABLE_CONTEXT_LAYER: bool = False
-    # Event triage (assert/retract with provenance) in the judge. Independent of
-    # ENABLE_CONTEXT_LAYER: must be able to run with Fasi 20–22 off, because it
-    # inspects :Evento nodes, not the lexical chunk gate.
+    # Event triage (assert/retract with provenance) in the judge. Inspects :Evento
+    # nodes directly; does not depend on any other flag.
     ENABLE_EVENT_TRIAGE: bool = False
-    # Documents of listen-without-reinforcement before auto-promotion is abandoned
-    # (hypothesis stays open; never ages into a fact).
+    # Waiting-events hard cap on checks_without_progress before event_triage gives
+    # up and marks an event "incomplete" instead of leaving it "waiting" forever.
     PENDING_HYPOTHESIS_LISTEN_WINDOW: int = 5
-    # Fase 22: ReAct turn cap around call_structured. Do not retune.
-    CONTEXT_AGENT_MAX_TURNS: int = 4
-    # Macrotask 9: event-triage ReAct cap. Lower than CONTEXT_AGENT_MAX_TURNS
-    # because this loop runs per event per batch. Turn 0 (relations / metadata /
-    # source chunk text) is free and is not counted.
-    EVENT_TRIAGE_MAX_TURNS: int = 3
 
 
 settings = Settings()

@@ -15,8 +15,6 @@ const TASKS: { key: keyof JudgeRunItem; label: string }[] = [
   { key: "anti_blur", label: "anti-blur" },
   { key: "equivalent_to", label: "equivalent_to" },
   { key: "reraffine", label: "ri-raffina" },
-  { key: "identity", label: "identità" },
-  { key: "missed_contradictions", label: "contraddizioni" },
   { key: "temporal", label: "temporale" },
 ];
 

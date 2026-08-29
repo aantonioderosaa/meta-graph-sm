@@ -1,6 +1,5 @@
 """Pydantic data contracts (tech-spec §17)."""
 
-from app.models.agent_step import AgentAction, AgentStep
 from app.models.kernel import (
     IS_A,
     KERNEL_VERSION,
@@ -23,8 +22,6 @@ from app.models.query import (
 from app.models.relations import RelationClassification, RelationLabel
 
 __all__ = [
-    "AgentAction",
-    "AgentStep",
     "IS_A",
     "KERNEL_VERSION",
     "MEMBER_OF",

@@ -16,10 +16,8 @@ REQUIRED_CONSTRAINTS = {
     "node_query_log_id",
     "node_id",
     "concept_id",
-    "identity_node_uri",
     "connectivity_rule_triple",
     "corpus_context_id",
-    "pending_hypothesis_id",
 }
 REQUIRED_BTREE_INDEXES = {
     "chunk_doc",

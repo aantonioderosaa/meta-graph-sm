@@ -72,8 +72,6 @@ export const MOCK_PIPELINE_EVENTS: PipelineEvent[] = [
         anti_blur: 0,
         equivalent_to: 0,
         reraffine: 0,
-        identity: 0,
-        missed_contradictions: 0,
         temporal: 0,
       },
     },

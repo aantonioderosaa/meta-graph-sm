@@ -1,24 +1,17 @@
 "use client";
 
 /**
- * Metadata sheet for a macro node click. Facets reuse IdentityDetailPanel (F12.2).
+ * Metadata sheet for a macro node click.
  */
 
 import { useCallback, useEffect, useState } from "react";
 
-import { IdentityDetailPanel } from "@/components/IdentityDetailPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getNodeMetadata, userFacingApiError } from "@/lib/api-client";
-import { nodeTypeLabel, shouldEmbedIdentityPanel } from "@/lib/domain-nav";
+import { nodeTypeLabel } from "@/lib/domain-nav";
 import type { NodeMetadataResponse } from "@/lib/types";
 
-export function NodeMetadataPanel({
-  nodeId,
-  onHighlightChange,
-}: {
-  nodeId: string;
-  onHighlightChange?: (ids: Set<string> | null) => void;
-}) {
+export function NodeMetadataPanel({ nodeId }: { nodeId: string }) {
   const [data, setData] = useState<NodeMetadataResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -143,13 +136,6 @@ export function NodeMetadataPanel({
           ) : null}
         </CardContent>
       </Card>
-      {data && shouldEmbedIdentityPanel(data) ? (
-        <IdentityDetailPanel
-          filterFacetNodeId={nodeId}
-          identityUris={data.identity_uris}
-          onHighlightChange={onHighlightChange}
-        />
-      ) : null}
     </div>
   );
 }

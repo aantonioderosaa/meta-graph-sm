@@ -20,7 +20,6 @@ import { ContradictionsPanel } from "@/components/ContradictionsPanel";
 import { DomainDashboard } from "@/components/DomainDashboard";
 import { DomainDetailCard } from "@/components/DomainDetailCard";
 import { DomainGraphPanel } from "@/components/DomainGraphPanel";
-import { IdentityDetailPanel } from "@/components/IdentityDetailPanel";
 import { IncompletenessPanel } from "@/components/IncompletenessPanel";
 import { JudgeLogPanel } from "@/components/JudgeLogPanel";
 import { NodeMetadataPanel } from "@/components/NodeMetadataPanel";
@@ -57,9 +56,6 @@ function LayerTabs({
         <TabsTrigger value="query" className="px-2 text-[11px]">
           Query
         </TabsTrigger>
-        <TabsTrigger value="identita" className="px-2 text-[11px]">
-          Identità
-        </TabsTrigger>
         <TabsTrigger value="contraddizioni" className="px-2 text-[11px]">
           Contraddizioni
         </TabsTrigger>
@@ -81,9 +77,6 @@ function LayerTabs({
           highlightIds={highlightIds}
           onHighlightChange={onHighlightChange}
         />
-      </TabsContent>
-      <TabsContent value="identita" className="mt-2 min-h-0 flex-1 overflow-hidden">
-        <IdentityDetailPanel onHighlightChange={onHighlightChange} />
       </TabsContent>
       <TabsContent value="contraddizioni" className="mt-2 min-h-0 flex-1 overflow-hidden">
         <ContradictionsPanel onHighlightChange={onHighlightChange} />
@@ -229,10 +222,7 @@ export function DashboardShell() {
                 ) : null}
                 {metadataId ? (
                   <div className="mt-2">
-                    <NodeMetadataPanel
-                      nodeId={metadataId}
-                      onHighlightChange={setHighlightIds}
-                    />
+                    <NodeMetadataPanel nodeId={metadataId} />
                   </div>
                 ) : null}
               </div>

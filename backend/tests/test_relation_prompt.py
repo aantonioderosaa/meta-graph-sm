@@ -139,13 +139,9 @@ def test_system_prompt_t1_blocks_present_for_ci():
 
 
 def test_legacy_prompt_kept_for_flag_off(monkeypatch):
-    """Both flags False → T1 replaces/extends/none prompt (tests can target it)."""
+    """Flag off → T1 replaces/extends/none prompt (tests can target it)."""
     monkeypatch.setattr(
         "app.pipeline.entity_relation_resolution.settings.ENABLE_TEMPORAL_TRANSITIONS",
-        False,
-    )
-    monkeypatch.setattr(
-        "app.pipeline.entity_relation_resolution.settings.ENABLE_FACET_IDENTITY",
         False,
     )
     system, _user = build_relation_prompt("new", "old")

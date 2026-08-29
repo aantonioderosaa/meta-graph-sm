@@ -1,4 +1,4 @@
-"""Fase 10 acceptance: judge post-batch pass, six isolated tasks. No Docker."""
+"""Fase 10 acceptance: judge post-batch pass, four isolated tasks. No Docker."""
 
 from __future__ import annotations
 
@@ -9,25 +9,15 @@ import pytest
 
 from app.core.config import Settings
 from app.pipeline.dreaming import run_dreaming_pipeline
-from app.pipeline.identity_resolution import (
-    LINK_SAME_AS_CYPHER,
-    MARK_NOT_SAME_AS_CYPHER,
-    MERGE_IDENTITY_NODE_CYPHER,
-    SAME_AS,
-    cosine,
-)
 from app.pipeline.ingestion import CREATE_CONTRADICTS_CYPHER
 from app.pipeline.judge import (
     CREATE_SUPERSEDES_BETWEEN_CYPHER,
     CREATE_UPDATED_BY_BETWEEN_CYPHER,
     DELETE_CONTRADICTS_BETWEEN_CYPHER,
-    DELETE_POSSIBLY_SAME_AS_CYPHER,
     FIND_BLURRED_RELATIONS_CYPHER,
     FIND_CONTRADICTS_PAIRS_CYPHER,
     FIND_EQUIVALENT_CONCEPT_PAIRS_CYPHER,
-    FIND_MISSED_CONTRADICTIONS_CYPHER,
     FIND_PARENT_MEMBERS_CYPHER,
-    FIND_POSSIBLY_SAME_AS_CYPHER,
     FIND_PROMOTED_CHILDREN_CYPHER,
     MARK_ABSORBED_CONCEPT_CYPHER,
     MARK_BLURRED_RELATION_CYPHER,
@@ -35,8 +25,8 @@ from app.pipeline.judge import (
     MERGE_JUDGE_RUN_CYPHER,
     MOVE_ABSORBED_MEMBER_OF_CYPHER,
     MOVE_MEMBER_OF_TO_CHILD_CYPHER,
-    IdentityVerdict,
     JudgeStats,
+    cosine,
     run_judge,
     split_blurred_relation,
 )
@@ -69,7 +59,6 @@ class JudgeGraph:
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
         self.concepts: dict[str, dict] = {}
-        self.identity_nodes: dict[str, dict] = {}
         self.relations: list[dict] = []
         self.member_of: dict[str, dict] = {}
         self.isa: dict[str, str] = {}
@@ -243,74 +232,6 @@ class JudgeGraph:
                 self.member_of[node_id] = {"concept_id": child_id}
             return FakeResult([])
 
-        if cypher == FIND_POSSIBLY_SAME_AS_CYPHER:
-            rows = []
-            for edge in self.famiglia:
-                if edge["rel_type"] != "POSSIBLY_SAME_AS":
-                    continue
-                a = self.nodes.get(edge["src"], {"id": edge["src"]})
-                b = self.nodes.get(edge["dst"], {"id": edge["dst"]})
-                rows.append(
-                    {
-                        "id_a": a.get("id"),
-                        "name_a": a.get("name"),
-                        "summary_a": a.get("summary"),
-                        "kernel_a": a.get("kernel_category"),
-                        "created_a": a.get("created_at"),
-                        "id_b": b.get("id"),
-                        "name_b": b.get("name"),
-                        "summary_b": b.get("summary"),
-                        "kernel_b": b.get("kernel_category"),
-                        "created_b": b.get("created_at"),
-                    }
-                )
-            return FakeResult(rows)
-
-        if cypher == DELETE_POSSIBLY_SAME_AS_CYPHER:
-            self._drop_famiglia(kwargs["src_id"], kwargs["dst_id"], "POSSIBLY_SAME_AS")
-            return FakeResult([])
-
-        if cypher == FIND_MISSED_CONTRADICTIONS_CYPHER or (
-            "NOT (t1)-[:CONTRADICTS]-(t2)" in cypher and "$touched_ids" in cypher
-        ):
-            touched = {str(nid) for nid in (kwargs.get("touched_ids") or []) if nid}
-            rows = []
-            latest = [rel for rel in self.relations if rel.get("is_latest", True)]
-            for i, left in enumerate(latest):
-                for right in latest[i + 1 :]:
-                    if left["src"] != right["src"]:
-                        continue
-                    t1, t2 = left["dst"], right["dst"]
-                    if t1 == t2:
-                        continue
-                    first, second = (left, right) if str(t1) < str(t2) else (right, left)
-                    t1, t2 = first["dst"], second["dst"]
-                    kp1 = first.get("kernel_parent") or ""
-                    kp2 = second.get("kernel_parent") or ""
-                    if kp1 != kp2:
-                        continue
-                    if self._has_famiglia(t1, t2, "CONTRADICTS"):
-                        continue
-                    if self._has_famiglia(t1, t2, "SUPERSEDES"):
-                        continue
-                    if self._has_famiglia(t1, t2, "UPDATED_BY"):
-                        continue
-                    head = first["src"]
-                    if touched and not (
-                        str(head) in touched or str(t1) in touched or str(t2) in touched
-                    ):
-                        continue
-                    rows.append(
-                        {
-                            "head_id": head,
-                            "tail_a": t1,
-                            "tail_b": t2,
-                            "relation": first.get("relation") or "",
-                            "kernel_parent": kp1,
-                        }
-                    )
-            return FakeResult(rows)
-
         if cypher == CREATE_CONTRADICTS_CYPHER:
             self.add_famiglia(
                 kwargs["left_id"],
@@ -377,27 +298,6 @@ class JudgeGraph:
             self.judge_runs[kwargs["id"]] = dict(kwargs)
             return FakeResult([])
 
-        if cypher == MERGE_IDENTITY_NODE_CYPHER:
-            uri = kwargs["uri"]
-            summary = kwargs.get("canonical_summary") or ""
-            existing = self.identity_nodes.get(uri)
-            if existing is None:
-                self.identity_nodes[uri] = {"uri": uri, "canonical_summary": summary}
-            else:
-                existing["canonical_summary"] = summary
-            return FakeResult([{"uri": uri}])
-
-        if cypher == LINK_SAME_AS_CYPHER:
-            facet_id = kwargs["facet_node_id"]
-            identity_id = kwargs["identity_id"]
-            if facet_id in self.nodes and identity_id in self.identity_nodes:
-                self.add_famiglia(facet_id, SAME_AS, identity_id)
-            return FakeResult([])
-
-        if cypher == MARK_NOT_SAME_AS_CYPHER:
-            self.add_famiglia(kwargs["src_id"], "NOT_SAME_AS", kwargs["dst_id"])
-            return FakeResult([])
-
         return FakeResult([])
 
 
@@ -423,7 +323,6 @@ def test_judge_has_no_new_write_primitives():
     assert "CREATE (n:Relation" not in text
     assert "JudgeStats" in text
     assert "EQUIVALENT_TO" in text
-    assert "link_as_facet" in text
 
 
 def test_split_blurred_relation_cartesian():
@@ -522,74 +421,6 @@ async def test_reraffine_moves_matching_member_only():
     assert stats.reraffine >= 1
     assert graph.member_of["n-match"]["concept_id"] == "child-s"
     assert graph.member_of["n-stay"]["concept_id"] == "parent-p"
-
-
-@pytest.mark.asyncio
-async def test_identity_same_as_via_link_as_facet(monkeypatch):
-    graph = JudgeGraph()
-    graph.add_node(
-        "mario-calcio",
-        name="Mario Rossi",
-        summary="calciatore",
-        kernel_category="Agente",
-    )
-    graph.add_node(
-        "mario-tv",
-        name="Mario Rossi",
-        summary="opinione tv",
-        kernel_category="Agente",
-    )
-    graph.add_famiglia("mario-calcio", "POSSIBLY_SAME_AS", "mario-tv")
-    merges: list[tuple[str, str]] = []
-
-    async def fake_merge(*_args, **_kwargs) -> None:
-        merges.append(("called", "merge"))
-
-    async def fake_llm(*_args, **_kwargs):
-        return IdentityVerdict(decision="same_as")
-
-    monkeypatch.setattr("app.pipeline.node_resolution.merge_nodes", fake_merge)
-    monkeypatch.setattr("app.pipeline.judge.call_structured", fake_llm)
-
-    stats = await run_judge(graph, JOB_ID)
-
-    assert stats.identity >= 1
-    assert merges == []
-    assert not graph._has_famiglia("mario-calcio", "mario-tv", "POSSIBLY_SAME_AS")
-    identity_uris = list(graph.identity_nodes)
-    assert identity_uris
-    uri = identity_uris[0]
-    assert graph._has_famiglia("mario-calcio", uri, SAME_AS)
-    assert graph._has_famiglia("mario-tv", uri, SAME_AS)
-    assert not any("merged_into" in cypher for cypher, _kw in graph.calls)
-
-
-@pytest.mark.asyncio
-async def test_missed_contradiction_creates_contradicts():
-    graph = JudgeGraph()
-    graph.add_node("weah")
-    graph.add_node("tail-2010", name="2010")
-    graph.add_node("tail-2011", name="2011")
-    graph.add_relation(
-        "weah",
-        "tail-2010",
-        relation="Fonte A: ha vinto il torneo nel 2010.",
-        kernel_parent="Temporale",
-        is_latest=True,
-    )
-    graph.add_relation(
-        "weah",
-        "tail-2011",
-        relation="Fonte B: ha vinto il torneo nel 2011.",
-        kernel_parent="Temporale",
-        is_latest=True,
-    )
-
-    stats = await run_judge(graph, JOB_ID)
-
-    assert stats.missed_contradictions >= 1
-    assert graph._has_famiglia("tail-2010", "tail-2011", "CONTRADICTS")
-    assert len(graph.relations) == 2
 
 
 @pytest.mark.asyncio
