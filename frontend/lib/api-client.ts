@@ -6,7 +6,6 @@
 import type {
   BundleResponse,
   ConnectivityRuleListResponse,
-  ContradictionListResponse,
   DocumentListResponse,
   DocumentRequest,
   DomainDictionaryResponse,
@@ -242,10 +241,6 @@ export function getNodeMetadata(nodeId: string): Promise<NodeMetadataResponse> {
   return request<NodeMetadataResponse>(
     `/graph/metadata/${encodeURIComponent(nodeId)}`,
   );
-}
-
-export function getContradictions(): Promise<ContradictionListResponse> {
-  return request<ContradictionListResponse>("/graph/contradictions");
 }
 
 export function getConnectivityRules(): Promise<ConnectivityRuleListResponse> {

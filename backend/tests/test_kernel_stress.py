@@ -11,13 +11,12 @@ import pytest
 
 from app.models.kernel import EntityKernelType, RelationKernelType, SpecialRelationType
 from app.models.query import NodeSubgraph, NodeSubgraphRelationship
-from app.pipeline.ingestion import write_contradicts, write_node_relation
+from app.pipeline.ingestion import write_node_relation
 from app.pipeline.judge import run_judge
 from app.pipeline.node_query_engine import (
     derive_candidate_links,
     label_query_citations,
 )
-from app.pipeline.promote import is_skipped_relation
 from tests.test_acceptance_judge import JudgeGraph
 from tests.test_acceptance_s0_s1_s2 import GraphSession, _seed_player_coach
 
@@ -121,49 +120,6 @@ async def test_equivalent_refinements_from_sister_domains_collapse():
         [c.get("kernel_category") for c in graph.concepts.values()]
         + [n.get("kernel_category") for n in graph.nodes.values()]
     )
-
-
-@pytest.mark.asyncio
-async def test_ingest_contradiction_keeps_both_facts(embed_stub):
-    """§13.5 both latest facts kept + CONTRADICTS; PROMOTE never retypes Famiglia B."""
-    assert is_skipped_relation("contradicts", SpecialRelationType.contradicts.value)
-    assert is_skipped_relation("CONTRADICTS", "CONTRADICTS")
-    assert not is_skipped_relation("coached_by", RelationKernelType.Partecipativa.value)
-
-    session = GraphSession()
-    session.graph.nodes["h"] = {"id": "h", "kernel_category": "Agente"}
-    session.graph.nodes["t1"] = {"id": "t1", "kernel_category": "EntitaTemporale"}
-    session.graph.nodes["t2"] = {"id": "t2", "kernel_category": "EntitaTemporale"}
-    await write_node_relation(
-        session,
-        head_id="h",
-        tail_id="t1",
-        relation="won_2010",
-        normalized_relation="won",
-        kernel_parent=RelationKernelType.Partecipativa,
-        witness_source="A",
-        witness_target="2010",
-    )
-    await write_node_relation(
-        session,
-        head_id="h",
-        tail_id="t2",
-        relation="won_2011",
-        normalized_relation="won",
-        kernel_parent=RelationKernelType.Partecipativa,
-        witness_source="B",
-        witness_target="2011",
-    )
-    await write_contradicts(
-        session,
-        left_id="t1",
-        right_id="t2",
-        subject_id="h",
-        relation="won",
-        kernel_parent=RelationKernelType.Partecipativa.value,
-    )
-    assert len(session.graph.relations) == 2
-    assert all(rel.get("lifted_from") is None for rel in session.graph.relations)
 
 
 @pytest.mark.asyncio

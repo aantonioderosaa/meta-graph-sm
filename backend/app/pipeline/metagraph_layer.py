@@ -9,24 +9,11 @@ from neo4j import AsyncSession
 from app.api.schemas import (
     ConnectivityRuleItem,
     ConnectivityRuleListResponse,
-    ContradictionItem,
-    ContradictionListResponse,
     EventIncompletenessItem,
     EventIncompletenessListResponse,
     JudgeRunItem,
     JudgeRunListResponse,
 )
-
-LIST_CONTRADICTIONS_CYPHER = """
-MATCH (a:Node)-[c:CONTRADICTS]->(b:Node)
-RETURN elementId(c) AS id,
-       a.id AS left_id,
-       coalesce(a.name, a.id) AS left_name,
-       b.id AS right_id,
-       coalesce(b.name, b.id) AS right_name,
-       c.subject_id AS subject_id
-"""
-
 LIST_CONNECTIVITY_RULES_CYPHER = """
 MATCH (r:ConnectivityRule)
 RETURN r.source_category AS source_category,
@@ -43,9 +30,7 @@ RETURN j.id AS id,
        j.batch_id AS batch_id,
        toString(j.timestamp) AS timestamp,
        coalesce(j.anti_blur, 0) AS anti_blur,
-       coalesce(j.equivalent_to, 0) AS equivalent_to,
-       coalesce(j.reraffine, 0) AS reraffine,
-       coalesce(j.temporal, 0) AS temporal
+       coalesce(j.equivalent_to, 0) AS equivalent_to
 ORDER BY j.timestamp DESC
 """
 
@@ -109,28 +94,6 @@ async def _collect_rows(result: Any) -> list[Any]:
     return rows
 
 
-async def list_contradictions(session: AsyncSession) -> ContradictionListResponse:
-    """Open CONTRADICTS — never filtered. Node–Node and relation-tail pairs."""
-    result = await session.run(LIST_CONTRADICTIONS_CYPHER)
-    items: list[ContradictionItem] = []
-    async for row in result:
-        left_id = _as_str(_get(row, "left_id"))
-        right_id = _as_str(_get(row, "right_id"))
-        raw_id = _get(row, "id")
-        subject = _get(row, "subject_id")
-        items.append(
-            ContradictionItem(
-                id=_as_str(raw_id, f"{left_id}->{right_id}"),
-                left_id=left_id,
-                left_name=_as_str(_get(row, "left_name"), left_id),
-                right_id=right_id,
-                right_name=_as_str(_get(row, "right_name"), right_id),
-                subject_id=None if subject in (None, "") else str(subject),
-            )
-        )
-    return ContradictionListResponse(items=items)
-
-
 async def list_connectivity_rules(session: AsyncSession) -> ConnectivityRuleListResponse:
     result = await session.run(LIST_CONNECTIVITY_RULES_CYPHER)
     items: list[ConnectivityRuleItem] = []
@@ -160,8 +123,6 @@ async def list_judge_runs(session: AsyncSession) -> JudgeRunListResponse:
                 timestamp=None if ts in (None, "") else str(ts),
                 anti_blur=_as_int(_get(row, "anti_blur")),
                 equivalent_to=_as_int(_get(row, "equivalent_to")),
-                reraffine=_as_int(_get(row, "reraffine")),
-                temporal=_as_int(_get(row, "temporal")),
             )
         )
     return JudgeRunListResponse(items=items)

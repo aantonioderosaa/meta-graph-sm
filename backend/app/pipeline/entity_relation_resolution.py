@@ -3,9 +3,9 @@
 Candidates are same-endpoint edges identified by elementId(r). Never a
 full-graph Relation scan.
 
-Fase 9 extends T1: when temporal transitions are enabled, the classifier
-returns supersedes / updated_by / contradicts (plus extends / none). The
-legacy replaces/extends/none path remains when both flags are off.
+The classifier returns supersedes / updated_by / extends / none. Conflicting
+years without an error marker stay independent facts (``none``); they are
+not asserted as CONTRADICTS.
 """
 
 from __future__ import annotations
@@ -17,23 +17,10 @@ from dataclasses import dataclass
 
 from neo4j import AsyncSession
 
-from app.core.config import settings
 from app.core.llm_client import call_structured
 from app.models.relations import RelationClassification, RelationLabel
-from app.pipeline.ingestion import write_contradicts
 
 logger = logging.getLogger(__name__)
-
-_REPLACES_SECTION = (
-    '- `"replaces"` se il fatto nuovo contraddice o sostituisce il fatto esistente sullo stesso '
-    "soggetto/attributo: un'informazione più recente annulla o rimpiazza la precedente. "
-    "Per stabilire quale dei due descrive lo stato più recente, cerca marcatori temporali nel "
-    'testo di entrambi i fatti (date assolute, espressioni relative come "ora", "da allora", '
-    '"fino al", "ho appena iniziato", "il mese scorso") — questi sono la base primaria della '
-    "decisione, non l'ordine di presentazione. Le etichette FATTO NUOVO/FATTO ESISTENTE "
-    "indicano solo quale dei due stai valutando ora — non implicano da sole che uno sia "
-    "temporalmente precedente all'altro.\n"
-)
 
 _TEMPORAL_TRANSITIONS_SECTION = (
     '- `"supersedes"` se la versione precedente era vera quando è stata asserita e il fatto '
@@ -48,10 +35,6 @@ _TEMPORAL_TRANSITIONS_SECTION = (
     '- `"updated_by"` se il fatto precedente era un errore e il testo contiene una rettifica '
     'esplicita (es. "in realtà mi sono sbagliato", "non nel 2010 ma nel 2011", "correzione"). '
     "Senza quel marcatore di errore nel testo, non scegliere `updated_by`.\n"
-    '- `"contradicts"` se un\'altra fonte, o un disaccordo autorevole, afferma qualcosa di '
-    "incompatibile sullo stesso soggetto/attributo SENZA marcatore di errore — mai "
-    "`updated_by`. Entrambe le asserzioni restano pretese vere; il conflitto è di prima "
-    "classe.\n"
 )
 
 _EXTENDS_NONE_SECTION = (
@@ -71,23 +54,14 @@ _EXTENDS_NONE_SECTION = (
     '- `"none"` se non c\'è relazione significativa tra i due.\n\n'
 )
 
-_PRUDENCE_LEGACY = (
-    "Se nessuno dei due fatti contiene un marcatore temporale esplicito che stabilisca quale "
-    "dei due descrive lo stato più recente, non scegliere `replaces` sulla sola base "
-    "dell'ordine di presentazione — valuta invece se i due fatti possono coesistere "
-    "(`extends`) o se non c'è relazione significativa (`none`). Dichiarare erroneamente "
-    "`replaces` nasconde un fatto vero: è un errore peggiore di non dichiarare nulla.\n\n"
-)
-
 _PRUDENCE_TEMPORAL = (
     "Se nessuno dei due fatti contiene un marcatore temporale esplicito che stabilisca quale "
-    "dei due descrive lo stato più recente, non scegliere `supersedes` (né `replaces`) sulla "
-    "sola base dell'ordine di presentazione — valuta invece se i due fatti possono "
-    "coesistere (`extends`), se sono un disaccordo senza rettifica (`contradicts`), o se "
-    "non c'è relazione significativa (`none`). Dichiarare erroneamente una transizione che "
-    "nasconde un fatto vero è un errore peggiore di non dichiarare nulla.\n\n"
-    "`updated_by` solo in presenza di una rettifica esplicita nel testo; due fonti "
-    "autorevoli in conflitto senza marcatore di errore → `contradicts`, mai `updated_by`.\n\n"
+    "dei due descrive lo stato più recente, non scegliere `supersedes` sulla sola base "
+    "dell'ordine di presentazione — valuta invece se i due fatti possono coesistere "
+    "(`extends`) o se non c'è relazione significativa (`none`). Dichiarare erroneamente una "
+    "transizione che nasconde un fatto vero è un errore peggiore di non dichiarare nulla.\n\n"
+    "`updated_by` solo in presenza di una rettifica esplicita nel testo; due fatti in "
+    "conflitto senza marcatore di errore restano indipendenti (`none`), mai `updated_by`.\n\n"
 )
 
 SYSTEM_PROMPT = (
@@ -95,14 +69,6 @@ SYSTEM_PROMPT = (
     f"{_TEMPORAL_TRANSITIONS_SECTION}"
     f"{_EXTENDS_NONE_SECTION}"
     f"{_PRUDENCE_TEMPORAL}"
-    "Rispondi solo secondo lo schema fornito, senza aggiungere testo libero."
-)
-
-LEGACY_SYSTEM_PROMPT = (
-    "Confronta il FATTO NUOVO con il FATTO ESISTENTE e classifica la relazione tra i due:\n"
-    f"{_REPLACES_SECTION}"
-    f"{_EXTENDS_NONE_SECTION}"
-    f"{_PRUDENCE_LEGACY}"
     "Rispondi solo secondo lo schema fornito, senza aggiungere testo libero."
 )
 
@@ -164,22 +130,17 @@ _STOPWORDS = frozenset(
 )
 
 
-def temporal_transitions_enabled() -> bool:
-    """Fase 9 flag."""
-    return bool(settings.ENABLE_TEMPORAL_TRANSITIONS)
-
-
 def _has_error_marker(text: str) -> bool:
     folded = text.casefold()
     return any(marker in folded for marker in ERROR_MARKERS)
 
 
 def map_temporal_transition(new_text: str, old_text: str) -> RelationLabel:
-    """Deterministic three-way mapping (no LLM). Never drops a disagreement.
+    """Deterministic mapping (no LLM). Conflicting years are independent facts.
 
     ``updated_by`` only if explicit error/correction wording is present.
-    Conflicting years without that wording are ``contradicts``, never
-    ``updated_by``. Succession markers without an error marker are
+    Conflicting years without that wording are ``none`` — both facts stay,
+    nothing is asserted. Succession markers without an error marker are
     ``supersedes``. Complementary non-sequential details are ``extends``.
     """
     blob = f"{new_text} {old_text}"
@@ -190,7 +151,7 @@ def map_temporal_transition(new_text: str, old_text: str) -> RelationLabel:
         return RelationLabel.supersedes
     years = set(re.findall(r"\b(?:19|20)\d{2}\b", folded))
     if len(years) >= 2:
-        return RelationLabel.contradicts
+        return RelationLabel.none
     new_tokens = {
         tok
         for tok in re.findall(r"[a-zàèéìòù0-9]+", new_text.casefold())
@@ -228,7 +189,7 @@ def build_relation_prompt(
         f"{locality_note}"
         f"\nClassifica la relazione."
     )
-    system_prompt = SYSTEM_PROMPT if temporal_transitions_enabled() else LEGACY_SYSTEM_PROMPT
+    system_prompt = SYSTEM_PROMPT
     return system_prompt, user_prompt
 
 
@@ -302,15 +263,6 @@ RETURN elementId(r) AS rel_id, r.relation AS relation,
        r.normalized_relation AS normalized_relation
 """
 
-APPLY_UPDATES_CYPHER = """
-MATCH (a:Node {id:$head_id})-[neu:Relation]->(b:Node {id:$tail_id})
-WHERE elementId(neu) = $new_rel_id
-MATCH (a)-[old:Relation]->(b)
-WHERE elementId(old) = $old_rel_id
-SET neu.normalized_relation = 'updates',
-    old.is_latest = false
-"""
-
 APPLY_EXTENDS_CYPHER = """
 MATCH (a:Node {id:$head_id})-[neu:Relation]->(b:Node {id:$tail_id})
 WHERE elementId(neu) = $new_rel_id
@@ -321,12 +273,6 @@ MARK_PROCESSED_NONE_CYPHER = """
 MATCH (a:Node {id:$head_id})-[neu:Relation]->(b:Node {id:$tail_id})
 WHERE elementId(neu) = $new_rel_id
 SET neu.normalized_relation = neu.relation
-"""
-
-MARK_CONTRADICTS_CYPHER = """
-MATCH (a:Node {id:$head_id})-[neu:Relation]->(b:Node {id:$tail_id})
-WHERE elementId(neu) = $new_rel_id
-SET neu.normalized_relation = 'contradicts'
 """
 
 APPLY_SUPERSEDES_CYPHER = """
@@ -493,25 +439,9 @@ async def _apply_temporal_label(
     new_rel_id: str,
     old_rel_id: str,
 ) -> str | None:
-    """Apply a three-way temporal verdict. Returns outcome or None to try the next candidate."""
+    """Apply a temporal verdict. Returns outcome or None to try the next candidate."""
     params = _apply_kwargs(head_id, tail_id, new_rel_id, old_rel_id)
-    if label == RelationLabel.contradicts:
-        await session.run(
-            MARK_CONTRADICTS_CYPHER,
-            head_id=head_id,
-            tail_id=tail_id,
-            new_rel_id=new_rel_id,
-        )
-        await write_contradicts(
-            session,
-            left_id=tail_id,
-            right_id=tail_id,
-            subject_id=head_id,
-            relation="contradicts",
-            kernel_parent="contradicts",
-        )
-        return "contradicts"
-    if label in (RelationLabel.supersedes, RelationLabel.replaces):
+    if label == RelationLabel.supersedes:
         await session.run(APPLY_SUPERSEDES_CYPHER, **params)
         return "supersedes"
     if label == RelationLabel.updated_by:
@@ -538,46 +468,25 @@ async def classify_and_apply_entity_relation(
 ) -> str | None:
     """Classify a fresh entity-entity Relation against same-endpoint candidates.
 
-    Returns ``supersedes``, ``updated_by``, ``contradicts``, ``extends``, or
-    ``none`` when temporal transitions are on; otherwise ``updates`` /
-    ``extends`` / ``none``.
+    Returns ``supersedes``, ``updated_by``, ``extends``, or ``none``.
     """
     candidates = await find_entity_relation_candidates(session, head_id, tail_id, rel_id)
-    temporal = temporal_transitions_enabled()
     for candidate in candidates:
         verdict = await classify_relation(
             new_relation_text,
             candidate.relation,
             job_id=job_id,
         )
-        if temporal:
-            outcome = await _apply_temporal_label(
-                session,
-                verdict.relation,
-                head_id,
-                tail_id,
-                rel_id,
-                candidate.rel_id,
-            )
-            if outcome is not None:
-                return outcome
-        elif verdict.relation == RelationLabel.replaces:
-            await session.run(
-                APPLY_UPDATES_CYPHER,
-                head_id=head_id,
-                tail_id=tail_id,
-                new_rel_id=rel_id,
-                old_rel_id=candidate.rel_id,
-            )
-            return "updates"
-        elif verdict.relation == RelationLabel.extends:
-            await session.run(
-                APPLY_EXTENDS_CYPHER,
-                head_id=head_id,
-                tail_id=tail_id,
-                new_rel_id=rel_id,
-            )
-            return "extends"
+        outcome = await _apply_temporal_label(
+            session,
+            verdict.relation,
+            head_id,
+            tail_id,
+            rel_id,
+            candidate.rel_id,
+        )
+        if outcome is not None:
+            return outcome
 
     await session.run(
         MARK_PROCESSED_NONE_CYPHER,
@@ -621,16 +530,6 @@ async def _apply_different_tail_temporal(
     kernel_parent: str,
 ) -> str | None:
     """Famiglia B between *different* tails. Never DELETE a :Relation or :Node."""
-    if label == RelationLabel.contradicts:
-        await write_contradicts(
-            session,
-            left_id=old_tail_id,
-            right_id=new_tail_id,
-            subject_id=head_id,
-            relation=new_relation or old_relation or "contradicts",
-            kernel_parent=kernel_parent or "contradicts",
-        )
-        return "contradicts"
     params = {
         "head_id": head_id,
         "old_tail_id": old_tail_id,
@@ -639,7 +538,7 @@ async def _apply_different_tail_temporal(
         "new_relation": new_relation,
         "kernel_parent": kernel_parent,
     }
-    if label in (RelationLabel.supersedes, RelationLabel.replaces):
+    if label == RelationLabel.supersedes:
         await session.run(APPLY_DIFFERENT_TAIL_SUPERSEDES_CYPHER, **params)
         return "supersedes"
     if label == RelationLabel.updated_by:

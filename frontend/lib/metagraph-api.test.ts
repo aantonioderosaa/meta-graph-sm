@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   getConnectivityRules,
-  getContradictions,
   getEventIncompleteness,
   getJudgeRuns,
   getNodeMetadata,
@@ -32,14 +31,6 @@ describe("metagraph layer API client paths", () => {
     vi.unstubAllGlobals();
   });
 
-  it("getContradictions hits /graph/contradictions", async () => {
-    await getContradictions();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/graph/contradictions",
-      expect.any(Object),
-    );
-  });
-
   it("getConnectivityRules hits /graph/connectivity-rules", async () => {
     await getConnectivityRules();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -66,10 +57,10 @@ describe("metagraph layer API client paths", () => {
 
   it("wraps fetch failures as NetworkError with the path", async () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
-    await expect(getContradictions()).rejects.toBeInstanceOf(NetworkError);
-    await expect(getContradictions()).rejects.toMatchObject({
-      path: "/graph/contradictions",
-      message: "GET /graph/contradictions: richiesta di rete non completata",
+    await expect(getJudgeRuns()).rejects.toBeInstanceOf(NetworkError);
+    await expect(getJudgeRuns()).rejects.toMatchObject({
+      path: "/graph/judge-runs",
+      message: "GET /graph/judge-runs: richiesta di rete non completata",
     });
     await expect(getNodeMetadata("alice")).rejects.toMatchObject({
       path: "/graph/metadata/alice",
@@ -81,9 +72,9 @@ describe("metagraph layer API client paths", () => {
       "Metadati non disponibili (404)",
     );
     expect(
-      userFacingApiError(new NetworkError("/graph/contradictions"), "Contraddizioni"),
+      userFacingApiError(new NetworkError("/graph/judge-runs"), "Giudice"),
     ).toBe(
-      "Contraddizioni — GET /graph/contradictions: richiesta di rete non completata",
+      "Giudice — GET /graph/judge-runs: richiesta di rete non completata",
     );
     expect(userFacingApiError(new TypeError("Failed to fetch"), "Metadati")).toBe(
       "Metadati: richiesta di rete fallita",

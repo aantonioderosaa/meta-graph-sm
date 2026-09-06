@@ -196,7 +196,6 @@ export interface PipelineEvent {
     | "node_extraction"
     | "entity_resolution"
     | "backbone_classification"
-    | "promote_clusters"
     | "entity_relation_classification"
     | "event_resolution_and_classification"
     | "reconciliation"
@@ -219,19 +218,6 @@ export interface GetGraphLimitParams {
   limit?: number;
 }
 
-export interface ContradictionItem {
-  id: string;
-  left_id: string;
-  left_name: string;
-  right_id: string;
-  right_name: string;
-  subject_id?: string | null;
-}
-
-export interface ContradictionListResponse {
-  items: ContradictionItem[];
-}
-
 export interface ConnectivityRuleItem {
   source_category: string;
   relation_type: string;
@@ -250,8 +236,6 @@ export interface JudgeRunItem {
   timestamp?: string | null;
   anti_blur: number;
   equivalent_to: number;
-  reraffine: number;
-  temporal: number;
 }
 
 export interface JudgeRunListResponse {

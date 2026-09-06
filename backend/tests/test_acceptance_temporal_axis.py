@@ -6,20 +6,15 @@ import json
 
 import pytest
 
-from app.core.config import Settings
 from app.models.relations import RelationClassification, RelationLabel
 from app.pipeline.entity_relation_resolution import (
     APPLY_SUPERSEDES_CYPHER,
     APPLY_UPDATED_BY_CYPHER,
-    APPLY_UPDATES_CYPHER,
-    MARK_CONTRADICTS_CYPHER,
     SYSTEM_PROMPT,
     classify_and_apply_entity_relation,
     map_temporal_transition,
-    temporal_transitions_enabled,
 )
 from app.pipeline.ingestion import (
-    CREATE_CONTRADICTS_CYPHER,
     CREATE_NODE_RELATION_CYPHER,
     write_node_relation,
 )
@@ -81,32 +76,15 @@ async def _async_noop(*_args, **_kwargs):
     return None
 
 
-def test_flag_defaults():
-    assert Settings.model_fields["ENABLE_TEMPORAL_TRANSITIONS"].default is True
-
-
-def test_temporal_flag_gates_transitions(monkeypatch):
-    monkeypatch.setattr(
-        "app.pipeline.entity_relation_resolution.settings.ENABLE_TEMPORAL_TRANSITIONS",
-        False,
-    )
-    assert temporal_transitions_enabled() is False
-    monkeypatch.setattr(
-        "app.pipeline.entity_relation_resolution.settings.ENABLE_TEMPORAL_TRANSITIONS",
-        True,
-    )
-    assert temporal_transitions_enabled() is True
-
-
-def test_map_contradicts_authoritative_conflict_no_error_marker():
-    """F9.5/F9.6: two sources, conflicting years, no correction → CONTRADICTS."""
+def test_map_conflict_without_error_marker_is_none():
+    """Conflicting years without a correction marker stay independent facts."""
     label = map_temporal_transition(
         "Fonte A: X ha vinto il torneo nel 2010.",
         "Fonte B: X ha vinto il torneo nel 2011.",
     )
-    assert label == RelationLabel.contradicts
+    assert label == RelationLabel.none
     assert label != RelationLabel.updated_by
-    assert "CONTRADICTS" in SYSTEM_PROMPT or "`contradicts`" in SYSTEM_PROMPT
+    assert "`contradicts`" not in SYSTEM_PROMPT
     assert "mai `updated_by`" in SYSTEM_PROMPT
 
 
@@ -140,7 +118,7 @@ def test_map_updated_by_guardrail_no_error_wording():
         "Secondo la Gazzetta ha vinto nel 2010.",
         "Secondo la Repubblica ha vinto nel 2011.",
     )
-    assert label == RelationLabel.contradicts
+    assert label == RelationLabel.none
     assert label is not RelationLabel.updated_by
 
 
@@ -181,29 +159,6 @@ async def test_write_node_relation_passes_valid_time_not_into_system_time(monkey
     assert kwargs["provenance"] == json.dumps(
         {"doc_id": "doc-1", "run_id": JOB_ID}, ensure_ascii=False, sort_keys=True
     )
-
-
-@pytest.mark.asyncio
-async def test_apply_contradicts_preserves_both_assertions(monkeypatch):
-    session = FakeSession()
-    _enqueue_same_endpoint_only(session, "vinto nel 2010")
-
-    async def fake_classify(*_args, **_kwargs):
-        return RelationClassification(relation=RelationLabel.contradicts)
-
-    monkeypatch.setattr(
-        "app.pipeline.entity_relation_resolution.classify_relation",
-        fake_classify,
-    )
-    outcome = await classify_and_apply_entity_relation(
-        session, HEAD_ID, TAIL_ID, NEW_REL_ID, "vinto nel 2011", JOB_ID
-    )
-    assert outcome == "contradicts"
-    assert any(call[0] == CREATE_CONTRADICTS_CYPHER for call in session.calls)
-    assert any(call[0] == MARK_CONTRADICTS_CYPHER for call in session.calls)
-    assert "is_latest" not in _compact(MARK_CONTRADICTS_CYPHER)
-    assert not any(call[0] == APPLY_UPDATED_BY_CYPHER for call in session.calls)
-    assert not any(call[0] == APPLY_UPDATES_CYPHER for call in session.calls)
 
 
 @pytest.mark.asyncio

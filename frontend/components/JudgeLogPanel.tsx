@@ -14,8 +14,6 @@ import type { JudgeRunItem } from "@/lib/types";
 const TASKS: { key: keyof JudgeRunItem; label: string }[] = [
   { key: "anti_blur", label: "anti-blur" },
   { key: "equivalent_to", label: "equivalent_to" },
-  { key: "reraffine", label: "ri-raffina" },
-  { key: "temporal", label: "temporale" },
 ];
 
 export function JudgeLogPanel() {

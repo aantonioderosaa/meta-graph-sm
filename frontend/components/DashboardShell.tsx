@@ -16,7 +16,6 @@ import { Activity, Layers, MessageSquareText } from "lucide-react";
 
 import { BundleDetailPanel } from "@/components/BundleDetailPanel";
 import { ConnectivityRulesPanel } from "@/components/ConnectivityRulesPanel";
-import { ContradictionsPanel } from "@/components/ContradictionsPanel";
 import { DomainDashboard } from "@/components/DomainDashboard";
 import { DomainDetailCard } from "@/components/DomainDetailCard";
 import { DomainGraphPanel } from "@/components/DomainGraphPanel";
@@ -56,9 +55,6 @@ function LayerTabs({
         <TabsTrigger value="query" className="px-2 text-[11px]">
           Query
         </TabsTrigger>
-        <TabsTrigger value="contraddizioni" className="px-2 text-[11px]">
-          Contraddizioni
-        </TabsTrigger>
         <TabsTrigger value="regole" className="px-2 text-[11px]">
           Regole
         </TabsTrigger>
@@ -77,9 +73,6 @@ function LayerTabs({
           highlightIds={highlightIds}
           onHighlightChange={onHighlightChange}
         />
-      </TabsContent>
-      <TabsContent value="contraddizioni" className="mt-2 min-h-0 flex-1 overflow-hidden">
-        <ContradictionsPanel onHighlightChange={onHighlightChange} />
       </TabsContent>
       <TabsContent value="regole" className="mt-2 min-h-0 flex-1 overflow-hidden">
         <ConnectivityRulesPanel />

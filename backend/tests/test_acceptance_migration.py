@@ -11,7 +11,7 @@ from app.models.relations import RelationLabel
 from app.pipeline.event_relation_resolution import LINK_SITUATION_CHUNK_CYPHER
 from app.pipeline.ingestion import CREATE_NODE_CYPHER
 from app.pipeline.node_resolution import merge_nodes, resolve_node
-from app.pipeline.promote import is_skipped_relation
+from app.pipeline.connectivity_rules import is_skipped_relation
 
 
 def test_derived_from_is_famiglia_b():
@@ -28,7 +28,7 @@ def test_ingestion_create_uses_derived_from_toward_chunk():
     assert "CREATE (n)-[:DERIVED_FROM]->(c)" in situation
 
 
-def test_promote_skips_famiglia_b_including_derived_from():
+def test_structural_skip_includes_famiglia_b():
     assert is_skipped_relation("DERIVED_FROM")
     assert is_skipped_relation("derived_from")
     assert is_skipped_relation("CONTRADICTS")
@@ -39,12 +39,7 @@ def test_promote_skips_famiglia_b_including_derived_from():
 def test_metagraph_flag_defaults_locked():
     fields = Settings.model_fields
     assert fields["ENABLE_KERNEL_CLASSIFICATION"].default is True
-    # Off by default: no clustering criterion yet to split a catch-all's members
-    # into more than one sub-genre (app/pipeline/promote.py, is_promotable_parent).
-    assert fields["ENABLE_PROMOTE"].default is False
-    assert fields["ENABLE_TEMPORAL_TRANSITIONS"].default is True
     assert fields["ENABLE_JUDGE"].default is True
-    assert fields["ENABLE_DERIVES"].default is False
     assert fields["ENABLE_EVENT_TRIAGE"].default is False
     assert fields["PENDING_HYPOTHESIS_LISTEN_WINDOW"].default == 5
     # EVENT_TRIAGE_MAX_TURNS removed: the per-event loop is a fixed three-phase
@@ -52,6 +47,11 @@ def test_metagraph_flag_defaults_locked():
     # EVENT_TRIAGE_MAX_SEARCH_QUERIES / EVENT_TRIAGE_MAX_INSPECT_NODES in
     # event_triage.py (module constants, not Settings, same as EVENT_TRIAGE_MAX_SLOT_FANOUT).
     assert "EVENT_TRIAGE_MAX_TURNS" not in fields
+    assert "ENABLE_PROMOTE" not in fields
+    assert "ENABLE_TEMPORAL_TRANSITIONS" not in fields
+    assert "ENABLE_DERIVES" not in fields
+    assert "ENABLE_CONTRADICTS_DETECTION" not in fields
+    assert "IDENTITY_BLOCK_THRESHOLD" not in fields
     # ENABLE_FACET_IDENTITY / ENABLE_CONTEXT_LAYER / CONTEXT_AGENT_MAX_TURNS
     # removed with identity_resolution.py / relevance_gate.py /
     # pending_hypothesis.py / context_agent.py / quantifier_events.py /
@@ -68,5 +68,4 @@ def test_merge_nodes_always_called_identity_is_destructive_merge_only():
     assert "await merge_nodes(session, node_id, canon_id)" in source
     assert "ENABLE_FACET_IDENTITY" not in source
     assert merge_nodes.__name__ == "merge_nodes"
-    assert RelationLabel.replaces.value == "replaces"
     assert RelationLabel.extends.value == "extends"

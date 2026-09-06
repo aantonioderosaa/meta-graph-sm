@@ -1,4 +1,4 @@
-"""Fase 10 acceptance: judge post-batch pass, four isolated tasks. No Docker."""
+"""Fase 10 acceptance: judge post-batch pass (anti_blur + equivalent_to). No Docker."""
 
 from __future__ import annotations
 
@@ -9,22 +9,14 @@ import pytest
 
 from app.core.config import Settings
 from app.pipeline.dreaming import run_dreaming_pipeline
-from app.pipeline.ingestion import CREATE_CONTRADICTS_CYPHER
 from app.pipeline.judge import (
-    CREATE_SUPERSEDES_BETWEEN_CYPHER,
-    CREATE_UPDATED_BY_BETWEEN_CYPHER,
-    DELETE_CONTRADICTS_BETWEEN_CYPHER,
     FIND_BLURRED_RELATIONS_CYPHER,
-    FIND_CONTRADICTS_PAIRS_CYPHER,
     FIND_EQUIVALENT_CONCEPT_PAIRS_CYPHER,
-    FIND_PARENT_MEMBERS_CYPHER,
-    FIND_PROMOTED_CHILDREN_CYPHER,
     MARK_ABSORBED_CONCEPT_CYPHER,
     MARK_BLURRED_RELATION_CYPHER,
     MERGE_EQUIVALENT_TO_CYPHER,
     MERGE_JUDGE_RUN_CYPHER,
     MOVE_ABSORBED_MEMBER_OF_CYPHER,
-    MOVE_MEMBER_OF_TO_CHILD_CYPHER,
     JudgeStats,
     cosine,
     run_judge,
@@ -61,7 +53,6 @@ class JudgeGraph:
         self.concepts: dict[str, dict] = {}
         self.relations: list[dict] = []
         self.member_of: dict[str, dict] = {}
-        self.isa: dict[str, str] = {}
         self.famiglia: list[dict] = []
         self.judge_runs: dict[str, dict] = {}
         self.calls: list[tuple[str, dict]] = []
@@ -81,9 +72,6 @@ class JudgeGraph:
     def set_member_of(self, node_id: str, concept_id: str, **props) -> None:
         self.member_of[node_id] = {"concept_id": concept_id, **props}
 
-    def set_isa(self, child_id: str, parent_id: str) -> None:
-        self.isa[child_id] = parent_id
-
     def add_famiglia(self, src_id: str, rel_type: str, dst_id: str, **props) -> None:
         self.famiglia.append(
             {"src": src_id, "dst": dst_id, "rel_type": rel_type, "props": dict(props)}
@@ -96,15 +84,6 @@ class JudgeGraph:
             if {edge["src"], edge["dst"]} == {a, b}:
                 return True
         return False
-
-    def _drop_famiglia(self, a: str, b: str, rel_type: str) -> None:
-        self.famiglia = [
-            edge
-            for edge in self.famiglia
-            if not (
-                edge["rel_type"] == rel_type and {edge["src"], edge["dst"]} == {a, b}
-            )
-        ]
 
     async def run(self, cypher, **kwargs):
         self.calls.append((cypher, kwargs))
@@ -184,114 +163,6 @@ class JudgeGraph:
             absorbed_id = kwargs["absorbed_id"]
             if absorbed_id in self.concepts:
                 self.concepts[absorbed_id]["absorbed_from"] = kwargs["survivor_id"]
-            return FakeResult([])
-
-        if cypher == FIND_PROMOTED_CHILDREN_CYPHER:
-            parent_id = kwargs["parent_id"]
-            rows = []
-            for child_id, parent in self.isa.items():
-                if parent != parent_id:
-                    continue
-                child = self.concepts.get(child_id) or {}
-                if not child.get("promoted"):
-                    continue
-                rows.append(
-                    {
-                        "child_id": child_id,
-                        "name": child.get("name"),
-                        "definition": child.get("definition"),
-                        "summary": child.get("summary"),
-                        "kernel_category": child.get("kernel_category"),
-                    }
-                )
-            return FakeResult(rows)
-
-        if cypher == FIND_PARENT_MEMBERS_CYPHER:
-            parent_id = kwargs["parent_id"]
-            rows = []
-            for node_id, home in self.member_of.items():
-                if home.get("concept_id") != parent_id:
-                    continue
-                node = self.nodes.get(node_id) or {"id": node_id}
-                rows.append(
-                    {
-                        "id": node_id,
-                        "name": node.get("name"),
-                        "summary": node.get("summary"),
-                        "kernel_category": node.get("kernel_category"),
-                    }
-                )
-            return FakeResult(rows)
-
-        if cypher == MOVE_MEMBER_OF_TO_CHILD_CYPHER:
-            node_id = kwargs["node_id"]
-            parent_id = kwargs["parent_id"]
-            child_id = kwargs["child_id"]
-            home = self.member_of.get(node_id)
-            if home and home.get("concept_id") == parent_id:
-                self.member_of[node_id] = {"concept_id": child_id}
-            return FakeResult([])
-
-        if cypher == CREATE_CONTRADICTS_CYPHER:
-            self.add_famiglia(
-                kwargs["left_id"],
-                "CONTRADICTS",
-                kwargs["right_id"],
-                subject_id=kwargs.get("subject_id"),
-                relation=kwargs.get("relation"),
-                kernel_parent=kwargs.get("kernel_parent"),
-            )
-            return FakeResult([])
-
-        if cypher == FIND_CONTRADICTS_PAIRS_CYPHER:
-            rows = []
-            for edge in self.famiglia:
-                if edge["rel_type"] != "CONTRADICTS":
-                    continue
-                left_id, right_id = edge["src"], edge["dst"]
-                text_a = ""
-                text_b = ""
-                head = edge["props"].get("subject_id") or ""
-                for rel in self.relations:
-                    if rel.get("is_latest", True) and rel["dst"] == left_id:
-                        text_a = rel.get("relation") or ""
-                        head = head or rel["src"]
-                    if rel.get("is_latest", True) and rel["dst"] == right_id:
-                        text_b = rel.get("relation") or ""
-                        head = head or rel["src"]
-                left = self.nodes.get(left_id, {})
-                right = self.nodes.get(right_id, {})
-                rows.append(
-                    {
-                        "left_id": left_id,
-                        "right_id": right_id,
-                        "subject_id": head,
-                        "text_a": text_a or left.get("summary") or left.get("name") or "",
-                        "text_b": text_b or right.get("summary") or right.get("name") or "",
-                    }
-                )
-            return FakeResult(rows)
-
-        if cypher == CREATE_SUPERSEDES_BETWEEN_CYPHER:
-            self.add_famiglia(
-                kwargs["left_id"],
-                "SUPERSEDES",
-                kwargs["right_id"],
-                subject_id=kwargs.get("subject_id"),
-            )
-            return FakeResult([])
-
-        if cypher == CREATE_UPDATED_BY_BETWEEN_CYPHER:
-            self.add_famiglia(
-                kwargs["left_id"],
-                "UPDATED_BY",
-                kwargs["right_id"],
-                subject_id=kwargs.get("subject_id"),
-            )
-            return FakeResult([])
-
-        if cypher == DELETE_CONTRADICTS_BETWEEN_CYPHER:
-            self._drop_famiglia(kwargs["left_id"], kwargs["right_id"], "CONTRADICTS")
             return FakeResult([])
 
         if cypher == MERGE_JUDGE_RUN_CYPHER:
@@ -397,67 +268,6 @@ async def test_equivalent_to_collapses_and_moves_member_of():
     assert home["concept_id"] == "concept-a"
     assert home["absorbed_from"] == "concept-b"
     assert graph.concepts["concept-b"]["absorbed_from"] == "concept-a"
-
-
-@pytest.mark.asyncio
-async def test_reraffine_moves_matching_member_only():
-    graph = JudgeGraph()
-    graph.add_concept("parent-p", promoted=True, name="giocatore", kernel_category="Agente")
-    graph.add_concept(
-        "child-s",
-        promoted=True,
-        name="portiere",
-        kernel_category="Agente",
-        definition="portiere",
-    )
-    graph.set_isa("child-s", "parent-p")
-    graph.add_node("n-match", name="portiere", summary="portiere", kernel_category="Agente")
-    graph.add_node("n-stay", name="attaccante", summary="attaccante", kernel_category="Agente")
-    graph.set_member_of("n-match", "parent-p")
-    graph.set_member_of("n-stay", "parent-p")
-
-    stats = await run_judge(graph, JOB_ID, promoted_parent_ids=["parent-p"])
-
-    assert stats.reraffine >= 1
-    assert graph.member_of["n-match"]["concept_id"] == "child-s"
-    assert graph.member_of["n-stay"]["concept_id"] == "parent-p"
-
-
-@pytest.mark.asyncio
-async def test_temporal_reclassifies_contradicts_keeps_facts(monkeypatch):
-    graph = JudgeGraph()
-    graph.add_node("head")
-    graph.add_node("tail-old", name="old")
-    graph.add_node("tail-new", name="new")
-    graph.add_relation(
-        "head",
-        "tail-old",
-        relation="X ha vinto nel 2010.",
-        kernel_parent="Temporale",
-        is_latest=True,
-    )
-    graph.add_relation(
-        "head",
-        "tail-new",
-        relation="In realtà mi sono sbagliato, non nel 2010 ma nel 2011.",
-        kernel_parent="Temporale",
-        is_latest=True,
-    )
-    graph.add_famiglia("tail-old", "CONTRADICTS", "tail-new", subject_id="head")
-
-    monkeypatch.setattr(
-        "app.pipeline.judge.classify_temporal_pair",
-        lambda *_args, **_kwargs: "updated_by",
-    )
-
-    before_rels = list(graph.relations)
-    stats = await run_judge(graph, JOB_ID)
-
-    assert stats.temporal >= 1
-    assert graph._has_famiglia("tail-old", "tail-new", "UPDATED_BY")
-    assert not graph._has_famiglia("tail-old", "tail-new", "CONTRADICTS")
-    assert graph.relations == before_rels
-    assert all(rel.get("is_latest", True) for rel in graph.relations)
 
 
 @pytest.mark.asyncio

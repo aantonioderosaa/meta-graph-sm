@@ -89,32 +89,23 @@ def test_scenario_1_pipelines_never_publish_fact_stages():
 
 def test_scenario_2_dashboard_has_single_entity_event_explorer():
     shell = (FRONTEND_COMPONENTS / "DashboardShell.tsx").read_text(encoding="utf-8")
-    assert shell.count("<EntityEventExplorer") == 1
     assert shell.count("<DomainGraphPanel") == 1
     assert "DomainDashboard" in shell
     assert "DomainDetailCard" in shell
     assert "drillPath" in shell
-    assert '"dettagliata"' in shell
-    assert "Vista dettagliata" in shell
     assert "Vista generale" in shell
-    assert "{generale ?" in shell
     assert "GraphExplorer" not in shell
     assert 'from "@/components/QueryPanel"' not in shell
     assert "NodeQueryPanel" in shell
     assert "Fatti" not in shell
     assert "GraphViewTabs" not in shell
-    assert "ConceptDomainExplorer" in shell
-    assert "IdentityDetailPanel" in shell
-    assert "ContradictionsPanel" in shell
     assert "ConnectivityRulesPanel" in shell
     assert "JudgeLogPanel" in shell
+    assert "IncompletenessPanel" in shell
 
 
 def test_scenario_2b_metagraph_layer_panels_exist_as_list_not_nvl():
     names = (
-        "ConceptDomainExplorer.tsx",
-        "IdentityDetailPanel.tsx",
-        "ContradictionsPanel.tsx",
         "ConnectivityRulesPanel.tsx",
         "JudgeLogPanel.tsx",
         "BundleDetailPanel.tsx",
@@ -138,9 +129,8 @@ def test_scenario_2c_domain_graph_reuses_graph_panel_not_a_fifth_canvas():
     assert "colorByKernelCategory" in panel
     assert "InteractiveNvlWrapper" not in panel
     shell = (FRONTEND_COMPONENTS / "DashboardShell.tsx").read_text(encoding="utf-8")
-    assert "{generale ?" in shell
     assert "<DomainGraphPanel" in shell
-    assert "<EntityEventExplorer" in shell
+    assert "<EntityEventExplorer" not in shell
     assert "<MacroGraphPanel" not in shell
 
 
@@ -156,15 +146,8 @@ def test_scenario_4_include_concepts_defaults_off():
         encoding="utf-8"
     )
     api = (APP_ROOT / "api" / "node_graph.py").read_text(encoding="utf-8")
-    explorer = (FRONTEND_COMPONENTS / "EntityEventExplorer.tsx").read_text(
-        encoding="utf-8"
-    )
     assert "include_concepts: bool = False" in engine
     assert "include_concepts: bool = Query(default=False)" in api
-    assert "showEntityConcepts" in explorer
-    assert "showEventConcepts" in explorer
-    assert "Concetti ↔ entità" in explorer
-    assert "Concetti ↔ eventi" in explorer
 
 
 def test_scenario_5_reset_lives_on_node_graph():

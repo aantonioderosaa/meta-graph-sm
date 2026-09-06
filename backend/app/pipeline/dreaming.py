@@ -20,14 +20,18 @@ from app.pipeline import (
 )
 from app.pipeline.backbone import classify_and_grow_backbone
 from app.pipeline.judge import run_judge
-from app.pipeline.promote import promote_clusters
+from scripts.backfill_kernel_category import (
+    backfill_kernel_categories,
+    classify_node_kernel_category,
+)
 
 logger = logging.getLogger(__name__)
 
 FIND_FRESH_ENTITIES_CYPHER = """
 MATCH (n:Node {type:'entity', dreamed:false})
 WHERE n.merged_into IS NULL
-RETURN n.id AS id, n.name AS name, n.embedding AS embedding
+RETURN n.id AS id, n.name AS name, n.embedding AS embedding,
+       n.kernel_category AS kernel_category
 """
 
 MARK_NODE_DREAMED_CYPHER = """
@@ -52,7 +56,7 @@ async def _mark_nodes_dreamed(session: AsyncSession, node_ids: list[str]) -> Non
 async def _resolve_fresh_entities(session: AsyncSession, job_id: str) -> set[str]:
     """Phase 1: dedup fresh entity nodes. Empty MATCH is a no-op."""
     result = await session.run(FIND_FRESH_ENTITIES_CYPHER)
-    rows: list[tuple[str, str, list[float]]] = []
+    rows: list[tuple[str, str, list[float], str | None]] = []
     async for record in result:
         embedding = record["embedding"]
         rows.append(
@@ -60,14 +64,21 @@ async def _resolve_fresh_entities(session: AsyncSession, job_id: str) -> set[str
                 record["id"],
                 record["name"],
                 list(embedding) if embedding is not None else [],
+                record.get("kernel_category") or None,
             )
         )
 
     touched: set[str] = set()
-    for node_id, name, embedding in rows:
+    for node_id, name, embedding, kernel_category in rows:
         try:
             canon_id = await node_resolution.resolve_node(
-                session, node_id, "entity", name, embedding, job_id
+                session,
+                node_id,
+                "entity",
+                name,
+                embedding,
+                job_id,
+                kernel_category=kernel_category,
             )
         except LLMValidationError as exc:
             logger.exception("entity_resolution_failed node_id=%s validation_error", node_id)
@@ -216,12 +227,42 @@ async def _resolve_and_classify_events(session: AsyncSession, job_id: str) -> se
 async def _run_node_phases(
     driver,
     job_id: str,
-    *,
-    promoted_parent_ids: list[str] | None = None,
 ) -> set[str]:
-    """Entity resolution, backbone, PROMOTE, then relation + event in parallel."""
+    """Entity resolution, backbone, then relation + event in parallel."""
     async with driver.session() as entity_session:
         node_touched = await _resolve_fresh_entities(entity_session, job_id)
+
+    # Macrotask 3.4: classify_and_grow_backbone (below) skips :Node without
+    # kernel_category. Backfill runs right before it so freshly-merged/bare
+    # nodes (e.g. the event-participation fallback in ingestion.py) get a
+    # category in the same batch instead of staying stranded until someone
+    # runs the standalone script by hand. Idempotent — only touches nodes
+    # that still lack kernel_category after entity resolution.
+    async with driver.session() as backfill_session:
+        try:
+
+            async def _classify_kernel_category(
+                *, name: str, summary: str, node_type: str | None = None
+            ):
+                return await classify_node_kernel_category(
+                    name=name, summary=summary, node_type=node_type, job_id=job_id
+                )
+
+            await backfill_kernel_categories(
+                backfill_session, classify=_classify_kernel_category
+            )
+        except Exception as exc:
+            logger.exception("kernel_category_backfill_stage_failed")
+            await event_bus.publish(
+                job_id,
+                "kernel_category_backfill",
+                "llm_call_failed",
+                {
+                    "stage": "kernel_category_backfill",
+                    "item_id": job_id,
+                    "error": str(exc),
+                },
+            )
 
     async with driver.session() as backbone_session:
         try:
@@ -234,24 +275,6 @@ async def _run_node_phases(
                 "llm_call_failed",
                 {
                     "stage": "backbone_classification",
-                    "item_id": job_id,
-                    "error": str(exc),
-                },
-            )
-
-    async with driver.session() as promote_session:
-        try:
-            await promote_clusters(
-                promote_session, job_id, parent_ids_out=promoted_parent_ids
-            )
-        except Exception as exc:
-            logger.exception("promote_clusters_stage_failed")
-            await event_bus.publish(
-                job_id,
-                "promote_clusters",
-                "llm_call_failed",
-                {
-                    "stage": "promote_clusters",
                     "item_id": job_id,
                     "error": str(exc),
                 },
@@ -275,10 +298,7 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
     stats = DreamingStats()
     driver = get_driver()
 
-    promoted_parent_ids: list[str] = []
-    node_touched = await _run_node_phases(
-        driver, job_id, promoted_parent_ids=promoted_parent_ids
-    )
+    node_touched = await _run_node_phases(driver, job_id)
     node_drift = await reconcile.reconcile_scoped_relations(list(node_touched))
     stats.node_drift_count = node_drift
 
@@ -287,7 +307,6 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
             judge_stats = await run_judge(
                 judge_session,
                 job_id,
-                promoted_parent_ids=promoted_parent_ids,
                 touched_ids=list(node_touched),
             )
         await event_bus.publish(
@@ -297,8 +316,6 @@ async def run_dreaming_pipeline(job_id: str, doc_id: str | None = None) -> Dream
             {"stats": {
                 "anti_blur": judge_stats.anti_blur,
                 "equivalent_to": judge_stats.equivalent_to,
-                "reraffine": judge_stats.reraffine,
-                "temporal": judge_stats.temporal,
             }},
         )
     except Exception as exc:

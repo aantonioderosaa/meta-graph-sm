@@ -60,19 +60,6 @@ class GraphResetResponse(BaseModel):
     deleted: bool
 
 
-class ContradictionItem(BaseModel):
-    id: str
-    left_id: str
-    left_name: str
-    right_id: str
-    right_name: str
-    subject_id: str | None = None
-
-
-class ContradictionListResponse(BaseModel):
-    items: list[ContradictionItem]
-
-
 class ConnectivityRuleItem(BaseModel):
     source_category: str
     relation_type: str
@@ -91,8 +78,6 @@ class JudgeRunItem(BaseModel):
     timestamp: str | None = None
     anti_blur: int = 0
     equivalent_to: int = 0
-    reraffine: int = 0
-    temporal: int = 0
 
 
 class JudgeRunListResponse(BaseModel):
@@ -208,8 +193,6 @@ class DomainDictionaryResponse(BaseModel):
 __all__ = [
     "ConnectivityRuleItem",
     "ConnectivityRuleListResponse",
-    "ContradictionItem",
-    "ContradictionListResponse",
     "DomainDictionaryItem",
     "DomainDictionaryResponse",
     "DomainListItem",

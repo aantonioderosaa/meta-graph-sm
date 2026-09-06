@@ -75,6 +75,18 @@ def is_structural_relation_type(relation_type: str | None) -> bool:
     return upper == _HAS_CONCEPT or lower == _HAS_CONCEPT.lower()
 
 
+def is_skipped_relation(relation: str | None, kernel_parent: str | None = None) -> bool:
+    """True if ``relation`` or ``kernel_parent`` is Famiglia B / backbone / HAS_CONCEPT.
+
+    Empty values are not skipped. Used as a defensive filter on legacy graph data
+    (including CONTRADICTS) that must never be treated as an S1 affordance.
+    """
+    for raw in (relation, kernel_parent):
+        if raw and is_structural_relation_type(str(raw)):
+            return True
+    return False
+
+
 def type_token_from_row(row: dict[str, Any] | None) -> str | None:
     """Prefer MEMBER_OF Concept id (or name); else ``kernel_category``."""
     if not row:

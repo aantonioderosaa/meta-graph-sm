@@ -27,7 +27,6 @@ describe("mockEventReplayer", () => {
         "node_extraction",
         "entity_resolution",
         "backbone_classification",
-        "promote_clusters",
         "entity_relation_classification",
         "event_resolution_and_classification",
         "reconciliation",

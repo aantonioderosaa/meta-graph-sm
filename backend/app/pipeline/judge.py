@@ -2,8 +2,7 @@
 
 Runs once at the end of each dreaming batch (after ``reconcile``). Writes only
 through existing primitives: INGEST-style ``:Relation`` witness splits (no new
-S2 facts), ``PROMOTE``/``MEMBER_OF`` moves, and Famiglia B ``EQUIVALENT_TO`` /
-``SUPERSEDES`` / ``UPDATED_BY``. No new kernel types.
+S2 facts) and Famiglia B ``EQUIVALENT_TO``. No new kernel types.
 """
 
 from __future__ import annotations
@@ -12,32 +11,25 @@ import logging
 import math
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from typing import Any, Literal
+from typing import Any
 
 from neo4j import AsyncSession
 
 from app.core.config import settings
-from app.models.kernel import IS_A, MEMBER_OF, EntityKernelType
-from app.models.relations import RelationLabel
-from app.pipeline.concepts import compute_hash_id, genre_concept_id
-from app.pipeline.entity_relation_resolution import map_temporal_transition
+from app.models.kernel import MEMBER_OF
 
 logger = logging.getLogger(__name__)
 
 STAGE = "judge"
-_ISA_REL = IS_A.upper()
 _MEMBER_OF_REL = MEMBER_OF.upper()
 
 RequeuePair = Callable[[str, str], Awaitable[None]]
-TemporalDecision = Literal["supersedes", "updated_by", "leave"]
 
 
 @dataclass
 class JudgeStats:
     anti_blur: int = 0
     equivalent_to: int = 0
-    reraffine: int = 0
-    temporal: int = 0
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -104,68 +96,12 @@ MATCH (absorbed:Concept {id: $absorbed_id})
 SET absorbed.absorbed_from = $survivor_id
 """
 
-FIND_PROMOTED_CHILDREN_CYPHER = f"""
-MATCH (child:Concept {{promoted: true}})-[:{_ISA_REL}]->(parent:Concept {{id: $parent_id}})
-RETURN child.id AS child_id, child.name AS name,
-       child.definition AS definition, child.summary AS summary,
-       child.kernel_category AS kernel_category
-"""
-
-FIND_PARENT_MEMBERS_CYPHER = f"""
-MATCH (n:Node)-[:{_MEMBER_OF_REL}]->(parent:Concept {{id: $parent_id}})
-RETURN n.id AS id, n.name AS name, n.summary AS summary,
-       n.kernel_category AS kernel_category
-"""
-
-MOVE_MEMBER_OF_TO_CHILD_CYPHER = f"""
-MATCH (n:Node {{id: $node_id}})-[old:{_MEMBER_OF_REL}]->(parent:Concept {{id: $parent_id}})
-DELETE old
-WITH n
-MATCH (child:Concept {{id: $child_id}})
-CREATE (n)-[:{_MEMBER_OF_REL}]->(child)
-"""
-
-FIND_CONTRADICTS_PAIRS_CYPHER = """
-MATCH (a:Node)-[c:CONTRADICTS]->(b:Node)
-OPTIONAL MATCH (h1:Node)-[r1:Relation]->(a)
-WHERE r1.is_latest = true
-OPTIONAL MATCH (h2:Node)-[r2:Relation]->(b)
-WHERE r2.is_latest = true
-RETURN a.id AS left_id, b.id AS right_id,
-       coalesce(c.subject_id, h1.id, h2.id, '') AS subject_id,
-       coalesce(r1.relation, a.summary, a.name, c.relation, '') AS text_a,
-       coalesce(r2.relation, b.summary, b.name, '') AS text_b
-"""
-
-CREATE_SUPERSEDES_BETWEEN_CYPHER = """
-MATCH (a:Node {id: $left_id}), (b:Node {id: $right_id})
-CREATE (a)-[:SUPERSEDES {
-  subject_id: $subject_id,
-  created_at: datetime()
-}]->(b)
-"""
-
-CREATE_UPDATED_BY_BETWEEN_CYPHER = """
-MATCH (a:Node {id: $left_id}), (b:Node {id: $right_id})
-CREATE (a)-[:UPDATED_BY {
-  subject_id: $subject_id,
-  created_at: datetime()
-}]->(b)
-"""
-
-DELETE_CONTRADICTS_BETWEEN_CYPHER = """
-MATCH (a:Node {id: $left_id})-[r:CONTRADICTS]-(b:Node {id: $right_id})
-DELETE r
-"""
-
 MERGE_JUDGE_RUN_CYPHER = """
 MERGE (j:JudgeRun {id: $id})
 SET j.batch_id = $batch_id,
     j.timestamp = datetime(),
     j.anti_blur = $anti_blur,
-    j.equivalent_to = $equivalent_to,
-    j.reraffine = $reraffine,
-    j.temporal = $temporal
+    j.equivalent_to = $equivalent_to
 """
 
 
@@ -193,43 +129,6 @@ def _embedding_list(raw: object) -> list[float] | None:
     return None
 
 
-def _instance_matches_child(node: Mapping[str, Any], child: Mapping[str, Any]) -> bool:
-    """Name / summary / genre-hash match between a parent member and child S."""
-    name = str(node.get("name") or "").strip()
-    child_name = str(child.get("name") or "").strip()
-    if name and child_name and name.casefold() == child_name.casefold():
-        return True
-    summary = str(node.get("summary") or "").strip()
-    child_def = str(child.get("definition") or child.get("summary") or "").strip()
-    if summary and child_def and summary.casefold() == child_def.casefold():
-        return True
-    category_raw = str(node.get("kernel_category") or child.get("kernel_category") or "")
-    try:
-        category = EntityKernelType(category_raw) if category_raw else None
-    except ValueError:
-        category = None
-    child_id = str(child.get("child_id") or child.get("id") or "")
-    if category and name and child_id and genre_concept_id(category, name) == child_id:
-        return True
-    sig_node = compute_hash_id(
-        f"{name.casefold()}|{summary.casefold()}|{category_raw}"
-    )
-    sig_child = compute_hash_id(
-        f"{child_name.casefold()}|{child_def.casefold()}|{category_raw}"
-    )
-    return bool(name or summary) and sig_node == sig_child
-
-
-def classify_temporal_pair(text_a: str, text_b: str) -> TemporalDecision:
-    """Map CONTRADICTS pair to supersedes / updated_by / leave (F10.7)."""
-    label = map_temporal_transition(text_a or "", text_b or "")
-    if label == RelationLabel.updated_by:
-        return "updated_by"
-    if label == RelationLabel.supersedes:
-        return "supersedes"
-    return "leave"
-
-
 async def _log_judge_run(session: AsyncSession, job_id: str, stats: JudgeStats) -> None:
     await session.run(
         MERGE_JUDGE_RUN_CYPHER,
@@ -237,8 +136,6 @@ async def _log_judge_run(session: AsyncSession, job_id: str, stats: JudgeStats) 
         batch_id=job_id,
         anti_blur=stats.anti_blur,
         equivalent_to=stats.equivalent_to,
-        reraffine=stats.reraffine,
-        temporal=stats.temporal,
     )
 
 
@@ -289,74 +186,6 @@ async def _task_equivalent_to(session: AsyncSession, threshold: float) -> int:
     return count
 
 
-async def _task_reraffine(
-    session: AsyncSession, promoted_parent_ids: Sequence[str]
-) -> int:
-    if not promoted_parent_ids:
-        return 0
-    count = 0
-    seen_parents = list(dict.fromkeys(promoted_parent_ids))
-    for parent_id in seen_parents:
-        children_result = await session.run(
-            FIND_PROMOTED_CHILDREN_CYPHER, parent_id=parent_id
-        )
-        children = [dict(record) async for record in children_result]
-        children.sort(key=lambda row: str(row.get("child_id") or ""))
-        if not children:
-            continue
-        members_result = await session.run(FIND_PARENT_MEMBERS_CYPHER, parent_id=parent_id)
-        members = [dict(record) async for record in members_result]
-        for node in members:
-            target = next(
-                (child for child in children if _instance_matches_child(node, child)),
-                None,
-            )
-            if target is None:
-                continue
-            await session.run(
-                MOVE_MEMBER_OF_TO_CHILD_CYPHER,
-                node_id=node["id"],
-                parent_id=parent_id,
-                child_id=target["child_id"],
-            )
-            count += 1
-    return count
-
-
-async def _task_temporal(session: AsyncSession) -> int:
-    result = await session.run(FIND_CONTRADICTS_PAIRS_CYPHER)
-    pairs: list[dict[str, Any]] = [dict(record) async for record in result]
-    count = 0
-    seen: set[frozenset[str]] = set()
-    for row in pairs:
-        left_id = str(row["left_id"])
-        right_id = str(row["right_id"])
-        key = frozenset({left_id, right_id})
-        if key in seen:
-            continue
-        seen.add(key)
-        decision = classify_temporal_pair(
-            str(row.get("text_a") or ""),
-            str(row.get("text_b") or ""),
-        )
-        if decision == "leave":
-            continue
-        subject_id = str(row.get("subject_id") or "")
-        cypher = (
-            CREATE_UPDATED_BY_BETWEEN_CYPHER
-            if decision == "updated_by"
-            else CREATE_SUPERSEDES_BETWEEN_CYPHER
-        )
-        await session.run(cypher, left_id=left_id, right_id=right_id, subject_id=subject_id)
-        await session.run(
-            DELETE_CONTRADICTS_BETWEEN_CYPHER,
-            left_id=left_id,
-            right_id=right_id,
-        )
-        count += 1
-    return count
-
-
 async def _task_event_triage(
     session: AsyncSession,
     run_id: str,
@@ -377,11 +206,10 @@ async def run_judge(
     session: AsyncSession,
     job_id: str,
     *,
-    promoted_parent_ids: list[str] | None = None,
     on_requeue: RequeuePair | None = None,
     touched_ids: Sequence[str] | None = None,
 ) -> JudgeStats:
-    """Four post-batch tasks, optional event triage, then ``:JudgeRun``.
+    """Anti-blur, equivalent_to, optional event triage, then ``:JudgeRun``.
 
     ``touched_ids`` is kept for the event-triage call below (scopes which
     events are eligible for this batch). Event triage runs only if
@@ -393,13 +221,10 @@ async def run_judge(
         return stats
 
     requeue = on_requeue if on_requeue is not None else requeue_pair
-    parent_ids = list(promoted_parent_ids or [])
     threshold = float(settings.BACKBONE_COLLAPSE_THRESHOLD)
 
     stats.anti_blur = await _task_anti_blur(session, requeue=requeue)
     stats.equivalent_to = await _task_equivalent_to(session, threshold)
-    stats.reraffine = await _task_reraffine(session, parent_ids)
-    stats.temporal = await _task_temporal(session)
     if settings.ENABLE_EVENT_TRIAGE:
         await _task_event_triage(session, job_id, touched_ids=touched_ids)
     await _log_judge_run(session, job_id, stats)

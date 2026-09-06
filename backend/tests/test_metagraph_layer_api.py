@@ -12,7 +12,6 @@ from httpx import ASGITransport, AsyncClient
 from app.api.metagraph import list_event_incompleteness_endpoint
 from app.api.schemas import (
     ConnectivityRuleListResponse,
-    ContradictionListResponse,
     EventIncompletenessListResponse,
     JudgeRunListResponse,
 )
@@ -20,11 +19,9 @@ from app.core.neo4j_client import get_neo4j_session
 from app.main import app
 from app.pipeline.metagraph_layer import (
     LIST_CONNECTIVITY_RULES_CYPHER,
-    LIST_CONTRADICTIONS_CYPHER,
     LIST_EVENT_INCOMPLETENESS_CYPHER,
     LIST_JUDGE_RUNS_CYPHER,
     list_connectivity_rules,
-    list_contradictions,
     list_event_incompleteness,
     list_judge_runs,
 )
@@ -72,33 +69,6 @@ async def client():
 
 
 @pytest.mark.asyncio
-async def test_list_contradictions_never_filters():
-    session = FakeSession()
-    session.enqueue(
-        [
-            {
-                "id": "c-1",
-                "left_id": "tail-2010",
-                "left_name": "2010",
-                "right_id": "tail-2011",
-                "right_name": "2011",
-                "subject_id": "head",
-            }
-        ]
-    )
-
-    body = await list_contradictions(session)
-
-    assert session.calls[0][0] == LIST_CONTRADICTIONS_CYPHER
-    assert "is_latest" not in LIST_CONTRADICTIONS_CYPHER
-    assert "WHERE" not in LIST_CONTRADICTIONS_CYPHER.split("RETURN")[0]
-    assert len(body.items) == 1
-    assert body.items[0].left_id == "tail-2010"
-    assert body.items[0].right_id == "tail-2011"
-    assert body.items[0].subject_id == "head"
-
-
-@pytest.mark.asyncio
 async def test_list_connectivity_rules_exposes_origin_count():
     session = FakeSession()
     session.enqueue(
@@ -131,8 +101,6 @@ async def test_list_judge_runs_newest_first_shape():
                 "timestamp": "2026-08-18T12:00:00",
                 "anti_blur": 1,
                 "equivalent_to": 0,
-                "reraffine": 2,
-                "temporal": 3,
             }
         ]
     )
@@ -143,7 +111,7 @@ async def test_list_judge_runs_newest_first_shape():
     assert "ORDER BY j.timestamp DESC" in LIST_JUDGE_RUNS_CYPHER
     assert body.items[0].id == "jr-2"
     assert body.items[0].anti_blur == 1
-    assert body.items[0].temporal == 3
+    assert body.items[0].equivalent_to == 0
 
 
 @pytest.mark.asyncio
@@ -238,11 +206,7 @@ async def test_http_event_incompleteness_empty_graph_is_200_not_500():
 
 
 @pytest.mark.asyncio
-async def test_http_contradictions_rules_judge(client: AsyncClient):
-    async def mock_contra(session) -> ContradictionListResponse:
-        _ = session
-        return ContradictionListResponse(items=[])
-
+async def test_http_rules_judge_incompleteness(client: AsyncClient):
     async def mock_rules(session) -> ConnectivityRuleListResponse:
         _ = session
         return ConnectivityRuleListResponse(items=[])
@@ -257,9 +221,6 @@ async def test_http_contradictions_rules_judge(client: AsyncClient):
 
     with (
         patch(
-            "app.api.metagraph.metagraph_layer.list_contradictions", mock_contra
-        ),
-        patch(
             "app.api.metagraph.metagraph_layer.list_connectivity_rules", mock_rules
         ),
         patch("app.api.metagraph.metagraph_layer.list_judge_runs", mock_judge),
@@ -268,15 +229,12 @@ async def test_http_contradictions_rules_judge(client: AsyncClient):
             mock_incomplete,
         ),
     ):
-        contra = await client.get("/graph/contradictions")
         rules = await client.get("/graph/connectivity-rules")
         judge = await client.get("/graph/judge-runs")
         incomplete = await client.get("/graph/event-incompleteness")
-        assert contra.status_code == 200
         assert rules.status_code == 200
         assert judge.status_code == 200
         assert incomplete.status_code == 200
-        assert contra.json() == {"items": []}
         assert rules.json() == {"items": []}
         assert judge.json() == {"items": []}
         assert incomplete.json() == {"items": []}
@@ -284,7 +242,7 @@ async def test_http_contradictions_rules_judge(client: AsyncClient):
 
 def test_openapi_registers_metagraph_routes():
     paths = app.openapi()["paths"]
-    assert "/graph/contradictions" in paths
+    assert "/graph/contradictions" not in paths
     assert "/graph/connectivity-rules" in paths
     assert "/graph/judge-runs" in paths
     assert "/graph/event-incompleteness" in paths

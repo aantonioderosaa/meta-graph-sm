@@ -20,28 +20,19 @@ from app.pipeline.entity_relation_resolution import (
     APPLY_UPDATED_BY_CYPHER,
 )
 from app.pipeline.ingestion import (
-    CREATE_CONTRADICTS_CYPHER,
     CREATE_NODE_CYPHER,
     CREATE_NODE_RELATION_CYPHER,
-    write_contradicts,
     write_node,
     write_node_relation,
 )
 from app.pipeline.judge import (
-    CREATE_SUPERSEDES_BETWEEN_CYPHER,
-    CREATE_UPDATED_BY_BETWEEN_CYPHER,
-    DELETE_CONTRADICTS_BETWEEN_CYPHER,
     FIND_BLURRED_RELATIONS_CYPHER,
-    FIND_CONTRADICTS_PAIRS_CYPHER,
     FIND_EQUIVALENT_CONCEPT_PAIRS_CYPHER,
-    FIND_PARENT_MEMBERS_CYPHER,
-    FIND_PROMOTED_CHILDREN_CYPHER,
     MARK_ABSORBED_CONCEPT_CYPHER,
     MARK_BLURRED_RELATION_CYPHER,
     MERGE_EQUIVALENT_TO_CYPHER,
     MERGE_JUDGE_RUN_CYPHER,
     MOVE_ABSORBED_MEMBER_OF_CYPHER,
-    MOVE_MEMBER_OF_TO_CHILD_CYPHER,
     run_judge,
 )
 from app.pipeline.node_query_engine import (
@@ -51,19 +42,6 @@ from app.pipeline.node_query_engine import (
     LOAD_NODE_TYPE_TOKENS_CYPHER,
     derive_candidate_links,
     label_query_citations,
-)
-from app.pipeline.promote import (
-    CREATE_PROMOTED_CONCEPT_CYPHER,
-    FIND_CLUSTER_MEMBERS_CYPHER,
-    FIND_CLUSTER_RELATIONS_CYPHER,
-    FIND_CONCEPTS_IN_CLUSTER_CYPHER,
-    FIND_EXISTING_PROMOTED_CYPHER,
-    FIND_PARENT_CYPHER,
-    LIFT_EXTERNAL_RELATION_CYPHER,
-    LINK_PROMOTED_ISA_CYPHER,
-    MERGE_TYPE_MIGRATION_ALIAS_CYPHER,
-    MOVE_MEMBER_OF_CYPHER,
-    promote,
 )
 
 # ---------------------------------------------------------------------------
@@ -125,7 +103,7 @@ class FakeResult:
 
 
 class MetaGraph:
-    """In-memory graph interpreting ingest / promote / judge / S2 Cypher."""
+    """In-memory graph interpreting ingest / judge / S2 Cypher."""
 
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
@@ -138,7 +116,6 @@ class MetaGraph:
         self.rules: dict[tuple[str, str, str], dict] = {}
         self.famiglia: list[dict] = []
         self.judge_runs: dict[str, dict] = {}
-        self.aliases: list[dict] = []
         self.derived_from: list[tuple[str, str]] = []
 
     def _src(self, rel: dict) -> str:
@@ -160,15 +137,6 @@ class MetaGraph:
             self.famiglia.append(
                 {"src": src_id, "dst": dst_id, "rel_type": rel_type, "props": dict(props)}
             )
-
-    def _drop_famiglia(self, a: str, b: str, rel_type: str) -> None:
-        self.famiglia = [
-            edge
-            for edge in self.famiglia
-            if not (
-                edge["rel_type"] == rel_type and {edge["src"], edge["dst"]} == {a, b}
-            )
-        ]
 
     def _ancestors(self, concept_id: str) -> list[dict]:
         rows: list[dict] = []
@@ -219,16 +187,6 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
                 "is_latest": True,
                 "lifted_from": None,
             }
-        )
-        return []
-    if cypher == CREATE_CONTRADICTS_CYPHER:
-        graph._add_famiglia(
-            kwargs["left_id"],
-            "CONTRADICTS",
-            kwargs["right_id"],
-            subject_id=kwargs.get("subject_id"),
-            relation=kwargs.get("relation"),
-            kernel_parent=kwargs.get("kernel_parent"),
         )
         return []
     if cypher == READ_NODE_TYPE_TOKEN_CYPHER:
@@ -305,108 +263,6 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
         return [
             {"child_id": child, "parent_id": parent} for child, parent in graph.isa.items()
         ]
-    if cypher == FIND_PARENT_CYPHER:
-        parent = graph.concepts.get(kwargs["parent_id"])
-        if parent is None:
-            return []
-        return [
-            {
-                "id": parent["id"],
-                "name": parent.get("name"),
-                "kernel_category": parent.get("kernel_category"),
-                "isa_parent_id": graph.isa.get(parent["id"]),
-            }
-        ]
-    if cypher == FIND_CONCEPTS_IN_CLUSTER_CYPHER:
-        return [{"id": cid} for cid in kwargs["cluster_ids"] if cid in graph.concepts]
-    if cypher == FIND_CLUSTER_MEMBERS_CYPHER:
-        parent_id = kwargs["parent_id"]
-        cluster = set(kwargs["cluster_ids"])
-        rows = []
-        for nid in cluster:
-            node = graph.nodes.get(nid)
-            if node is None or graph.member_of.get(nid) != parent_id:
-                continue
-            rows.append(
-                {
-                    "id": nid,
-                    "name": node.get("name"),
-                    "summary": node.get("summary"),
-                    "kernel_category": node.get("kernel_category"),
-                    "labels": ["Node"],
-                }
-            )
-        return rows
-    if cypher == FIND_EXISTING_PROMOTED_CYPHER:
-        found = graph.concepts.get(kwargs["concept_id"])
-        return [{"id": found["id"]}] if found is not None else []
-    if cypher == FIND_CLUSTER_RELATIONS_CYPHER:
-        cluster = set(kwargs["cluster_ids"])
-        rows = []
-        for rel in graph.relations:
-            src, tgt = graph._src(rel), graph._tgt(rel)
-            if src in cluster or tgt in cluster:
-                rows.append(
-                    {
-                        "src_id": src,
-                        "tgt_id": tgt,
-                        "relation": rel.get("relation"),
-                        "kernel_parent": rel.get("kernel_parent"),
-                        "normalized_relation": rel.get("normalized_relation"),
-                        "witnesses_a": list(rel.get("witnesses_a") or []),
-                        "witnesses_b": list(rel.get("witnesses_b") or []),
-                    }
-                )
-        return rows
-    if cypher == CREATE_PROMOTED_CONCEPT_CYPHER:
-        cid = kwargs["concept_id"]
-        graph.concepts[cid] = {
-            "id": cid,
-            "name": kwargs["name"],
-            "kernel_category": kwargs["kernel_category"],
-            "parent_uri": kwargs["parent_uri"],
-            "promoted": True,
-            "kernel_version": kwargs["kernel_version"],
-            "definition": kwargs["definition"],
-            "embedding": list(kwargs["embedding"]),
-        }
-        return [{"id": cid}]
-    if cypher == LINK_PROMOTED_ISA_CYPHER:
-        graph.isa[kwargs["concept_id"]] = kwargs["parent_id"]
-        return []
-    if cypher == MOVE_MEMBER_OF_CYPHER:
-        parent_id = kwargs["parent_id"]
-        concept_id = kwargs["concept_id"]
-        for nid in kwargs["node_ids"]:
-            if graph.member_of.get(nid) == parent_id:
-                graph.member_of[nid] = concept_id
-        return []
-    if cypher == LIFT_EXTERNAL_RELATION_CYPHER:
-        for edge in kwargs.get("edges") or []:
-            row = dict(edge)
-            row.setdefault("src", row.get("src_id"))
-            row.setdefault("dst", row.get("tgt_id"))
-            row.setdefault("is_latest", True)
-            row.setdefault("id", f"rel-lift-{len(graph.relations)}")
-            graph.relations.append(row)
-        return []
-    if cypher == MERGE_TYPE_MIGRATION_ALIAS_CYPHER:
-        concept_id = kwargs["concept_id"]
-        for old_type in kwargs.get("types") or []:
-            key = (old_type, old_type, concept_id)
-            if any(
-                (a["old_type"], a["new_type"], a["concept_id"]) == key for a in graph.aliases
-            ):
-                continue
-            graph.aliases.append(
-                {
-                    "old_type": old_type,
-                    "new_type": old_type,
-                    "concept_id": concept_id,
-                    "frozen_at": "frozen",
-                }
-            )
-        return []
     if cypher == APPLY_SUPERSEDES_CYPHER:
         _apply_temporal(graph, kwargs, "SUPERSEDES")
         return []
@@ -480,91 +336,6 @@ def _apply_read(graph: MetaGraph, cypher: str, kwargs: dict) -> list[dict]:
         if absorbed_id in graph.concepts:
             graph.concepts[absorbed_id]["absorbed_from"] = kwargs["survivor_id"]
         return []
-    if cypher == FIND_PROMOTED_CHILDREN_CYPHER:
-        parent_id = kwargs["parent_id"]
-        rows = []
-        for child_id, parent in graph.isa.items():
-            if parent != parent_id:
-                continue
-            child = graph.concepts.get(child_id) or {}
-            if not child.get("promoted"):
-                continue
-            rows.append(
-                {
-                    "child_id": child_id,
-                    "name": child.get("name"),
-                    "definition": child.get("definition"),
-                    "summary": child.get("summary"),
-                    "kernel_category": child.get("kernel_category"),
-                }
-            )
-        return rows
-    if cypher == FIND_PARENT_MEMBERS_CYPHER:
-        parent_id = kwargs["parent_id"]
-        rows = []
-        for node_id, home in graph.member_of.items():
-            if home != parent_id:
-                continue
-            node = graph.nodes.get(node_id) or {"id": node_id}
-            rows.append(
-                {
-                    "id": node_id,
-                    "name": node.get("name"),
-                    "summary": node.get("summary"),
-                    "kernel_category": node.get("kernel_category"),
-                }
-            )
-        return rows
-    if cypher == MOVE_MEMBER_OF_TO_CHILD_CYPHER:
-        node_id = kwargs["node_id"]
-        if graph.member_of.get(node_id) == kwargs["parent_id"]:
-            graph.member_of[node_id] = kwargs["child_id"]
-        return []
-    if cypher == FIND_CONTRADICTS_PAIRS_CYPHER:
-        rows = []
-        for edge in graph.famiglia:
-            if edge["rel_type"] != "CONTRADICTS":
-                continue
-            left_id, right_id = edge["src"], edge["dst"]
-            text_a = ""
-            text_b = ""
-            head = edge["props"].get("subject_id") or ""
-            for rel in graph.relations:
-                if rel.get("is_latest", True) and graph._tgt(rel) == left_id:
-                    text_a = rel.get("relation") or ""
-                    head = head or graph._src(rel)
-                if rel.get("is_latest", True) and graph._tgt(rel) == right_id:
-                    text_b = rel.get("relation") or ""
-                    head = head or graph._src(rel)
-            rows.append(
-                {
-                    "left_id": left_id,
-                    "right_id": right_id,
-                    "subject_id": head,
-                    "text_a": text_a,
-                    "text_b": text_b,
-                }
-            )
-        return rows
-    if cypher == CREATE_SUPERSEDES_BETWEEN_CYPHER:
-        graph._add_famiglia(
-            kwargs["left_id"],
-            "SUPERSEDES",
-            kwargs["right_id"],
-            subject_id=kwargs.get("subject_id"),
-        )
-        return []
-    if cypher == CREATE_UPDATED_BY_BETWEEN_CYPHER:
-        graph._add_famiglia(
-            kwargs["left_id"],
-            "UPDATED_BY",
-            kwargs["right_id"],
-            subject_id=kwargs.get("subject_id"),
-        )
-        return []
-    if cypher == DELETE_CONTRADICTS_BETWEEN_CYPHER:
-        graph._drop_famiglia(kwargs["left_id"], kwargs["right_id"], "CONTRADICTS")
-        return []
     if cypher == MERGE_JUDGE_RUN_CYPHER:
         graph.judge_runs[kwargs["id"]] = dict(kwargs)
         return []
@@ -637,8 +408,6 @@ def _rel_id(session: MetaGraphSession, src: str, tgt: str, relation: str) -> str
 @pytest.fixture
 def e2e_stubs(monkeypatch):
     monkeypatch.setattr("app.pipeline.ingestion.embeddings.embed", lambda _t: [0.1] * 8)
-    monkeypatch.setattr("app.pipeline.promote.embeddings.embed", lambda _t: [0.1] * 8)
-    monkeypatch.setattr("app.pipeline.promote.settings.OPENAI_API_KEY", "")
 
 
 async def _seed_ingest(session: MetaGraphSession) -> None:
@@ -873,23 +642,8 @@ async def test_metagraph_e2e_fixed_corpus_pipeline(e2e_stubs):
     assert session.graph.derived_from
     assert all(chunk == CHUNK_ID for _nid, chunk in session.graph.derived_from)
 
-    kernel = _seed_backbone(session.graph)
+    _seed_backbone(session.graph)
     await _write_facts(session)
-    await write_contradicts(
-        session,
-        left_id=YEAR_2010_ID,
-        right_id=YEAR_2011_ID,
-        subject_id=MARIO_ID,
-        relation="won",
-        kernel_parent=RelationKernelType.Partecipativa.value,
-    )
-
-    promoted_id = await promote(session, kernel, list(PLAYER_IDS))
-    assert promoted_id
-    assert session.graph.concepts[promoted_id]["promoted"] is True
-    assert session.graph.concepts[promoted_id]["kernel_category"] == "Agente"
-    for pid in PLAYER_IDS:
-        assert session.graph.member_of[pid] == promoted_id
 
     assert session.graph.nodes[MARIO_ID]["kernel_category"] == "Agente"
     assert session.graph.nodes[DITTA_ID]["kernel_category"] == "CostruttoSociale"
@@ -930,13 +684,14 @@ async def test_metagraph_e2e_fixed_corpus_pipeline(e2e_stubs):
         and session.graph._tgt(rel) in {YEAR_2010_ID, YEAR_2011_ID}
     ]
     assert all(rel.get("is_latest") is True for rel in win_latest)
-    assert session.graph._has_famiglia(YEAR_2010_ID, YEAR_2011_ID, "CONTRADICTS")
+    assert len(win_latest) == 2
+    assert not session.graph._has_famiglia(YEAR_2010_ID, YEAR_2011_ID, "CONTRADICTS")
 
     writes_before_judge = session.relation_writes
-    stats = await run_judge(session, JOB_ID, promoted_parent_ids=[promoted_id])
+    stats = await run_judge(session, JOB_ID)
     assert JOB_ID in session.graph.judge_runs
     assert stats is not None
-    assert session.graph._has_famiglia(YEAR_2010_ID, YEAR_2011_ID, "CONTRADICTS")
+    assert not session.graph._has_famiglia(YEAR_2010_ID, YEAR_2011_ID, "CONTRADICTS")
 
     derive_calls_before = len(session.calls)
     links = await derive_candidate_links(session, source_id=ALICE_ID, target_id=COACH_ID)
