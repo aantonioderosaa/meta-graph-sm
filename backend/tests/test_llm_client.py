@@ -33,7 +33,8 @@ def _completion(parsed, total_tokens: int = 10):
 
 
 @pytest.mark.asyncio
-async def test_timeout_retries_three_times_then_raises():
+async def test_timeout_retries_five_times_then_raises(monkeypatch):
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock(return_value=None))
     mock_parse = AsyncMock(side_effect=APITimeoutError("timeout"))
     with patch.object(llm_client, "_get_client") as get_client:
         get_client.return_value = SimpleNamespace(
@@ -44,7 +45,166 @@ async def test_timeout_retries_three_times_then_raises():
         with pytest.raises(APITimeoutError):
             await call_structured("sys", "user", DummyModel)
 
-    assert mock_parse.await_count == 3
+    assert mock_parse.await_count == 5
+
+
+class _BadRequestLike(Exception):
+    """Stand-in for openai.BadRequestError — real one needs a full httpx response."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.status_code = 400
+        self.message = message
+
+
+@pytest.mark.asyncio
+async def test_model_unavailable_400_is_retried_then_recovers(monkeypatch):
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock(return_value=None))
+    mock_parse = AsyncMock(
+        side_effect=[
+            _BadRequestLike("No models loaded. Please load a model..."),
+            _completion(DummyModel(value="ok")),
+        ]
+    )
+    with patch.object(llm_client, "_get_client") as get_client:
+        get_client.return_value = SimpleNamespace(
+            beta=SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(parse=mock_parse))
+            )
+        )
+        result = await call_structured("sys", "user", DummyModel)
+
+    assert result == DummyModel(value="ok")
+    assert mock_parse.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_timeout_uses_short_backoff(monkeypatch):
+    sleeps: list[float] = []
+
+    async def capture_sleep(delay, result=None):
+        sleeps.append(delay)
+        if result is not None:
+            return result
+
+    monkeypatch.setattr(asyncio, "sleep", capture_sleep)
+    mock_parse = AsyncMock(side_effect=APITimeoutError("timeout"))
+    with patch.object(llm_client, "_get_client") as get_client:
+        get_client.return_value = SimpleNamespace(
+            beta=SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(parse=mock_parse))
+            )
+        )
+        with pytest.raises(APITimeoutError):
+            await call_structured("sys", "user", DummyModel)
+
+    assert mock_parse.await_count == 5
+    assert sleeps == [2, 4, 8, 8]
+
+
+@pytest.mark.asyncio
+async def test_model_unavailable_uses_long_backoff(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(llm_client, "_CIRCUIT_FAILURE_THRESHOLD", 99)
+
+    async def capture_sleep(delay, result=None):
+        sleeps.append(delay)
+        if result is not None:
+            return result
+
+    monkeypatch.setattr(asyncio, "sleep", capture_sleep)
+    mock_parse = AsyncMock(side_effect=_BadRequestLike("No models loaded. Please load a model..."))
+    with patch.object(llm_client, "_get_client") as get_client:
+        get_client.return_value = SimpleNamespace(
+            beta=SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(parse=mock_parse))
+            )
+        )
+        with pytest.raises(_BadRequestLike):
+            await call_structured("sys", "user", DummyModel)
+
+    assert mock_parse.await_count == 5
+    assert sleeps == [2, 4, 8, 16]
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_opens_after_three_unavailable_and_blocks_until_cooldown(
+    monkeypatch,
+):
+    llm_client.reset_llm_client(concurrency=4)
+    now = [1000.0]
+    monkeypatch.setattr(llm_client.time, "monotonic", lambda: now[0])
+
+    await asyncio.gather(
+        llm_client._record_unavailable_failure(),
+        llm_client._record_unavailable_failure(),
+        llm_client._record_unavailable_failure(),
+    )
+    assert llm_client._unavailable_failures == 3
+    assert llm_client._circuit_open_until == pytest.approx(1020.0)
+
+    parse_count = 0
+    sleeps: list[float] = []
+
+    async def fake_parse(*_args, **_kwargs):
+        nonlocal parse_count
+        parse_count += 1
+        return _completion(DummyModel(value="ok"))
+
+    async def fake_sleep(delay, result=None):
+        sleeps.append(delay)
+        now[0] += delay
+        if result is not None:
+            return result
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    mock_parse = AsyncMock(side_effect=fake_parse)
+    with patch.object(llm_client, "_get_client") as get_client:
+        get_client.return_value = SimpleNamespace(
+            beta=SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(parse=mock_parse))
+            )
+        )
+        result = await call_structured("sys", "user", DummyModel)
+
+    assert sleeps == [llm_client._CIRCUIT_COOLDOWN_SECONDS]
+    assert parse_count == 1
+    assert result == DummyModel(value="ok")
+    assert llm_client._unavailable_failures == 0
+    assert llm_client._circuit_open_until == 0.0
+
+
+@pytest.mark.asyncio
+async def test_unavailable_failures_increment_circuit_counter(monkeypatch):
+    monkeypatch.setattr(llm_client, "_CIRCUIT_FAILURE_THRESHOLD", 99)
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock(return_value=None))
+    mock_parse = AsyncMock(side_effect=_BadRequestLike("No models loaded. Please load a model..."))
+    with patch.object(llm_client, "_get_client") as get_client:
+        get_client.return_value = SimpleNamespace(
+            beta=SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(parse=mock_parse))
+            )
+        )
+        with pytest.raises(_BadRequestLike):
+            await call_structured("sys", "user", DummyModel)
+
+    assert mock_parse.await_count == 5
+    assert llm_client._unavailable_failures == 5
+
+
+@pytest.mark.asyncio
+async def test_unrelated_400_is_not_retried():
+    mock_parse = AsyncMock(side_effect=_BadRequestLike("invalid_request: bad schema"))
+    with patch.object(llm_client, "_get_client") as get_client:
+        get_client.return_value = SimpleNamespace(
+            beta=SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(parse=mock_parse))
+            )
+        )
+        with pytest.raises(_BadRequestLike):
+            await call_structured("sys", "user", DummyModel)
+
+    assert mock_parse.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -116,6 +276,68 @@ async def test_semaphore_limits_concurrent_calls():
 
     assert max_in_flight <= 4
     assert mock_parse.await_count == 6
+
+
+@pytest.mark.asyncio
+async def test_retry_backoff_releases_semaphore_between_attempts(monkeypatch):
+    """A retry wait must not hold the concurrency slot (Macrotask 2)."""
+    llm_client.reset_llm_client(concurrency=1)
+
+    first_attempt_failed = asyncio.Event()
+    second_parsed_during_backoff = asyncio.Event()
+    parse_by_task: dict[str, int] = {}
+
+    async def fake_parse(*_args, **_kwargs):
+        name = asyncio.current_task().get_name()
+        parse_by_task[name] = parse_by_task.get(name, 0) + 1
+        if name == "call-a" and parse_by_task[name] == 1:
+            first_attempt_failed.set()
+            raise APITimeoutError("timeout")
+        if name == "call-b":
+            second_parsed_during_backoff.set()
+        return _completion(DummyModel(value="ok"))
+
+    async def gated_sleep(delay, result=None):
+        # After call-a's first failure tenacity sleeps here. The second
+        # call_structured must acquire the slot during that wait — if the
+        # semaphore still wraps the whole retry, this times out.
+        if first_attempt_failed.is_set() and not second_parsed_during_backoff.is_set():
+            try:
+                await asyncio.wait_for(second_parsed_during_backoff.wait(), timeout=1.0)
+            except TimeoutError:
+                pytest.fail(
+                    "second call_structured did not acquire the semaphore during retry backoff"
+                )
+        if result is not None:
+            return result
+
+    monkeypatch.setattr(asyncio, "sleep", gated_sleep)
+
+    mock_parse = AsyncMock(side_effect=fake_parse)
+    with patch.object(llm_client, "_get_client") as get_client:
+        get_client.return_value = SimpleNamespace(
+            beta=SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(parse=mock_parse))
+            )
+        )
+
+        async def run_a():
+            return await call_structured("sys", "user", DummyModel)
+
+        async def run_b():
+            await first_attempt_failed.wait()
+            return await call_structured("sys", "user", DummyModel)
+
+        result_a, result_b = await asyncio.gather(
+            asyncio.create_task(run_a(), name="call-a"),
+            asyncio.create_task(run_b(), name="call-b"),
+        )
+
+    assert result_a == DummyModel(value="ok")
+    assert result_b == DummyModel(value="ok")
+    assert second_parsed_during_backoff.is_set()
+    assert parse_by_task["call-a"] == 2
+    assert parse_by_task["call-b"] == 1
 
 
 @pytest.mark.asyncio
