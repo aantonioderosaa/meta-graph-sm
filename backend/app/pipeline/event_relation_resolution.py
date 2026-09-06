@@ -56,6 +56,7 @@ SET_EVENT_SEQUENCE_CYPHER = """
 MATCH (a:Node {id: $head_id})-[r:Relation]->(b:Node {id: $tail_id})
 WHERE elementId(r) = $rel_id
 SET r.normalized_relation = $normalized_relation,
+    r.kernel_parent = $kernel_parent,
     r.is_latest = true
 """
 
@@ -64,6 +65,7 @@ MATCH (a:Node {id: $head_id}), (b:Node {id: $tail_id})
 CREATE (a)-[r:Relation {
     relation: $relation,
     normalized_relation: $normalized_relation,
+    kernel_parent: $kernel_parent,
     is_latest: true,
     created_at: datetime()
 }]->(b)
@@ -182,6 +184,13 @@ async def classify_event_relation(
     return _coerce_classification(verdict, shared_count)
 
 
+_SEQUENCE_KERNEL_PARENT: dict[SequenceType, str] = {
+    SequenceType.precedes: RelationKernelType.Temporale.value,
+    SequenceType.cooccurs: RelationKernelType.Temporale.value,
+    SequenceType.causes: RelationKernelType.Causale.value,
+}
+
+
 def _sequence_endpoints(
     fresh_id: str,
     candidate_id: str,
@@ -202,6 +211,7 @@ async def _write_sequence_relation(
 ) -> None:
     head_id, tail_id = _sequence_endpoints(fresh_id, candidate_id, sequence_type)
     normalized = sequence_type.value
+    kernel_parent = _SEQUENCE_KERNEL_PARENT[sequence_type]
 
     existing = await session.run(
         FIND_EXISTING_RAW_EVENT_REL_CYPHER,
@@ -231,6 +241,7 @@ async def _write_sequence_relation(
             tail_id=tail_id,
             rel_id=existing_id,
             normalized_relation=normalized,
+            kernel_parent=kernel_parent,
         )
         return
 
@@ -240,6 +251,7 @@ async def _write_sequence_relation(
         tail_id=tail_id,
         relation=normalized,
         normalized_relation=normalized,
+        kernel_parent=kernel_parent,
     )
 
 

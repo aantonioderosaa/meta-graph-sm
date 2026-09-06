@@ -20,14 +20,15 @@ YIELD node AS candidate, score
 WHERE candidate.type = $type
   AND candidate.merged_into IS NULL
   AND candidate.id <> $node_id
-RETURN candidate.id AS id, candidate.name AS name, score
+RETURN candidate.id AS id, candidate.name AS name,
+       candidate.kernel_category AS kernel_category, score
 ORDER BY score DESC
 """
 
 FIND_EXACT_NAME_CYPHER = """
 MATCH (c:Node {type: $type, name: $name})
 WHERE c.merged_into IS NULL AND c.id <> $node_id
-RETURN c.id AS id, c.name AS name
+RETURN c.id AS id, c.name AS name, c.kernel_category AS kernel_category
 """
 
 READ_OUTGOING_RELATIONS_CYPHER = """
@@ -91,8 +92,10 @@ RETURN n.id AS id, n.summary AS summary, n.created_at AS created_at
 PROMOTE_NEWER_SUMMARY_CYPHER = """
 MATCH (canon:Node {id: $canon_id}), (dup:Node {id: $dup_id})
 WHERE dup.summary IS NOT NULL AND dup.summary <> ''
-  AND dup.created_at IS NOT NULL
-  AND (canon.created_at IS NULL OR dup.created_at > canon.created_at)
+  AND (
+    canon.summary IS NULL OR canon.summary = ''
+    OR (dup.created_at IS NOT NULL AND (canon.created_at IS NULL OR dup.created_at > canon.created_at))
+  )
 WITH canon, dup, canon.summary AS previous, dup.summary AS newest
 SET canon.summary = newest,
     dup.summary = CASE
@@ -147,6 +150,7 @@ class NodeCandidate:
     name: str
     score: float | None = None
     via: NodeCandidateVia = "embedding"
+    kernel_category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -303,6 +307,7 @@ async def find_node_candidates(
                 name=record["name"],
                 score=None,
                 via="exact_name",
+                kernel_category=_optional_str(record.get("kernel_category")),
             )
         )
     if exact:
@@ -323,6 +328,7 @@ async def find_node_candidates(
                 name=record["name"],
                 score=float(record["score"]),
                 via="embedding",
+                kernel_category=_optional_str(record.get("kernel_category")),
             )
         )
     return candidates
@@ -351,7 +357,23 @@ async def classify_node_duplicate(
     return result
 
 
-def _fast_path_canonical(candidates: list[NodeCandidate]) -> str | None:
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _same_kernel_category(left: str | None, right: str | None) -> bool:
+    a = (left or "").strip()
+    b = (right or "").strip()
+    return bool(a) and a == b
+
+
+def _fast_path_canonical(
+    candidates: list[NodeCandidate],
+    new_kernel_category: str | None = None,
+) -> str | None:
     exact = [c for c in candidates if c.via == "exact_name"]
     if exact:
         return exact[0].id
@@ -360,9 +382,12 @@ def _fast_path_canonical(candidates: list[NodeCandidate]) -> str | None:
         for c in candidates
         if c.score is not None and c.score >= HIGH_CONFIDENCE_SCORE
     ]
-    if len(high) == 1:
-        return high[0].id
-    return None
+    if len(high) != 1:
+        return None
+    only = high[0]
+    if not _same_kernel_category(new_kernel_category, only.kernel_category):
+        return None
+    return only.id
 
 
 async def merge_nodes(session: AsyncSession, dup_id: str, canon_id: str) -> None:
@@ -429,6 +454,8 @@ async def resolve_node(
     name: str,
     embedding: list[float],
     job_id: str | None = None,
+    *,
+    kernel_category: str | None = None,
 ) -> str:
     """Return the canonical node id, merging into a duplicate when one is found."""
     candidates = await find_node_candidates(
@@ -441,7 +468,7 @@ async def resolve_node(
     if not candidates:
         return node_id
 
-    canon_id = _fast_path_canonical(candidates)
+    canon_id = _fast_path_canonical(candidates, kernel_category)
     if canon_id is None:
         verdict = await classify_node_duplicate(name, candidates, job_id)
         canon_id = verdict.duplicate_of

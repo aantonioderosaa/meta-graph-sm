@@ -14,6 +14,7 @@ from app.pipeline.node_extraction_prompts import (
     build_event_concept_prompt,
     build_event_entity_prompt,
     build_event_relation_prompt,
+    build_pair_relation_batch_prompt,
     build_pair_relation_prompt,
 )
 
@@ -51,6 +52,35 @@ def test_pair_relation_prompt_includes_summaries_and_primitives():
     assert GENRE_NOT_TOPIC_PROMPT in user
     for primitive in RelationKernelType:
         assert primitive.value in user
+    assert "sola co-presenza" in user
+    assert "related=false" in user
+    assert "stessa stanza" in user
+
+
+def test_pair_relation_batch_prompt_lists_indexed_pairs_and_copresence_ban():
+    _system, user = build_pair_relation_batch_prompt(
+        SAMPLE,
+        [
+            ("Alice", SUMMARY_A, "Acme", SUMMARY_B),
+            ("Alice", SUMMARY_A, "Bob", "Bob is a colleague."),
+        ],
+        corpus_summary=CORPUS,
+    )
+    assert SAMPLE in user
+    assert SUMMARY_A in user
+    assert SUMMARY_B in user
+    assert "[0]" in user
+    assert "[1]" in user
+    assert "pair_index" in user
+    assert "decisions" in user
+    assert "{pairs_block}" not in user
+    assert CORPUS in user
+    assert GENRE_NOT_TOPIC_PROMPT in user
+    for primitive in RelationKernelType:
+        assert primitive.value in user
+    assert "sola co-presenza" in user
+    assert "related=false" in user
+    assert "stessa stanza" in user
 
 
 def test_event_entity_prompt_substitutes_chunk_and_uses_participations():

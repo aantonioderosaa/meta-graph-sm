@@ -25,6 +25,7 @@ from app.pipeline.event_relation_resolution import FIND_FRESH_EVENTS_CYPHER, res
 from app.pipeline.ingestion import process_chunk_node_extraction
 from app.pipeline.node_graph_engine import get_concept_neighbors
 from app.pipeline.node_resolution import FIND_NODE_CANDIDATES_CYPHER, resolve_node
+from tests.conftest import as_batch_pair_extractor
 
 JOB_ID = "job-m8-acceptance"
 CHUNK = Chunk(id="chunk-m8", doc_id="doc-m8", text="Alice and Acme attended the product launch.")
@@ -129,6 +130,10 @@ def _patch_scenario1_extractors(monkeypatch) -> None:
 
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
+    monkeypatch.setattr(
+        "app.pipeline.node_extraction.extract_pair_relations_batch",
+        as_batch_pair_extractor(mock_pair),
+    )
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_entities", mock_event_entity)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_relations", mock_event_rel)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_concepts", mock_concepts)
@@ -277,7 +282,7 @@ async def test_scenario6_dreaming_skips_already_dreamed_nodes(monkeypatch):
     session.enqueue([{"id": "fresh-alice", "name": "Alice", "embedding": EMBEDDING}])
     resolve_ids: list[str] = []
 
-    async def spy_resolve(_session, node_id, node_type, name, embedding, job_id):
+    async def spy_resolve(_session, node_id, node_type, name, embedding, job_id, **_kwargs):
         _ = node_type, name, embedding, job_id
         resolve_ids.append(node_id)
         return node_id

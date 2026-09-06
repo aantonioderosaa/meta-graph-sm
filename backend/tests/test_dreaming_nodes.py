@@ -91,7 +91,7 @@ def _three_entities() -> list[dict]:
 CANON = "e-alice-1"
 
 
-async def _fake_resolve_two_dups(_session, node_id, node_type, name, embedding, job_id):
+async def _fake_resolve_two_dups(_session, node_id, node_type, name, embedding, job_id, **_kwargs):
     assert node_type == "entity"
     assert job_id == JOB_ID
     if node_id in {"e-alice-1", "e-alice-2"}:
@@ -116,13 +116,12 @@ async def test_phase1_runs_before_phase2_gather(monkeypatch):
         log.append("bb")
         return 0
 
-    async def promote(_session, job_id: str, **_kwargs) -> int:
-        assert job_id == JOB_ID
-        assert "bb" in log
+    async def backfill(_session, **_kwargs) -> None:
+        assert "p1" in log
+        assert "bb" not in log
         assert "p2_rel" not in log
         assert "p2_ev" not in log
-        log.append("pr")
-        return 0
+        log.append("bf")
 
     async def rels(_session, job_id: str, touched: set[str]) -> int:
         assert "p1" in log
@@ -138,16 +137,16 @@ async def test_phase1_runs_before_phase2_gather(monkeypatch):
         return {"ev1"}
 
     monkeypatch.setattr("app.pipeline.dreaming._resolve_fresh_entities", phase1)
+    monkeypatch.setattr("app.pipeline.dreaming.backfill_kernel_categories", backfill)
     monkeypatch.setattr("app.pipeline.dreaming.classify_and_grow_backbone", backbone)
-    monkeypatch.setattr("app.pipeline.dreaming.promote_clusters", promote)
     monkeypatch.setattr("app.pipeline.dreaming._classify_entity_relations", rels)
     monkeypatch.setattr("app.pipeline.dreaming._resolve_and_classify_events", events)
 
     touched = await _run_node_phases(FakeDriver(), JOB_ID)
 
     assert log[0] == "p1"
-    assert log[1] == "bb"
-    assert log[2] == "pr"
+    assert log[1] == "bf"
+    assert log[2] == "bb"
     assert "p2_rel" in log
     assert "p2_ev" in log
     assert set(log[3:]) == {"p2_rel", "p2_ev"}
@@ -414,8 +413,8 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
     driver = FakeDriver(
         [
             entity_session,  # phase 1
+            FakeSession(),  # kernel_category backfill
             FakeSession(),  # backbone classification
-            FakeSession(),  # promote_clusters
             FakeSession(),  # relations
             event_session,  # events
             FakeSession(),  # judge
@@ -427,10 +426,6 @@ async def test_empty_fresh_entities_pipeline_reaches_complete(monkeypatch):
     monkeypatch.setattr("app.pipeline.dreaming.node_resolution.resolve_node", boom_resolve)
     monkeypatch.setattr(
         "app.pipeline.dreaming.classify_and_grow_backbone",
-        _async_zero,
-    )
-    monkeypatch.setattr(
-        "app.pipeline.dreaming.promote_clusters",
         _async_zero,
     )
     monkeypatch.setattr(

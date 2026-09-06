@@ -154,8 +154,85 @@ async def test_vector_llm_confirms_duplicate(monkeypatch):
 async def test_high_confidence_single_candidate_skips_llm(monkeypatch):
     session = FakeSession()
     session.enqueue([])
-    session.enqueue([{"id": "alice-1", "name": "Alice Smith", "score": HIGH_CONFIDENCE_SCORE}])
+    session.enqueue(
+        [
+            {
+                "id": "alice-1",
+                "name": "Alice Smith",
+                "score": HIGH_CONFIDENCE_SCORE,
+                "kernel_category": "Agente",
+            }
+        ]
+    )
     monkeypatch.setattr("app.pipeline.node_resolution.call_structured", _boom_llm)
+    merges = _spy_merge(monkeypatch)
+
+    result = await resolve_node(
+        session,
+        node_id="alice-new",
+        node_type="entity",
+        name="Alice S.",
+        embedding=EMBEDDING,
+        job_id=JOB_ID,
+        kernel_category="Agente",
+    )
+
+    assert result == "alice-1"
+    assert merges == [("alice-new", "alice-1")]
+
+
+@pytest.mark.asyncio
+async def test_high_confidence_different_kernel_category_uses_llm(monkeypatch):
+    session = FakeSession()
+    session.enqueue([])
+    session.enqueue(
+        [
+            {
+                "id": "peter-1",
+                "name": "Peter Cratchit",
+                "score": HIGH_CONFIDENCE_SCORE,
+                "kernel_category": "Agente",
+            }
+        ]
+    )
+    llm_calls: list[str] = []
+
+    async def fake_llm(*_args, **_kwargs):
+        llm_calls.append("called")
+        return NodeDedupResult(duplicate_of=None)
+
+    monkeypatch.setattr("app.pipeline.node_resolution.call_structured", fake_llm)
+    merges = _spy_merge(monkeypatch)
+
+    result = await resolve_node(
+        session,
+        node_id="friends-new",
+        node_type="entity",
+        name="friends",
+        embedding=EMBEDDING,
+        job_id=JOB_ID,
+        kernel_category="Collettivo",
+    )
+
+    assert llm_calls == ["called"]
+    assert result == "friends-new"
+    assert merges == []
+
+
+@pytest.mark.asyncio
+async def test_high_confidence_missing_kernel_category_uses_llm(monkeypatch):
+    session = FakeSession()
+    session.enqueue([])
+    session.enqueue(
+        [{"id": "alice-1", "name": "Alice Smith", "score": HIGH_CONFIDENCE_SCORE}]
+    )
+    llm_calls: list[str] = []
+
+    async def fake_llm(*_args, **_kwargs):
+        llm_calls.append("called")
+        return NodeDedupResult(duplicate_of=None)
+
+    monkeypatch.setattr("app.pipeline.node_resolution.call_structured", fake_llm)
     merges = _spy_merge(monkeypatch)
 
     result = await resolve_node(
@@ -167,8 +244,9 @@ async def test_high_confidence_single_candidate_skips_llm(monkeypatch):
         job_id=JOB_ID,
     )
 
-    assert result == "alice-1"
-    assert merges == [("alice-new", "alice-1")]
+    assert llm_calls == ["called"]
+    assert result == "alice-new"
+    assert merges == []
 
 
 @pytest.mark.asyncio
@@ -227,9 +305,8 @@ async def test_no_candidates_returns_node_id_unchanged(monkeypatch):
 
 def test_candidate_cypher_filters_by_type():
     """An event with a near-identical embedding is excluded by candidate.type = $type."""
-    assert "candidate.type = $type" in FIND_NODE_CANDIDATES_CYPHER
-    assert "type: $type" in FIND_EXACT_NAME_CYPHER
-    assert "c.merged_into IS NULL" in FIND_EXACT_NAME_CYPHER
+    assert "candidate.kernel_category AS kernel_category" in FIND_NODE_CANDIDATES_CYPHER
+    assert "c.kernel_category AS kernel_category" in FIND_EXACT_NAME_CYPHER
 
 
 @pytest.mark.asyncio

@@ -71,6 +71,22 @@ class PairRelationDecision(BaseModel):
         return self
 
 
+class PairIndexedDecision(PairRelationDecision):
+    """One pairwise decision tagged with its index in the batch prompt.
+
+    Matching on return is by ``pair_index``, not by entity name, so duplicate
+    or truncated names in a chunk cannot be reassigned to the wrong pair.
+    """
+
+    pair_index: int = Field(ge=0)
+
+
+class PairRelationBatchResult(BaseModel):
+    """Pass B batch: decisions for several pairs in one LLM call."""
+
+    decisions: list[PairIndexedDecision]
+
+
 class MacroDomainSummary(BaseModel):
     """F3.0: running natural-language corpus summary (not a subdomain list)."""
 

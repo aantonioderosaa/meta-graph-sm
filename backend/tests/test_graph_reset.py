@@ -25,6 +25,7 @@ from app.models.node_extraction import (
 )
 from app.models.relations import RelationClassification, RelationLabel
 from app.pipeline.node_query_engine import NodeQueryAnswer
+from tests.conftest import as_batch_pair_extractor
 from tests.neo4j_gds import neo4j_gds_container
 
 EMBEDDING_DIM = 768
@@ -238,6 +239,10 @@ def _patch_node_llm(monkeypatch) -> None:
 
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
+    monkeypatch.setattr(
+        "app.pipeline.node_extraction.extract_pair_relations_batch",
+        as_batch_pair_extractor(mock_pair),
+    )
     monkeypatch.setattr("app.pipeline.ingestion.update_corpus_context", mock_corpus)
     monkeypatch.setattr(
         "app.pipeline.node_extraction.extract_event_entities", empty_event_entity

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 
@@ -10,6 +12,57 @@ def pytest_configure(config):
         "markers",
         "enable_node_extraction: run real process_chunk_node_extraction (disable autouse stub)",
     )
+
+
+def as_batch_pair_extractor(pair):
+    """Adapt a per-pair decision/mock into ``extract_pair_relations_batch``.
+
+    Existing tests still pass a single ``PairRelationDecision``, an exception,
+    or a per-pair callable; ingestion now calls the batch extractor.
+    """
+    from app.models.node_extraction import (
+        PairIndexedDecision,
+        PairRelationBatchResult,
+        PairRelationDecision,
+    )
+
+    async def mock_batch(
+        chunk_text: str,
+        pairs: list[tuple[str, str, str, str]],
+        job_id: str | None = None,
+        corpus_summary: str = "",
+    ) -> PairRelationBatchResult:
+        if isinstance(pair, BaseException):
+            raise pair
+        if isinstance(pair, PairRelationBatchResult):
+            return pair
+        decisions: list[PairIndexedDecision] = []
+        for index, (name_a, summary_a, name_b, summary_b) in enumerate(pairs):
+            if callable(pair):
+                item = pair(
+                    chunk_text,
+                    name_a,
+                    summary_a,
+                    name_b,
+                    summary_b,
+                    job_id=job_id,
+                    corpus_summary=corpus_summary,
+                )
+                if inspect.isawaitable(item):
+                    item = await item
+            else:
+                item = pair
+            if isinstance(item, PairIndexedDecision):
+                decisions.append(item.model_copy(update={"pair_index": index}))
+            elif isinstance(item, PairRelationDecision):
+                decisions.append(
+                    PairIndexedDecision(pair_index=index, **item.model_dump())
+                )
+            else:
+                raise TypeError(f"unsupported pair mock result: {type(item)!r}")
+        return PairRelationBatchResult(decisions=decisions)
+
+    return mock_batch
 
 
 @pytest.fixture(autouse=True)

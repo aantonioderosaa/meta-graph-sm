@@ -15,6 +15,7 @@ JSON_SYSTEM_PROMPT = (
 
 ENTITY_LIST_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
 PAIR_RELATION_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
+PAIR_RELATION_BATCH_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
 CORPUS_SUMMARY_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
 EVENT_ENTITY_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
 EVENT_RELATION_SYSTEM_PROMPT = JSON_SYSTEM_PROMPT
@@ -57,6 +58,15 @@ PAIR_RELATION_USER_PROMPT_TEMPLATE = (
     "Summary B: {summary_b}\n\n"
     "Se i summary, letti insieme e con il passaggio, NON giustificano un legame, "
     "restituisci related=false.\n"
+    "Non creare una relazione per sola co-presenza fisica o spaziale nella stessa "
+    "scena: stare nella stessa stanza, essere elencati insieme, o comparire nello "
+    "stesso passaggio non basta. Serve un'azione o un legame esplicito tra A e B "
+    "nel testo.\n"
+    "Esempi negativi (related=false): due persone descritte nella stessa stanza "
+    "non sono in relazione solo per questo; un personaggio che vede un oggetto "
+    "nella scena (una porta, una finestra, uno spettro presente) non è "
+    "witnessed_by / observes_from / coached_by quell'oggetto o quella figura, "
+    "salvo un'azione o un ruolo nominati nel testo.\n"
     "Se related=true, indica:\n"
     "- relation: raffinamento libero (es. coached_by, works_at)\n"
     "- kernel_parent: esattamente una delle 6 primitive R1–R6 (il raffinamento "
@@ -68,6 +78,42 @@ PAIR_RELATION_USER_PROMPT_TEMPLATE = (
     "head e tail sono impliciti (A e B): non restituire liste di id.\n"
     'Restituisci un oggetto JSON: {{"related": true/false, "relation": "...", '
     '"kernel_parent": "...", "witness_source": "...", "witness_target": "..."}}\n\n'
+    'Testo:\n"""{chunk_text}"""'
+)
+
+PAIR_RELATION_BATCH_USER_PROMPT_TEMPLATE = (
+    "{genre_not_topic}\n\n"
+    "Macro-riassunto del corpus (contesto; non elencare sottodomini):\n"
+    '"""{corpus_summary}"""\n\n'
+    "Decidi, per CIASCUNA coppia elencata, se esiste UNA relazione asserita tra le "
+    "due entità, letti i loro summary insieme al passaggio. Restituisci una "
+    "decisione per ogni coppia, identificata dal suo pair_index. Non inventare "
+    "coppie extra. Non raggruppare testimoni di coppie diverse.\n\n"
+    "Coppie:\n"
+    "{pairs_block}\n\n"
+    "Se i summary, letti insieme e con il passaggio, NON giustificano un legame, "
+    "restituisci related=false per quella coppia.\n"
+    "Non creare una relazione per sola co-presenza fisica o spaziale nella stessa "
+    "scena: stare nella stessa stanza, essere elencati insieme, o comparire nello "
+    "stesso passaggio non basta. Serve un'azione o un legame esplicito tra A e B "
+    "nel testo.\n"
+    "Esempi negativi (related=false): due persone descritte nella stessa stanza "
+    "non sono in relazione solo per questo; un personaggio che vede un oggetto "
+    "nella scena (una porta, una finestra, uno spettro presente) non è "
+    "witnessed_by / observes_from / coached_by quell'oggetto o quella figura, "
+    "salvo un'azione o un ruolo nominati nel testo.\n"
+    "Se related=true, indica:\n"
+    "- relation: raffinamento libero (es. coached_by, works_at)\n"
+    "- kernel_parent: esattamente una delle 6 primitive R1–R6 (il raffinamento "
+    "pende sotto una di queste, non è una settima primitiva):\n"
+    "{relation_kernel_list}\n"
+    "- witness_source e witness_target: stringhe non vuote (un testimone per lato; "
+    "tipicamente i nomi o gli span che attestano A e B). Un fatto senza entrambi i "
+    "testimoni non è rappresentabile.\n"
+    "head e tail sono impliciti (A e B della coppia): non restituire liste di id.\n"
+    'Restituisci un oggetto JSON: {{"decisions": [{{"pair_index": 0, '
+    '"related": true/false, "relation": "...", "kernel_parent": "...", '
+    '"witness_source": "...", "witness_target": "..."}}, ...]}}\n\n'
     'Testo:\n"""{chunk_text}"""'
 )
 
@@ -200,6 +246,37 @@ def build_pair_relation_prompt(
         summary_b=summary_b,
         relation_kernel_list=_RELATION_KERNEL_LINES,
         chunk_text=chunk_text,
+    )
+
+
+def _format_pair_batch_block(
+    pairs: list[tuple[str, str, str, str]],
+) -> str:
+    lines: list[str] = []
+    for index, (name_a, summary_a, name_b, summary_b) in enumerate(pairs):
+        lines.append(
+            f"[{index}] Entità A: {name_a}\n"
+            f"    Summary A: {summary_a}\n"
+            f"    Entità B: {name_b}\n"
+            f"    Summary B: {summary_b}"
+        )
+    return "\n".join(lines)
+
+
+def build_pair_relation_batch_prompt(
+    chunk_text: str,
+    pairs: list[tuple[str, str, str, str]],
+    corpus_summary: str = "",
+) -> tuple[str, str]:
+    return (
+        PAIR_RELATION_BATCH_SYSTEM_PROMPT,
+        PAIR_RELATION_BATCH_USER_PROMPT_TEMPLATE.format(
+            genre_not_topic=GENRE_NOT_TOPIC_PROMPT,
+            corpus_summary=corpus_summary or "(vuoto)",
+            pairs_block=_format_pair_batch_block(pairs),
+            relation_kernel_list=_RELATION_KERNEL_LINES,
+            chunk_text=chunk_text,
+        ),
     )
 
 

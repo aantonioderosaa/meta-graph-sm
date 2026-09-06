@@ -6,12 +6,12 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import dataclass
 from itertools import combinations
 
 from neo4j import AsyncSession
 
 from app.core import event_bus
+from app.core.config import settings
 from app.core.llm_client import LLMValidationError, call_structured, get_token_usage
 from app.core.neo4j_client import get_driver
 from app.models.kernel import EntityKernelType, RelationKernelType
@@ -21,6 +21,7 @@ from app.models.node_extraction import (
     EventRelationExtractionResult,
     ExtractedEntity,
     MacroDomainSummary,
+    PairRelationBatchResult,
     PairRelationDecision,
 )
 from app.pipeline import chunking, embeddings, node_extraction
@@ -37,10 +38,23 @@ CORPUS_CONTEXT_ID = "default"
 # llm_client.py — this only bounds how many chunks (and their own Neo4j
 # sessions) are in flight at once, so the next chunk's calls can queue up on
 # that semaphore instead of the whole pipeline sitting idle while one chunk
-# finishes its O(k^2) pairwise entity-relation classification before the next
-# chunk's extraction even starts. Not a Settings flag, same spirit as
-# EVENT_TRIAGE_MAX_SLOT_FANOUT — bounds cost, not something to retune per corpus.
-CHUNK_CONCURRENCY = 8
+# finishes pairwise entity-relation classification before the next chunk's
+# extraction even starts.
+#
+# Pairwise decisions are batched (PAIR_RELATION_BATCH_SIZE, ~12–15 pairs per
+# call) so a chunk with ~35 pairs issues ~3 LLM calls instead of 35. Kept
+# close to LLM_MAX_CONCURRENCY on purpose: each chunk that starts still fans
+# its batches onto the same semaphore, so a much higher CHUNK_CONCURRENCY
+# mostly just queues more work without moving faster. Observed in practice on
+# a single local LM Studio server: pushing several chunks' full cascades at
+# once exhausted it enough to unload the model mid-run ("No models loaded" /
+# connection errors) and silently zero out every chunk caught in that window
+# — the
+# BadRequestError class those errors raise as isn't retried (see
+# llm_client.py's _is_transient). Tune to whatever the local server can
+# actually sustain in parallel; not a corpus-shape constant like the others
+# in this module.
+CHUNK_CONCURRENCY = 4
 
 MERGE_CHUNK_CYPHER = """
 MERGE (c:Chunk {id: $id})
@@ -66,6 +80,17 @@ CREATE (n:Node {
 WITH n
 MATCH (c:Chunk {id: $chunk_id})
 CREATE (n)-[:DERIVED_FROM]->(c)
+"""
+
+# Exact/case-insensitive reuse of an entity already written for this document
+# (Macrotask 3.1). Starts from Chunk.doc_id so it does not scan the whole graph;
+# toLower matches the same normalized key _create_node uses in-chunk.
+FIND_DOC_ENTITY_BY_NAME_CYPHER = """
+MATCH (ch:Chunk {doc_id: $doc_id})<-[:DERIVED_FROM]-(n:Node {type: 'entity'})
+WHERE n.merged_into IS NULL
+  AND toLower(n.name) = $name_folded
+RETURN n.id AS id
+LIMIT 1
 """
 
 CREATE_NODE_RELATION_CYPHER = """
@@ -165,14 +190,23 @@ def find_entity_by_loose_name(
     return best_id
 
 
-@dataclass(frozen=True)
-class _WrittenEntityFact:
-    head_id: str
-    head_norm: str
-    tail_id: str
-    tail_norm: str
-    relation: str
-    kernel_parent: str
+async def find_entity_in_document(
+    session: AsyncSession, name: str, doc_id: str
+) -> str | None:
+    """Exact/case-insensitive match against entities already written for ``doc_id``."""
+    folded = normalize_entity_name(name)
+    if not folded or not doc_id:
+        return None
+    result = await session.run(
+        FIND_DOC_ENTITY_BY_NAME_CYPHER,
+        doc_id=doc_id,
+        name_folded=folded,
+    )
+    async for record in result:
+        node_id = record["id"]
+        if node_id:
+            return str(node_id)
+    return None
 
 
 async def write_chunk(
@@ -392,6 +426,19 @@ def _unrelated_pair() -> PairRelationDecision:
     return PairRelationDecision(related=False)
 
 
+def _pair_job_batches[T](items: list[T], batch_size: int) -> list[list[T]]:
+    size = max(1, batch_size)
+    return [items[start : start + size] for start in range(0, len(items), size)]
+
+
+def _decisions_from_pair_batch(
+    batch_len: int, raw: PairRelationBatchResult | BaseException
+) -> list[PairRelationDecision | BaseException]:
+    if isinstance(raw, BaseException):
+        return [raw] * batch_len
+    return node_extraction.align_pair_batch_decisions(batch_len, raw)
+
+
 async def _unwrap_node_extraction[T](
     result: T | BaseException, empty: T, job_id: str, chunk_id: str
 ) -> T:
@@ -407,31 +454,6 @@ def _kernel_category_value(category: EntityKernelType | str | None) -> str | Non
     if isinstance(category, EntityKernelType):
         return category.value
     return category
-
-
-async def _write_same_chunk_contradicts(
-    session: AsyncSession, facts: list[_WrittenEntityFact]
-) -> None:
-    """F3.5: same-head + same kernel_parent/relation + different tails → both + CONTRADICTS."""
-    for left, right in combinations(facts, 2):
-        if left.head_norm != right.head_norm:
-            continue
-        if left.tail_norm == right.tail_norm:
-            continue
-        same_attribute = (
-            left.kernel_parent == right.kernel_parent
-            or left.relation.strip().casefold() == right.relation.strip().casefold()
-        )
-        if not same_attribute:
-            continue
-        await write_contradicts(
-            session,
-            left_id=left.tail_id,
-            right_id=right.tail_id,
-            subject_id=left.head_id,
-            relation=left.relation,
-            kernel_parent=left.kernel_parent,
-        )
 
 
 async def process_chunk_node_extraction(
@@ -476,13 +498,16 @@ async def process_chunk_node_extraction(
         if existing is not None:
             return existing
         node_id = str(uuid.uuid4())
+        embed_source = name.strip()
+        if summary.strip():
+            embed_source = f"{embed_source}. {summary.strip()}"
         await write_node(
             session,
             node_id=node_id,
             name=name,
             node_type=node_type,
             chunk_id=chunk.id,
-            embedding=embeddings.embed(name),
+            embedding=embeddings.embed(embed_source),
             job_id=job_id,
             summary=summary,
             kernel_category=_kernel_category_value(kernel_category),
@@ -513,23 +538,25 @@ async def process_chunk_node_extraction(
 
     raw_pairs: list[PairRelationDecision | BaseException] = []
     if pair_jobs:
-        raw_pairs = await asyncio.gather(
+        batches = _pair_job_batches(pair_jobs, settings.PAIR_RELATION_BATCH_SIZE)
+        raw_batches = await asyncio.gather(
             *[
-                node_extraction.extract_pair_relation(
+                node_extraction.extract_pair_relations_batch(
                     chunk.text,
-                    ent_a.name,
-                    ent_a.summary,
-                    ent_b.name,
-                    ent_b.summary,
+                    [
+                        (ent_a.name, ent_a.summary, ent_b.name, ent_b.summary)
+                        for _id_a, ent_a, _id_b, ent_b in batch
+                    ],
                     job_id=job_id,
                     corpus_summary=corpus_summary,
                 )
-                for _id_a, ent_a, _id_b, ent_b in pair_jobs
+                for batch in batches
             ],
             return_exceptions=True,
         )
+        for batch, raw in zip(batches, raw_batches, strict=True):
+            raw_pairs.extend(_decisions_from_pair_batch(len(batch), raw))
 
-    written_facts: list[_WrittenEntityFact] = []
     for (id_a, ent_a, id_b, ent_b), raw in zip(pair_jobs, raw_pairs, strict=True):
         decision = await _unwrap_node_extraction(
             raw, _unrelated_pair(), job_id, chunk.id
@@ -552,18 +579,6 @@ async def process_chunk_node_extraction(
             witness_source=decision.witness_source,
             witness_target=decision.witness_target,
         )
-        written_facts.append(
-            _WrittenEntityFact(
-                head_id=id_a,
-                head_norm=normalize_entity_name(ent_a.name),
-                tail_id=id_b,
-                tail_norm=normalize_entity_name(ent_b.name),
-                relation=decision.relation,
-                kernel_parent=decision.kernel_parent.value,
-            )
-        )
-
-    await _write_same_chunk_contradicts(session, written_facts)
 
     for triple in event_rel.triples:
         head = triple.head.strip()
@@ -605,9 +620,15 @@ async def process_chunk_node_extraction(
             entity = entity_name.strip()
             if not entity:
                 continue
-            entity_id = find_entity_by_loose_name(
-                entity, node_ids
-            ) or await _create_node(entity, "entity")
+            entity_id = find_entity_by_loose_name(entity, node_ids)
+            if entity_id is None:
+                entity_id = await find_entity_in_document(session, entity, doc_id)
+                if entity_id is not None:
+                    node_ids[("entity", normalize_entity_name(entity))] = entity_id
+            if entity_id is None:
+                entity_id = await _create_node(
+                    entity, "entity", summary=event_name
+                )
             await write_node_relation(
                 session,
                 head_id=event_id,

@@ -16,10 +16,17 @@ from app.models.node_extraction import (
     EventRelationExtractionResult,
     EventRelationTriple,
     ExtractedEntity,
+    PairIndexedDecision,
+    PairRelationBatchResult,
     PairRelationDecision,
 )
 from app.pipeline.chunking import Chunk
 from app.pipeline.ingestion import CREATE_NODE_RELATION_CYPHER, process_chunk_node_extraction
+from app.pipeline.node_extraction import (
+    align_pair_batch_decisions,
+    extract_pair_relations_batch,
+)
+from tests.conftest import as_batch_pair_extractor
 
 CHUNK = Chunk(id="chunk-1", doc_id="doc-1", text="Alice works at Acme.")
 JOB_ID = "job-node-1"
@@ -160,6 +167,10 @@ def _patch_extractors(
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
     monkeypatch.setattr(
+        "app.pipeline.node_extraction.extract_pair_relations_batch",
+        as_batch_pair_extractor(pair),
+    )
+    monkeypatch.setattr(
         "app.pipeline.node_extraction.extract_event_entities", mock_event_entity
     )
     monkeypatch.setattr(
@@ -287,3 +298,212 @@ async def test_every_written_node_has_derived_from_to_chunk(monkeypatch):
     for cypher, kw in node_writes:
         assert "DERIVED_FROM" in cypher
         assert kw.get("chunk_id") == CHUNK.id
+
+
+def test_align_pair_batch_decisions_matches_by_index_not_name():
+    related = PairIndexedDecision(
+        pair_index=1,
+        related=True,
+        relation="works_at",
+        kernel_parent=RelationKernelType.SocialeIntenzionale,
+        witness_source="Alice",
+        witness_target="Acme",
+    )
+    extra = PairIndexedDecision(pair_index=9, related=False)
+    duplicate = PairIndexedDecision(pair_index=1, related=False)
+    aligned = align_pair_batch_decisions(
+        3,
+        PairRelationBatchResult(decisions=[related, extra, duplicate]),
+    )
+    assert [item.related for item in aligned] == [False, True, False]
+    assert aligned[1].relation == "works_at"
+
+
+@pytest.mark.asyncio
+async def test_extract_pair_relations_batch_is_one_llm_call(monkeypatch):
+    calls: list[tuple[object, str, str | None]] = []
+
+    async def fake_structured(system, user, model, temperature=0, job_id=None):
+        _ = system, temperature
+        calls.append((model, user, job_id))
+        return PairRelationBatchResult(
+            decisions=[
+                PairIndexedDecision(
+                    pair_index=0,
+                    related=True,
+                    relation="works_at",
+                    kernel_parent=RelationKernelType.SocialeIntenzionale,
+                    witness_source="Alice",
+                    witness_target="Acme",
+                ),
+                PairIndexedDecision(pair_index=1, related=False),
+            ]
+        )
+
+    monkeypatch.setattr("app.pipeline.node_extraction.call_structured", fake_structured)
+    pairs = [
+        ("Alice", "A person.", "Acme", "A company."),
+        ("Alice", "A person.", "Bob", "Another person."),
+    ]
+    result = await extract_pair_relations_batch(
+        CHUNK.text, pairs, job_id=JOB_ID, corpus_summary="jobs"
+    )
+
+    assert len(calls) == 1
+    model, user, job_id = calls[0]
+    assert model is PairRelationBatchResult
+    assert job_id == JOB_ID
+    assert "[0]" in user
+    assert "[1]" in user
+    assert "Alice" in user
+    assert "Bob" in user
+    assert result.decisions[0].related is True
+    assert result.decisions[1].related is False
+
+
+@pytest.mark.asyncio
+async def test_extract_pair_relations_batch_skips_llm_when_empty(monkeypatch):
+    async def boom(*_args, **_kwargs):
+        raise AssertionError("empty batch must not call the LLM")
+
+    monkeypatch.setattr("app.pipeline.node_extraction.call_structured", boom)
+    result = await extract_pair_relations_batch(CHUNK.text, [])
+    assert result.decisions == []
+
+
+@pytest.mark.enable_node_extraction
+@pytest.mark.asyncio
+async def test_ingestion_batches_pair_jobs_and_keeps_write_logic(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "PAIR_RELATION_BATCH_SIZE", 2)
+    entities = EntityExtractionResult(
+        entities=[
+            ExtractedEntity(
+                name="Alice",
+                summary="A person named Alice.",
+                kernel_category=EntityKernelType.Agente,
+            ),
+            ExtractedEntity(
+                name="Acme",
+                summary="The company Acme.",
+                kernel_category=EntityKernelType.CostruttoSociale,
+            ),
+            ExtractedEntity(
+                name="Globex",
+                summary="Another company.",
+                kernel_category=EntityKernelType.CostruttoSociale,
+            ),
+        ]
+    )
+    batch_calls: list[list[tuple[str, str, str, str]]] = []
+
+    async def mock_batch(chunk_text, pairs, job_id=None, corpus_summary=""):
+        _ = chunk_text, job_id, corpus_summary
+        batch_calls.append(list(pairs))
+        decisions = []
+        for index, (name_a, _sa, name_b, _sb) in enumerate(pairs):
+            names = {name_a, name_b}
+            if names == {"Acme", "Globex"}:
+                decisions.append(PairIndexedDecision(pair_index=index, related=False))
+            else:
+                decisions.append(
+                    PairIndexedDecision(
+                        pair_index=index,
+                        related=True,
+                        relation="works_at",
+                        kernel_parent=RelationKernelType.SocialeIntenzionale,
+                        witness_source=name_a,
+                        witness_target=name_b,
+                    )
+                )
+        return PairRelationBatchResult(decisions=decisions)
+
+    _patch_extractors(
+        monkeypatch,
+        entities=entities,
+        pair=_pair_related(),
+        event_entity=EventEntityExtractionResult(participations=[]),
+        event_rel=EventRelationExtractionResult(triples=[]),
+    )
+    monkeypatch.setattr(
+        "app.pipeline.node_extraction.extract_pair_relations_batch", mock_batch
+    )
+    session = FakeSession()
+
+    await process_chunk_node_extraction(session, CHUNK, "doc-1", JOB_ID)
+
+    assert [len(batch) for batch in batch_calls] == [2, 1]
+    relation_writes = [
+        kw for cypher, kw in session.calls if cypher == CREATE_NODE_RELATION_CYPHER
+    ]
+    assert len(relation_writes) == 2
+    assert {kw["relation"] for kw in relation_writes} == {"works_at"}
+
+
+@pytest.mark.enable_node_extraction
+@pytest.mark.asyncio
+async def test_pair_batch_llm_failure_discards_all_pairs_in_that_batch(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "PAIR_RELATION_BATCH_SIZE", 2)
+    entities = EntityExtractionResult(
+        entities=[
+            ExtractedEntity(
+                name="Alice",
+                summary="A person named Alice.",
+                kernel_category=EntityKernelType.Agente,
+            ),
+            ExtractedEntity(
+                name="Acme",
+                summary="The company Acme.",
+                kernel_category=EntityKernelType.CostruttoSociale,
+            ),
+            ExtractedEntity(
+                name="Globex",
+                summary="Another company.",
+                kernel_category=EntityKernelType.CostruttoSociale,
+            ),
+        ]
+    )
+    seen = {"n": 0}
+
+    async def mock_batch(chunk_text, pairs, job_id=None, corpus_summary=""):
+        _ = chunk_text, pairs, job_id, corpus_summary
+        seen["n"] += 1
+        if seen["n"] == 1:
+            raise LLMValidationError("bad batch")
+        return PairRelationBatchResult(
+            decisions=[
+                PairIndexedDecision(
+                    pair_index=0,
+                    related=True,
+                    relation="works_at",
+                    kernel_parent=RelationKernelType.SocialeIntenzionale,
+                    witness_source="Acme",
+                    witness_target="Globex",
+                )
+            ]
+        )
+
+    _patch_extractors(
+        monkeypatch,
+        entities=entities,
+        pair=_pair_related(),
+        event_entity=EventEntityExtractionResult(participations=[]),
+        event_rel=EventRelationExtractionResult(triples=[]),
+    )
+    monkeypatch.setattr(
+        "app.pipeline.node_extraction.extract_pair_relations_batch", mock_batch
+    )
+    session = FakeSession()
+
+    await process_chunk_node_extraction(session, CHUNK, "doc-1", JOB_ID)
+
+    relation_writes = [
+        kw for cypher, kw in session.calls if cypher == CREATE_NODE_RELATION_CYPHER
+    ]
+    assert len(relation_writes) == 1
+    assert relation_writes[0]["relation"] == "works_at"
+    assert relation_writes[0]["witnesses_a"] == ["Acme"]
+    assert relation_writes[0]["witnesses_b"] == ["Globex"]

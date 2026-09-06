@@ -14,23 +14,28 @@ from app.models.node_extraction import (
     EntityExtractionResult,
     EntityRelationTriple,
     EventEntityExtractionResult,
+    EventEntityParticipation,
     EventRelationExtractionResult,
     EventRelationTriple,
     ExtractedEntity,
     MacroDomainSummary,
+    PairIndexedDecision,
+    PairRelationBatchResult,
     PairRelationDecision,
 )
 from app.pipeline.chunking import Chunk
 from app.pipeline.domain_book import GENRE_NOT_TOPIC_PROMPT
 from app.pipeline.ingestion import (
-    CREATE_CONTRADICTS_CYPHER,
+    CREATE_NODE_CYPHER,
     CREATE_NODE_RELATION_CYPHER,
+    FIND_DOC_ENTITY_BY_NAME_CYPHER,
     MERGE_CORPUS_CONTEXT_CYPHER,
     has_required_witnesses,
     process_chunk_node_extraction,
     update_corpus_context,
 )
 from app.pipeline.node_extraction_prompts import build_pair_relation_prompt
+from tests.conftest import as_batch_pair_extractor
 
 CHUNK = Chunk(id="chunk-ab", doc_id="doc-ab", text="Alice works at Acme.")
 JOB_ID = "job-antiblur"
@@ -130,6 +135,10 @@ def _patch_two_pass(
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
     monkeypatch.setattr(
+        "app.pipeline.node_extraction.extract_pair_relations_batch",
+        as_batch_pair_extractor(pair),
+    )
+    monkeypatch.setattr(
         "app.pipeline.node_extraction.extract_event_entities", mock_event_entity
     )
     monkeypatch.setattr(
@@ -188,6 +197,15 @@ def test_pydantic_rejects_missing_or_empty_witnesses():
             witness_source="",
             witness_target="Acme",
         )
+
+
+def test_pair_indexed_decision_requires_non_negative_index():
+    with pytest.raises(ValidationError):
+        PairIndexedDecision(pair_index=-1, related=False)
+    batch = PairRelationBatchResult(
+        decisions=[PairIndexedDecision(pair_index=0, related=False)]
+    )
+    assert batch.decisions[0].pair_index == 0
 
 
 def test_has_required_witnesses_filter():
@@ -254,11 +272,12 @@ def test_pair_prompt_includes_both_summaries_and_genre_rule():
     assert "A corpus about tennis." in user
     for primitive in RelationKernelType:
         assert primitive.value in user
+    assert "sola co-presenza" in user
 
 
 @pytest.mark.enable_node_extraction
 @pytest.mark.asyncio
-async def test_conflicting_pairs_write_both_relations_and_contradicts(monkeypatch):
+async def test_conflicting_pairs_write_both_relations_independently(monkeypatch):
     entities = EntityExtractionResult(
         entities=[
             ExtractedEntity(
@@ -300,11 +319,7 @@ async def test_conflicting_pairs_write_both_relations_and_contradicts(monkeypatc
         kw for cypher, kw in session.calls if cypher == CREATE_NODE_RELATION_CYPHER
     ]
     assert len(relation_writes) == 2
-    contradicts = [cypher for cypher, _kw in session.calls if cypher == CREATE_CONTRADICTS_CYPHER]
-    assert len(contradicts) == 1
-    contra_kw = [kw for cypher, kw in session.calls if cypher == CREATE_CONTRADICTS_CYPHER][0]
-    assert contra_kw["relation"] == "works_at"
-    assert contra_kw["kernel_parent"] == RelationKernelType.SocialeIntenzionale.value
+    assert not any("CONTRADICTS" in cypher for cypher, _kw in session.calls)
 
 
 @pytest.mark.asyncio
@@ -359,3 +374,128 @@ def test_pipeline_complete_remains_at_end_of_run_ingestion_pipeline():
     assert "pipeline_complete" in body
     assert body.rfind("pipeline_complete") > body.rfind("process_chunk_node_extraction")
     assert body.rfind("update_corpus_context") < body.rfind("chunking.chunk_text")
+
+
+class _DocLookupSession(FakeSession):
+    """Records created entity nodes and answers FIND_DOC_ENTITY_BY_NAME_CYPHER from them."""
+
+    def __init__(self):
+        super().__init__()
+        self._entities: list[tuple[str, str]] = []
+
+    async def run(self, cypher, **kwargs):
+        if cypher == CREATE_NODE_CYPHER and kwargs.get("type") == "entity":
+            self._entities.append((kwargs["id"], kwargs["name"]))
+        if cypher == FIND_DOC_ENTITY_BY_NAME_CYPHER:
+            self.calls.append((cypher, kwargs))
+            folded = kwargs["name_folded"]
+            matches = [
+                {"id": node_id}
+                for node_id, name in self._entities
+                if name.casefold() == folded
+            ]
+            session = self
+            records = matches[:1]
+
+            class _Result:
+                async def single(self):
+                    return session._existing_corpus
+
+                def __aiter__(self):
+                    return self._iterate()
+
+                async def _iterate(self):
+                    for record in records:
+                        yield record
+
+            return _Result()
+        return await super().run(cypher, **kwargs)
+
+
+@pytest.mark.enable_node_extraction
+@pytest.mark.asyncio
+async def test_event_participant_reuses_entity_already_written_for_doc(monkeypatch):
+    bob = ExtractedEntity(
+        name="Bob Cratchit",
+        summary="Scrooge's clerk.",
+        kernel_category=EntityKernelType.Agente,
+    )
+    first_chunk = Chunk(id="chunk-1", doc_id="doc-carol", text="Bob Cratchit works.")
+    second_chunk = Chunk(id="chunk-2", doc_id="doc-carol", text="Bob dines with family.")
+    session = _DocLookupSession()
+
+    _patch_two_pass(
+        monkeypatch,
+        entities=EntityExtractionResult(entities=[bob]),
+        pair=PairRelationDecision(related=False),
+    )
+    await process_chunk_node_extraction(session, first_chunk, "doc-carol", JOB_ID)
+
+    _patch_two_pass(
+        monkeypatch,
+        entities=EntityExtractionResult(entities=[]),
+        pair=PairRelationDecision(related=False),
+        event_entity=EventEntityExtractionResult(
+            participations=[
+                EventEntityParticipation(
+                    event="Christmas dinner",
+                    entities=["bob cratchit"],
+                )
+            ]
+        ),
+    )
+    await process_chunk_node_extraction(session, second_chunk, "doc-carol", JOB_ID)
+
+    entity_creates = [
+        kw
+        for cypher, kw in session.calls
+        if cypher == CREATE_NODE_CYPHER and kw.get("type") == "entity"
+    ]
+    assert len(entity_creates) == 1
+    assert entity_creates[0]["name"] == "Bob Cratchit"
+    lookup_calls = [
+        kw for cypher, kw in session.calls if cypher == FIND_DOC_ENTITY_BY_NAME_CYPHER
+    ]
+    assert lookup_calls
+    assert lookup_calls[0]["name_folded"] == "bob cratchit"
+    assert lookup_calls[0]["doc_id"] == "doc-carol"
+    bob_id = entity_creates[0]["id"]
+    participates = [
+        kw
+        for cypher, kw in session.calls
+        if cypher == CREATE_NODE_RELATION_CYPHER
+        and kw.get("normalized_relation") == "participates"
+    ]
+    assert participates
+    assert participates[0]["tail_id"] == bob_id
+
+
+@pytest.mark.enable_node_extraction
+@pytest.mark.asyncio
+async def test_new_event_participant_gets_event_name_as_summary(monkeypatch):
+    chunk = Chunk(id="chunk-first", doc_id="doc-carol", text="A stranger arrives.")
+    _patch_two_pass(
+        monkeypatch,
+        entities=EntityExtractionResult(entities=[]),
+        pair=PairRelationDecision(related=False),
+        event_entity=EventEntityExtractionResult(
+            participations=[
+                EventEntityParticipation(
+                    event="A stranger arrives at the door.",
+                    entities=["Fred"],
+                )
+            ]
+        ),
+    )
+    session = FakeSession()
+
+    await process_chunk_node_extraction(session, chunk, "doc-carol", JOB_ID)
+
+    entity_creates = [
+        kw
+        for cypher, kw in session.calls
+        if cypher == CREATE_NODE_CYPHER and kw.get("type") == "entity"
+    ]
+    assert len(entity_creates) == 1
+    assert entity_creates[0]["name"] == "Fred"
+    assert entity_creates[0]["summary"] == "A stranger arrives at the door."

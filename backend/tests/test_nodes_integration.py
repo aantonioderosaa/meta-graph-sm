@@ -29,6 +29,7 @@ from app.pipeline.node_graph_engine import (
     get_event_graph,
     get_participation_graph,
 )
+from tests.conftest import as_batch_pair_extractor
 from tests.neo4j_gds import neo4j_gds_container
 
 EMBEDDING_DIM = 768
@@ -160,6 +161,10 @@ def _patch_extractors(monkeypatch, *, concepts: list[str] | None = None) -> None
 
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entities", mock_entities)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_pair_relation", mock_pair)
+    monkeypatch.setattr(
+        "app.pipeline.node_extraction.extract_pair_relations_batch",
+        as_batch_pair_extractor(mock_pair),
+    )
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_entities", mock_event_entity)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_event_relations", mock_event_rel)
     monkeypatch.setattr("app.pipeline.node_extraction.extract_entity_concepts", mock_concepts)
