@@ -12,6 +12,10 @@ def pytest_configure(config):
         "markers",
         "enable_node_extraction: run real process_chunk_node_extraction (disable autouse stub)",
     )
+    config.addinivalue_line(
+        "markers",
+        "integration: docker/testcontainers tests (skipped unless Docker is available)",
+    )
 
 
 def as_batch_pair_extractor(pair):
@@ -85,8 +89,34 @@ def configure_test_environment(monkeypatch, request):
     async def noop_close() -> None:
         return None
 
+    async def noop_schema(*_args, **_kwargs) -> int:
+        return 0
+
+    def stub_get_driver():
+        return object()
+
     monkeypatch.setattr("app.core.neo4j_client.init_neo4j_driver", noop_init)
     monkeypatch.setattr("app.core.neo4j_client.close_neo4j_driver", noop_close)
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.infra.driver.init_event_graph_driver",
+        noop_init,
+    )
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.infra.driver.close_event_graph_driver",
+        noop_close,
+    )
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.infra.schema_bootstrap.ensure_event_graph_schema",
+        noop_schema,
+    )
+    # Lifespan looks up names on app.main. Do not stub driver.get_driver:
+    # get_session() reads that name and unit tests rely on RuntimeError.
+    import app.main as app_main
+
+    monkeypatch.setattr(app_main, "init_event_graph_driver", noop_init)
+    monkeypatch.setattr(app_main, "close_event_graph_driver", noop_close)
+    monkeypatch.setattr(app_main, "ensure_event_graph_schema", noop_schema)
+    monkeypatch.setattr(app_main, "get_driver", stub_get_driver)
 
 
 @pytest.fixture(autouse=True)

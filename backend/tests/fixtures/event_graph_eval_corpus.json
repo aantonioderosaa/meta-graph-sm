@@ -1,0 +1,7111 @@
+[
+  {
+    "id": "eval-001",
+    "lang": "it",
+    "text": "Marco arrivò, si sedette e accese la lampada.",
+    "phenomena": [
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 45,
+          "testo": "Marco arrivò, si sedette e accese la lampada.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrivare",
+          "span": "arrivò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "sedersi",
+          "span": "si sedette",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 14,
+          "offset_fine": 24
+        },
+        {
+          "lemma": "accendere",
+          "span": "accese la lampada",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la lampada",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 27,
+          "offset_fine": 44
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-002",
+    "lang": "it",
+    "text": "Anna aprì la finestra, guardò fuori e sorrise.",
+    "phenomena": [
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 46,
+          "testo": "Anna aprì la finestra, guardò fuori e sorrise.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "aprire",
+          "span": "aprì la finestra",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la finestra",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 21
+        },
+        {
+          "lemma": "guardare",
+          "span": "guardò fuori",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 23,
+          "offset_fine": 35
+        },
+        {
+          "lemma": "sorridere",
+          "span": "sorrise",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 38,
+          "offset_fine": 45
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-003",
+    "lang": "it",
+    "text": "Luca corse, cadde, si rialzò e ripartì.",
+    "phenomena": [
+      "coordinated_predicates",
+      "asyndeton"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 39,
+          "testo": "Luca corse, cadde, si rialzò e ripartì.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "correre",
+          "span": "corse",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luca",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 10
+        },
+        {
+          "lemma": "cadere",
+          "span": "cadde",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luca",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 12,
+          "offset_fine": 17
+        },
+        {
+          "lemma": "rialzarsi",
+          "span": "si rialzò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luca",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 19,
+          "offset_fine": 28
+        },
+        {
+          "lemma": "ripartire",
+          "span": "ripartì",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luca",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 3,
+          "offset_inizio": 31,
+          "offset_fine": 38
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 2,
+          "a_indice": 3,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-004",
+    "lang": "it",
+    "text": "Marco disse: «Torno subito.»",
+    "phenomena": [
+      "direct_speech"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 28,
+          "testo": "Marco disse: «Torno subito.»",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "dire",
+          "span": "Marco disse: «Torno subito.»",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": true,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 28
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-005",
+    "lang": "it",
+    "text": "La madre chiese: «Hai mangiato?»",
+    "phenomena": [
+      "direct_speech"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "La madre chiese: «Hai mangiato?»",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "chiedere",
+          "span": "La madre chiese: «Hai mangiato?»",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": true,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "La madre",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-006",
+    "lang": "it",
+    "text": "«Non partire», sussurrò Elena.",
+    "phenomena": [
+      "direct_speech"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 30,
+          "testo": "«Non partire», sussurrò Elena.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "sussurrare",
+          "span": "«Non partire», sussurrò Elena.",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": true,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Elena",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 30
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-007",
+    "lang": "it",
+    "text": "Marco indossava un mantello scuro.",
+    "phenomena": [
+      "state",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 34,
+          "testo": "Marco indossava un mantello scuro.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "indossare",
+          "span": "indossava un mantello scuro",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "un mantello scuro",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 33
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-008",
+    "lang": "it",
+    "text": "La porta era chiusa.",
+    "phenomena": [
+      "state",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 20,
+          "testo": "La porta era chiusa.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "essere",
+          "span": "era chiusa",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "La porta",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 9,
+          "offset_fine": 19
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-009",
+    "lang": "it",
+    "text": "Il cielo era grigio e il vento soffiava.",
+    "phenomena": [
+      "state",
+      "imperfect",
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 40,
+          "testo": "Il cielo era grigio e il vento soffiava.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "essere",
+          "span": "era grigio",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il cielo",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 9,
+          "offset_fine": 19
+        },
+        {
+          "lemma": "soffiare",
+          "span": "soffiava",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "il vento",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 31,
+          "offset_fine": 39
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "COLLEGATO",
+          "relazione_allen": "overlaps",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-010",
+    "lang": "it",
+    "text": "Marco poteva partire all'alba.",
+    "phenomena": [
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 30,
+          "testo": "Marco poteva partire all'alba.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "partire",
+          "span": "poteva partire all'alba",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 29
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-011",
+    "lang": "it",
+    "text": "Anna voleva vincere la gara.",
+    "phenomena": [
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 28,
+          "testo": "Anna voleva vincere la gara.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "vincere",
+          "span": "voleva vincere la gara",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "volitivo",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la gara",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 27
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-012",
+    "lang": "it",
+    "text": "Luca doveva consegnare il rapporto.",
+    "phenomena": [
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 35,
+          "testo": "Luca doveva consegnare il rapporto.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "consegnare",
+          "span": "doveva consegnare il rapporto",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "deontico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luca",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "il rapporto",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 34
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-013",
+    "lang": "it",
+    "text": "Se Marco fosse arrivato in tempo, avrebbe visto lo spettacolo.",
+    "phenomena": [
+      "condition",
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 62,
+          "testo": "Se Marco fosse arrivato in tempo, avrebbe visto lo spettacolo.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrivare",
+          "span": "fosse arrivato in tempo",
+          "e_testa": false,
+          "tempo": "trapassato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 9,
+          "offset_fine": 32
+        },
+        {
+          "lemma": "vedere",
+          "span": "avrebbe visto lo spettacolo",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "lo spettacolo",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 34,
+          "offset_fine": 61
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONDIZIONE",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-014",
+    "lang": "it",
+    "text": "Se piovesse, resterei a casa.",
+    "phenomena": [
+      "condition",
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 29,
+          "testo": "Se piovesse, resterei a casa.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "piovere",
+          "span": "piovesse",
+          "e_testa": false,
+          "tempo": "imperfetto",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 3,
+          "offset_fine": 11
+        },
+        {
+          "lemma": "restare",
+          "span": "resterei a casa",
+          "e_testa": true,
+          "tempo": "presente",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "",
+              "tipo_superficiale": "sogg_nullo"
+            }
+          ],
+          "sogg_speciale": "IGNOTO",
+          "indice": 1,
+          "offset_inizio": 13,
+          "offset_fine": 28
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONDIZIONE",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-015",
+    "lang": "it",
+    "text": "Marco restò a casa perché pioveva.",
+    "phenomena": [
+      "cause",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 34,
+          "testo": "Marco restò a casa perché pioveva.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "restare",
+          "span": "restò a casa",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 18
+        },
+        {
+          "lemma": "piovere",
+          "span": "pioveva",
+          "e_testa": false,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 1,
+          "offset_inizio": 26,
+          "offset_fine": 33
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-016",
+    "lang": "it",
+    "text": "Anna sorrise perché aveva vinto.",
+    "phenomena": [
+      "cause",
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "Anna sorrise perché aveva vinto.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "sorridere",
+          "span": "sorrise",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "vincere",
+          "span": "aveva vinto",
+          "e_testa": false,
+          "tempo": "trapassato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 20,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "CAUSA",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-017",
+    "lang": "it",
+    "text": "Pioveva, quindi Marco restò a casa.",
+    "phenomena": [
+      "cause",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 35,
+          "testo": "Pioveva, quindi Marco restò a casa.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "piovere",
+          "span": "Pioveva",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 7
+        },
+        {
+          "lemma": "restare",
+          "span": "restò a casa",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 22,
+          "offset_fine": 34
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-018",
+    "lang": "it",
+    "text": "Il treno era in ritardo. Quindi Marco perse l'appuntamento.",
+    "phenomena": [
+      "cause",
+      "state"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 24,
+          "testo": "Il treno era in ritardo.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 1,
+          "offset_inizio": 25,
+          "offset_fine": 59,
+          "testo": "Quindi Marco perse l'appuntamento.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "essere",
+          "span": "era in ritardo",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il treno",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 9,
+          "offset_fine": 23
+        },
+        {
+          "lemma": "perdere",
+          "span": "perse l'appuntamento",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "l'appuntamento",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 38,
+          "offset_fine": 58
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-019",
+    "lang": "it",
+    "text": "Marco leggeva mentre Anna cucinava.",
+    "phenomena": [
+      "mentre",
+      "imperfect",
+      "state"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 35,
+          "testo": "Marco leggeva mentre Anna cucinava.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "leggere",
+          "span": "leggeva",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 13
+        },
+        {
+          "lemma": "cucinare",
+          "span": "cucinava",
+          "e_testa": false,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 26,
+          "offset_fine": 34
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "COLLEGATO",
+          "relazione_allen": "overlaps",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-020",
+    "lang": "it",
+    "text": "Marco prometteva aiuto, mentre non muoveva un dito.",
+    "phenomena": [
+      "mentre",
+      "contrast",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 51,
+          "testo": "Marco prometteva aiuto, mentre non muoveva un dito.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "promettere",
+          "span": "prometteva aiuto",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "aiuto",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 22
+        },
+        {
+          "lemma": "muovere",
+          "span": "non muoveva un dito",
+          "e_testa": false,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": true,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "un dito",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 31,
+          "offset_fine": 50
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "COLLEGATO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-021",
+    "lang": "it",
+    "text": "Marco disse di partire all'alba.",
+    "phenomena": [
+      "completive"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "Marco disse di partire all'alba.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "dire",
+          "span": "disse",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 11
+        },
+        {
+          "lemma": "partire",
+          "span": "partire all'alba",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 15,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTENUTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-022",
+    "lang": "it",
+    "text": "Anna pensava che Luca avesse mentito.",
+    "phenomena": [
+      "completive",
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 37,
+          "testo": "Anna pensava che Luca avesse mentito.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "pensare",
+          "span": "pensava",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "mentire",
+          "span": "avesse mentito",
+          "e_testa": false,
+          "tempo": "trapassato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luca",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 22,
+          "offset_fine": 36
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTENUTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-023",
+    "lang": "it",
+    "text": "Il capitano ordinò di salpare.",
+    "phenomena": [
+      "completive"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 30,
+          "testo": "Il capitano ordinò di salpare.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "ordinare",
+          "span": "ordinò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il capitano",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 12,
+          "offset_fine": 18
+        },
+        {
+          "lemma": "salpare",
+          "span": "salpare",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "deontico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [],
+          "sogg_speciale": "IGNOTO",
+          "indice": 1,
+          "offset_inizio": 22,
+          "offset_fine": 29
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTENUTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-024",
+    "lang": "it",
+    "text": "Marco arrivò. Aveva perso il treno.",
+    "phenomena": [
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 13,
+          "testo": "Marco arrivò.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 1,
+          "offset_inizio": 14,
+          "offset_fine": 35,
+          "testo": "Aveva perso il treno.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrivare",
+          "span": "arrivò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "perdere",
+          "span": "Aveva perso il treno",
+          "e_testa": true,
+          "tempo": "trapassato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "il treno",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 14,
+          "offset_fine": 34
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "PRECEDE",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-025",
+    "lang": "it",
+    "text": "Quando Marco arrivò, Anna era già partita.",
+    "phenomena": [
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 42,
+          "testo": "Quando Marco arrivò, Anna era già partita.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrivare",
+          "span": "arrivò",
+          "e_testa": false,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 13,
+          "offset_fine": 19
+        },
+        {
+          "lemma": "partire",
+          "span": "era già partita",
+          "e_testa": true,
+          "tempo": "trapassato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 26,
+          "offset_fine": 41
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "PRECEDE",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-026",
+    "lang": "it",
+    "text": "Luca sorrise. Aveva capito tutto.",
+    "phenomena": [
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 13,
+          "testo": "Luca sorrise.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 1,
+          "offset_inizio": 14,
+          "offset_fine": 33,
+          "testo": "Aveva capito tutto.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "sorridere",
+          "span": "sorrise",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luca",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "capire",
+          "span": "Aveva capito tutto",
+          "e_testa": true,
+          "tempo": "trapassato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luca",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 14,
+          "offset_fine": 32
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "PRECEDE",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-027",
+    "lang": "it",
+    "text": "Entrò. Si fermò. Guardò.",
+    "phenomena": [
+      "asyndeton",
+      "orphan"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 6,
+          "testo": "Entrò.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 1,
+          "offset_inizio": 7,
+          "offset_fine": 16,
+          "testo": "Si fermò.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 2,
+          "offset_inizio": 17,
+          "offset_fine": 24,
+          "testo": "Guardò.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "entrare",
+          "span": "Entrò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "",
+              "tipo_superficiale": "sogg_nullo"
+            }
+          ],
+          "sogg_speciale": "IGNOTO",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 5
+        },
+        {
+          "lemma": "fermarsi",
+          "span": "Si fermò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "",
+              "tipo_superficiale": "sogg_nullo"
+            }
+          ],
+          "sogg_speciale": "IGNOTO",
+          "indice": 1,
+          "offset_inizio": 7,
+          "offset_fine": 15
+        },
+        {
+          "lemma": "guardare",
+          "span": "Guardò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "",
+              "tipo_superficiale": "sogg_nullo"
+            }
+          ],
+          "sogg_speciale": "IGNOTO",
+          "indice": 2,
+          "offset_inizio": 17,
+          "offset_fine": 23
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": false
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-028",
+    "lang": "it",
+    "text": "Anna accese la luce, spense la radio, chiuse la porta.",
+    "phenomena": [
+      "asyndeton",
+      "orphan",
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 54,
+          "testo": "Anna accese la luce, spense la radio, chiuse la porta.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "accendere",
+          "span": "accese la luce",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la luce",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 19
+        },
+        {
+          "lemma": "spegnere",
+          "span": "spense la radio",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la radio",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 21,
+          "offset_fine": 36
+        },
+        {
+          "lemma": "chiudere",
+          "span": "chiuse la porta",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la porta",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 38,
+          "offset_fine": 53
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-029",
+    "lang": "it",
+    "text": "Il ritardo provocò la cancellazione del volo.",
+    "phenomena": [
+      "nested",
+      "cause"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 45,
+          "testo": "Il ritardo provocò la cancellazione del volo.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "provocare",
+          "span": "provocò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il ritardo",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 11,
+          "offset_fine": 18
+        },
+        {
+          "lemma": "cancellare",
+          "span": "cancellazione del volo",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 1,
+          "offset_inizio": 22,
+          "offset_fine": 44
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-030",
+    "lang": "it",
+    "text": "Marco iniziò a scrivere la lettera.",
+    "phenomena": [
+      "nested",
+      "completive"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 35,
+          "testo": "Marco iniziò a scrivere la lettera.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "iniziare",
+          "span": "iniziò",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "scrivere",
+          "span": "scrivere la lettera",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la lettera",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 15,
+          "offset_fine": 34
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTENUTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-031",
+    "lang": "it",
+    "text": "La notizia fece scappare tutti.",
+    "phenomena": [
+      "nested",
+      "cause"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 31,
+          "testo": "La notizia fece scappare tutti.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "fare",
+          "span": "fece scappare",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "La notizia",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 11,
+          "offset_fine": 24
+        },
+        {
+          "lemma": "scappare",
+          "span": "scappare tutti",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "tutti",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 16,
+          "offset_fine": 30
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-032",
+    "lang": "it",
+    "text": "Marco camminava lungo il fiume.",
+    "phenomena": [
+      "imperfect",
+      "state"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 31,
+          "testo": "Marco camminava lungo il fiume.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "camminare",
+          "span": "camminava lungo il fiume",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 30
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-033",
+    "lang": "it",
+    "text": "Marco leggeva quando squillò il telefono.",
+    "phenomena": [
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 41,
+          "testo": "Marco leggeva quando squillò il telefono.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "leggere",
+          "span": "leggeva",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 13
+        },
+        {
+          "lemma": "squillare",
+          "span": "squillò il telefono",
+          "e_testa": false,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "il telefono",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 21,
+          "offset_fine": 40
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "COLLEGATO",
+          "relazione_allen": "during",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-034",
+    "lang": "it",
+    "text": "Il Dr. Rossi arrivò alle tre.",
+    "phenomena": [
+      "abbreviation"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 29,
+          "testo": "Il Dr. Rossi arrivò alle tre.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrivare",
+          "span": "arrivò alle tre",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il Dr. Rossi",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 13,
+          "offset_fine": 28
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-035",
+    "lang": "it",
+    "text": "La Sig.ra Bianchi firmò il contratto il 12 gen. 2020.",
+    "phenomena": [
+      "abbreviation"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 53,
+          "testo": "La Sig.ra Bianchi firmò il contratto il 12 gen. 2020.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "firmare",
+          "span": "firmò il contratto",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "La Sig.ra Bianchi",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "il contratto",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 18,
+          "offset_fine": 36
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-036",
+    "lang": "it",
+    "text": "Il Prof. Neri citò p. 12 del volume.",
+    "phenomena": [
+      "abbreviation"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 36,
+          "testo": "Il Prof. Neri citò p. 12 del volume.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "citare",
+          "span": "citò p. 12 del volume",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il Prof. Neri",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 14,
+          "offset_fine": 35
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-037",
+    "lang": "it",
+    "text": "La temperatura salì a 36.5 gradi.",
+    "phenomena": [
+      "decimal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 33,
+          "testo": "La temperatura salì a 36.5 gradi.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "salire",
+          "span": "salì a 36.5 gradi",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "La temperatura",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 15,
+          "offset_fine": 32
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-038",
+    "lang": "it",
+    "text": "Il treno delle 15.30 partì in orario.",
+    "phenomena": [
+      "decimal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 37,
+          "testo": "Il treno delle 15.30 partì in orario.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "partire",
+          "span": "partì in orario",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il treno delle 15.30",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 21,
+          "offset_fine": 36
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-039",
+    "lang": "it",
+    "text": "Marco è già partito?",
+    "phenomena": [
+      "interrogative"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 20,
+          "testo": "Marco è già partito?",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "partire",
+          "span": "è già partito",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 19
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-040",
+    "lang": "it",
+    "text": "Chi ha chiuso la porta?",
+    "phenomena": [
+      "interrogative"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 23,
+          "testo": "Chi ha chiuso la porta?",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "chiudere",
+          "span": "ha chiuso la porta",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Chi",
+              "tipo_superficiale": "pronome"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la porta",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 4,
+          "offset_fine": 22
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-041",
+    "lang": "it",
+    "text": "Chiudi la porta.",
+    "phenomena": [
+      "imperative"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 16,
+          "testo": "Chiudi la porta.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "chiudere",
+          "span": "Chiudi la porta",
+          "e_testa": true,
+          "tempo": "presente",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "",
+              "tipo_superficiale": "sogg_nullo"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la porta",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 15
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-042",
+    "lang": "it",
+    "text": "Non toccare il forno.",
+    "phenomena": [
+      "imperative"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 21,
+          "testo": "Non toccare il forno.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "toccare",
+          "span": "Non toccare il forno",
+          "e_testa": true,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": true,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "",
+              "tipo_superficiale": "sogg_nullo"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "il forno",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 20
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-043",
+    "lang": "it",
+    "text": "Marco partirà domani.",
+    "phenomena": [
+      "future"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 21,
+          "testo": "Marco partirà domani.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "partire",
+          "span": "partirà domani",
+          "e_testa": true,
+          "tempo": "futuro",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 20
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-044",
+    "lang": "it",
+    "text": "Anna arriverà alle otto e porterà i documenti.",
+    "phenomena": [
+      "future",
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 46,
+          "testo": "Anna arriverà alle otto e porterà i documenti.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrivare",
+          "span": "arriverà alle otto",
+          "e_testa": true,
+          "tempo": "futuro",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 23
+        },
+        {
+          "lemma": "portare",
+          "span": "porterà i documenti",
+          "e_testa": true,
+          "tempo": "futuro",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "i documenti",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 26,
+          "offset_fine": 45
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-045",
+    "lang": "it",
+    "text": "Sebbene piovesse, Marco uscì.",
+    "phenomena": [
+      "contrast",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 29,
+          "testo": "Sebbene piovesse, Marco uscì.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "piovere",
+          "span": "piovesse",
+          "e_testa": false,
+          "tempo": "imperfetto",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 8,
+          "offset_fine": 16
+        },
+        {
+          "lemma": "uscire",
+          "span": "uscì",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 24,
+          "offset_fine": 28
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONCESSIONE",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-046",
+    "lang": "it",
+    "text": "Marco uscì per comprare il pane.",
+    "phenomena": [
+      "nested"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "Marco uscì per comprare il pane.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "uscire",
+          "span": "uscì",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 10
+        },
+        {
+          "lemma": "comprare",
+          "span": "comprare il pane",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "il pane",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 15,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "SCOPO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-047",
+    "lang": "it",
+    "text": "Marco non arrivò in tempo.",
+    "phenomena": [
+      "state"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 26,
+          "testo": "Marco non arrivò in tempo.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrivare",
+          "span": "non arrivò in tempo",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": true,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 25
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-048",
+    "lang": "it",
+    "text": "Marco bussava ogni mattina.",
+    "phenomena": [
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 27,
+          "testo": "Marco bussava ogni mattina.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "bussare",
+          "span": "bussava ogni mattina",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": true,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 26
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-049",
+    "lang": "it",
+    "text": "Marco era stanco, ma continuò a camminare.",
+    "phenomena": [
+      "contrast",
+      "state",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 42,
+          "testo": "Marco era stanco, ma continuò a camminare.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "essere",
+          "span": "era stanco",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 16
+        },
+        {
+          "lemma": "continuare",
+          "span": "continuò a camminare",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 21,
+          "offset_fine": 41
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTRASTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-050",
+    "lang": "it",
+    "text": "Con più tempo, Marco avrebbe finito il lavoro.",
+    "phenomena": [
+      "modal",
+      "condition"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 46,
+          "testo": "Con più tempo, Marco avrebbe finito il lavoro.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "finire",
+          "span": "avrebbe finito il lavoro",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "il lavoro",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 21,
+          "offset_fine": 45
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-051",
+    "lang": "en",
+    "text": "Mark arrived, sat down and lit the lamp.",
+    "phenomena": [
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 40,
+          "testo": "Mark arrived, sat down and lit the lamp.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrive",
+          "span": "arrived",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "sit",
+          "span": "sat down",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 14,
+          "offset_fine": 22
+        },
+        {
+          "lemma": "light",
+          "span": "lit the lamp",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the lamp",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 27,
+          "offset_fine": 39
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-052",
+    "lang": "en",
+    "text": "Anna opened the window, looked out and smiled.",
+    "phenomena": [
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 46,
+          "testo": "Anna opened the window, looked out and smiled.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "open",
+          "span": "opened the window",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the window",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 22
+        },
+        {
+          "lemma": "look",
+          "span": "looked out",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 24,
+          "offset_fine": 34
+        },
+        {
+          "lemma": "smile",
+          "span": "smiled",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 39,
+          "offset_fine": 45
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-053",
+    "lang": "en",
+    "text": "Luke ran, fell, got up and started again.",
+    "phenomena": [
+      "coordinated_predicates",
+      "asyndeton"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 41,
+          "testo": "Luke ran, fell, got up and started again.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "run",
+          "span": "ran",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luke",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 8
+        },
+        {
+          "lemma": "fall",
+          "span": "fell",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luke",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 10,
+          "offset_fine": 14
+        },
+        {
+          "lemma": "get_up",
+          "span": "got up",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luke",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 16,
+          "offset_fine": 22
+        },
+        {
+          "lemma": "start",
+          "span": "started again",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luke",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 3,
+          "offset_inizio": 27,
+          "offset_fine": 40
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 2,
+          "a_indice": 3,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-054",
+    "lang": "en",
+    "text": "Mark said: \"I'll be right back.\"",
+    "phenomena": [
+      "direct_speech"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "Mark said: \"I'll be right back.\"",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "say",
+          "span": "Mark said: \"I'll be right back.\"",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": true,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-055",
+    "lang": "en",
+    "text": "Mother asked: \"Have you eaten?\"",
+    "phenomena": [
+      "direct_speech"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 31,
+          "testo": "Mother asked: \"Have you eaten?\"",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "ask",
+          "span": "Mother asked: \"Have you eaten?\"",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": true,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mother",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-056",
+    "lang": "en",
+    "text": "\"Don't leave,\" Elena whispered.",
+    "phenomena": [
+      "direct_speech"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 31,
+          "testo": "\"Don't leave,\" Elena whispered.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "whisper",
+          "span": "\"Don't leave,\" Elena whispered.",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": true,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Elena",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-057",
+    "lang": "en",
+    "text": "Mark was wearing a dark cloak.",
+    "phenomena": [
+      "state",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 30,
+          "testo": "Mark was wearing a dark cloak.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "wear",
+          "span": "was wearing a dark cloak",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "a dark cloak",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 29
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-058",
+    "lang": "en",
+    "text": "The door was closed.",
+    "phenomena": [
+      "state",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 20,
+          "testo": "The door was closed.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "be",
+          "span": "was closed",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "The door",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 9,
+          "offset_fine": 19
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-059",
+    "lang": "en",
+    "text": "The sky was grey and the wind was blowing.",
+    "phenomena": [
+      "state",
+      "imperfect",
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 42,
+          "testo": "The sky was grey and the wind was blowing.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "be",
+          "span": "was grey",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "The sky",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 8,
+          "offset_fine": 16
+        },
+        {
+          "lemma": "blow",
+          "span": "was blowing",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "the wind",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 30,
+          "offset_fine": 41
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "COLLEGATO",
+          "relazione_allen": "overlaps",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-060",
+    "lang": "en",
+    "text": "Mark could leave at dawn.",
+    "phenomena": [
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 25,
+          "testo": "Mark could leave at dawn.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "leave",
+          "span": "could leave at dawn",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 24
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-061",
+    "lang": "en",
+    "text": "Anna wanted to win the race.",
+    "phenomena": [
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 28,
+          "testo": "Anna wanted to win the race.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "win",
+          "span": "wanted to win the race",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "volitivo",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the race",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 27
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-062",
+    "lang": "en",
+    "text": "Luke had to deliver the report.",
+    "phenomena": [
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 31,
+          "testo": "Luke had to deliver the report.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "deliver",
+          "span": "had to deliver the report",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "deontico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luke",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the report",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 30
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-063",
+    "lang": "en",
+    "text": "If Mark had arrived on time, he would have seen the show.",
+    "phenomena": [
+      "condition",
+      "modal",
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 57,
+          "testo": "If Mark had arrived on time, he would have seen the show.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrive",
+          "span": "had arrived on time",
+          "e_testa": false,
+          "tempo": "trapassato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 8,
+          "offset_fine": 27
+        },
+        {
+          "lemma": "see",
+          "span": "would have seen the show",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "he",
+              "tipo_superficiale": "pronome"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the show",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 32,
+          "offset_fine": 56
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONDIZIONE",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-064",
+    "lang": "en",
+    "text": "If it rained, I would stay home.",
+    "phenomena": [
+      "condition",
+      "modal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "If it rained, I would stay home.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "rain",
+          "span": "rained",
+          "e_testa": false,
+          "tempo": "passato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "it",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 6,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "stay",
+          "span": "would stay home",
+          "e_testa": true,
+          "tempo": "presente",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "I",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 16,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONDIZIONE",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-065",
+    "lang": "en",
+    "text": "Mark stayed home because it was raining.",
+    "phenomena": [
+      "cause",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 40,
+          "testo": "Mark stayed home because it was raining.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "stay",
+          "span": "stayed home",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 16
+        },
+        {
+          "lemma": "rain",
+          "span": "was raining",
+          "e_testa": false,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "it",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 1,
+          "offset_inizio": 28,
+          "offset_fine": 39
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-066",
+    "lang": "en",
+    "text": "Anna smiled because she had won.",
+    "phenomena": [
+      "cause",
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "Anna smiled because she had won.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "smile",
+          "span": "smiled",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 11
+        },
+        {
+          "lemma": "win",
+          "span": "had won",
+          "e_testa": false,
+          "tempo": "trapassato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "she",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 24,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "CAUSA",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-067",
+    "lang": "en",
+    "text": "It was raining, so Mark stayed home.",
+    "phenomena": [
+      "cause",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 36,
+          "testo": "It was raining, so Mark stayed home.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "rain",
+          "span": "was raining",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "It",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 3,
+          "offset_fine": 14
+        },
+        {
+          "lemma": "stay",
+          "span": "stayed home",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 24,
+          "offset_fine": 35
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-068",
+    "lang": "en",
+    "text": "The train was late. Therefore Mark missed the appointment.",
+    "phenomena": [
+      "cause",
+      "state"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 19,
+          "testo": "The train was late.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 1,
+          "offset_inizio": 20,
+          "offset_fine": 58,
+          "testo": "Therefore Mark missed the appointment.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "be",
+          "span": "was late",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "The train",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 10,
+          "offset_fine": 18
+        },
+        {
+          "lemma": "miss",
+          "span": "missed the appointment",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the appointment",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 35,
+          "offset_fine": 57
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-069",
+    "lang": "en",
+    "text": "Mark was reading while Anna was cooking.",
+    "phenomena": [
+      "mentre",
+      "imperfect",
+      "state"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 40,
+          "testo": "Mark was reading while Anna was cooking.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "read",
+          "span": "was reading",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 16
+        },
+        {
+          "lemma": "cook",
+          "span": "was cooking",
+          "e_testa": false,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 28,
+          "offset_fine": 39
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "COLLEGATO",
+          "relazione_allen": "overlaps",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-070",
+    "lang": "en",
+    "text": "Mark promised to help, while he did not lift a finger.",
+    "phenomena": [
+      "mentre",
+      "contrast"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 54,
+          "testo": "Mark promised to help, while he did not lift a finger.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "promise",
+          "span": "promised to help",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 21
+        },
+        {
+          "lemma": "lift",
+          "span": "did not lift a finger",
+          "e_testa": false,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": true,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "he",
+              "tipo_superficiale": "pronome"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "a finger",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 32,
+          "offset_fine": 53
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "COLLEGATO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-071",
+    "lang": "en",
+    "text": "Mark said that he would leave at dawn.",
+    "phenomena": [
+      "completive"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 38,
+          "testo": "Mark said that he would leave at dawn.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "say",
+          "span": "said",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 9
+        },
+        {
+          "lemma": "leave",
+          "span": "would leave at dawn",
+          "e_testa": false,
+          "tempo": "futuro",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "he",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 18,
+          "offset_fine": 37
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTENUTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-072",
+    "lang": "en",
+    "text": "Anna thought that Luke had lied.",
+    "phenomena": [
+      "completive",
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "Anna thought that Luke had lied.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "think",
+          "span": "thought",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "lie",
+          "span": "had lied",
+          "e_testa": false,
+          "tempo": "trapassato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luke",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 23,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTENUTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-073",
+    "lang": "en",
+    "text": "The captain ordered them to set sail.",
+    "phenomena": [
+      "completive"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 37,
+          "testo": "The captain ordered them to set sail.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "order",
+          "span": "ordered",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "The captain",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 12,
+          "offset_fine": 19
+        },
+        {
+          "lemma": "sail",
+          "span": "set sail",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "deontico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "them",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 28,
+          "offset_fine": 36
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTENUTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-074",
+    "lang": "en",
+    "text": "Mark arrived. He had missed the train.",
+    "phenomena": [
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 13,
+          "testo": "Mark arrived.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 1,
+          "offset_inizio": 14,
+          "offset_fine": 38,
+          "testo": "He had missed the train.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrive",
+          "span": "arrived",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 12
+        },
+        {
+          "lemma": "miss",
+          "span": "had missed the train",
+          "e_testa": true,
+          "tempo": "trapassato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "He",
+              "tipo_superficiale": "pronome"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the train",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 17,
+          "offset_fine": 37
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "PRECEDE",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-075",
+    "lang": "en",
+    "text": "When Mark arrived, Anna had already left.",
+    "phenomena": [
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 41,
+          "testo": "When Mark arrived, Anna had already left.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrive",
+          "span": "arrived",
+          "e_testa": false,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 10,
+          "offset_fine": 17
+        },
+        {
+          "lemma": "leave",
+          "span": "had already left",
+          "e_testa": true,
+          "tempo": "trapassato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 24,
+          "offset_fine": 40
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "PRECEDE",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-076",
+    "lang": "en",
+    "text": "Luke smiled. He had understood everything.",
+    "phenomena": [
+      "pluperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 12,
+          "testo": "Luke smiled.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 1,
+          "offset_inizio": 13,
+          "offset_fine": 42,
+          "testo": "He had understood everything.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "smile",
+          "span": "smiled",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Luke",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 11
+        },
+        {
+          "lemma": "understand",
+          "span": "had understood everything",
+          "e_testa": true,
+          "tempo": "trapassato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "He",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 16,
+          "offset_fine": 41
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "PRECEDE",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-077",
+    "lang": "en",
+    "text": "He came in. He stopped. He looked.",
+    "phenomena": [
+      "asyndeton",
+      "orphan"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 11,
+          "testo": "He came in.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 1,
+          "offset_inizio": 12,
+          "offset_fine": 23,
+          "testo": "He stopped.",
+          "tipo": "narrativa"
+        },
+        {
+          "indice": 2,
+          "offset_inizio": 24,
+          "offset_fine": 34,
+          "testo": "He looked.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "come",
+          "span": "came in",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "He",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 3,
+          "offset_fine": 10
+        },
+        {
+          "lemma": "stop",
+          "span": "stopped",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "He",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 15,
+          "offset_fine": 22
+        },
+        {
+          "lemma": "look",
+          "span": "looked",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "He",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 27,
+          "offset_fine": 33
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": false
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-078",
+    "lang": "en",
+    "text": "Anna turned on the light, turned off the radio, closed the door.",
+    "phenomena": [
+      "asyndeton",
+      "orphan",
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 64,
+          "testo": "Anna turned on the light, turned off the radio, closed the door.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "turn_on",
+          "span": "turned on the light",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the light",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 24
+        },
+        {
+          "lemma": "turn_off",
+          "span": "turned off the radio",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the radio",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 26,
+          "offset_fine": 46
+        },
+        {
+          "lemma": "close",
+          "span": "closed the door",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the door",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 2,
+          "offset_inizio": 48,
+          "offset_fine": 63
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        },
+        {
+          "da_indice": 1,
+          "a_indice": 2,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-079",
+    "lang": "en",
+    "text": "The delay caused the cancellation of the flight.",
+    "phenomena": [
+      "nested",
+      "cause"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 48,
+          "testo": "The delay caused the cancellation of the flight.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "cause",
+          "span": "caused",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "The delay",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 10,
+          "offset_fine": 16
+        },
+        {
+          "lemma": "cancel",
+          "span": "cancellation of the flight",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 1,
+          "offset_inizio": 21,
+          "offset_fine": 47
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-080",
+    "lang": "en",
+    "text": "Mark began to write the letter.",
+    "phenomena": [
+      "nested",
+      "completive"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 31,
+          "testo": "Mark began to write the letter.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "begin",
+          "span": "began",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 10
+        },
+        {
+          "lemma": "write",
+          "span": "write the letter",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the letter",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 14,
+          "offset_fine": 30
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTENUTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-081",
+    "lang": "en",
+    "text": "The news made everyone run away.",
+    "phenomena": [
+      "nested",
+      "cause"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 32,
+          "testo": "The news made everyone run away.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "make",
+          "span": "made everyone run away",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "The news",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 9,
+          "offset_fine": 31
+        },
+        {
+          "lemma": "run",
+          "span": "run away",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "everyone",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 23,
+          "offset_fine": 31
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CAUSA",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-082",
+    "lang": "en",
+    "text": "Mark was walking along the river.",
+    "phenomena": [
+      "imperfect",
+      "state"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 33,
+          "testo": "Mark was walking along the river.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "walk",
+          "span": "was walking along the river",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 32
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-083",
+    "lang": "en",
+    "text": "Mark was reading when the phone rang.",
+    "phenomena": [
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 37,
+          "testo": "Mark was reading when the phone rang.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "read",
+          "span": "was reading",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 16
+        },
+        {
+          "lemma": "ring",
+          "span": "the phone rang",
+          "e_testa": false,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "the phone",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 22,
+          "offset_fine": 36
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "COLLEGATO",
+          "relazione_allen": "during",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-084",
+    "lang": "en",
+    "text": "Dr. Rossi arrived at three.",
+    "phenomena": [
+      "abbreviation"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 27,
+          "testo": "Dr. Rossi arrived at three.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrive",
+          "span": "arrived at three",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Dr. Rossi",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 10,
+          "offset_fine": 26
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-085",
+    "lang": "en",
+    "text": "Mrs. Bianchi signed the contract on Jan. 12, 2020.",
+    "phenomena": [
+      "abbreviation"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 50,
+          "testo": "Mrs. Bianchi signed the contract on Jan. 12, 2020.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "sign",
+          "span": "signed the contract",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mrs. Bianchi",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the contract",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 13,
+          "offset_fine": 32
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-086",
+    "lang": "en",
+    "text": "Prof. Neri cited p. 12 of the volume.",
+    "phenomena": [
+      "abbreviation"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 37,
+          "testo": "Prof. Neri cited p. 12 of the volume.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "cite",
+          "span": "cited p. 12 of the volume",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Prof. Neri",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 11,
+          "offset_fine": 36
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-087",
+    "lang": "en",
+    "text": "The temperature rose to 36.5 degrees.",
+    "phenomena": [
+      "decimal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 37,
+          "testo": "The temperature rose to 36.5 degrees.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "rise",
+          "span": "rose to 36.5 degrees",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "The temperature",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 16,
+          "offset_fine": 36
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-088",
+    "lang": "en",
+    "text": "The 15.30 train left on time.",
+    "phenomena": [
+      "decimal"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 29,
+          "testo": "The 15.30 train left on time.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "leave",
+          "span": "left on time",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "The 15.30 train",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 16,
+          "offset_fine": 28
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-089",
+    "lang": "en",
+    "text": "Has Mark already left?",
+    "phenomena": [
+      "interrogative"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 22,
+          "testo": "Has Mark already left?",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "leave",
+          "span": "Has Mark already left",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 21
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-090",
+    "lang": "en",
+    "text": "Who closed the door?",
+    "phenomena": [
+      "interrogative"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 20,
+          "testo": "Who closed the door?",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "close",
+          "span": "closed the door",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Who",
+              "tipo_superficiale": "pronome"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the door",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 4,
+          "offset_fine": 19
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-091",
+    "lang": "en",
+    "text": "Close the door.",
+    "phenomena": [
+      "imperative"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 15,
+          "testo": "Close the door.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "close",
+          "span": "Close the door",
+          "e_testa": true,
+          "tempo": "presente",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "",
+              "tipo_superficiale": "sogg_nullo"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the door",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 14
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-092",
+    "lang": "en",
+    "text": "Do not touch the oven.",
+    "phenomena": [
+      "imperative"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 22,
+          "testo": "Do not touch the oven.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "touch",
+          "span": "Do not touch the oven",
+          "e_testa": true,
+          "tempo": "presente",
+          "modalita": "fattuale",
+          "polarita_negata": true,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "",
+              "tipo_superficiale": "sogg_nullo"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the oven",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 21
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-093",
+    "lang": "en",
+    "text": "Mark will leave tomorrow.",
+    "phenomena": [
+      "future"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 25,
+          "testo": "Mark will leave tomorrow.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "leave",
+          "span": "will leave tomorrow",
+          "e_testa": true,
+          "tempo": "futuro",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 24
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-094",
+    "lang": "en",
+    "text": "Anna will arrive at eight and will bring the documents.",
+    "phenomena": [
+      "future",
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 55,
+          "testo": "Anna will arrive at eight and will bring the documents.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrive",
+          "span": "will arrive at eight",
+          "e_testa": true,
+          "tempo": "futuro",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 25
+        },
+        {
+          "lemma": "bring",
+          "span": "will bring the documents",
+          "e_testa": true,
+          "tempo": "futuro",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the documents",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 30,
+          "offset_fine": 54
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-095",
+    "lang": "en",
+    "text": "Although it was raining, Mark went out.",
+    "phenomena": [
+      "contrast",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 39,
+          "testo": "Although it was raining, Mark went out.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "rain",
+          "span": "was raining",
+          "e_testa": false,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "it",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "NON_APPLICABILE",
+          "indice": 0,
+          "offset_inizio": 12,
+          "offset_fine": 23
+        },
+        {
+          "lemma": "go_out",
+          "span": "went out",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 30,
+          "offset_fine": 38
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONCESSIONE",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-096",
+    "lang": "en",
+    "text": "Mark went out to buy bread.",
+    "phenomena": [
+      "nested"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 27,
+          "testo": "Mark went out to buy bread.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "go_out",
+          "span": "went out",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 13
+        },
+        {
+          "lemma": "buy",
+          "span": "buy bread",
+          "e_testa": false,
+          "tempo": "non_finito",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "NON_FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "bread",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 17,
+          "offset_fine": 26
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 1,
+          "a_indice": 0,
+          "tipo": "SCOPO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-097",
+    "lang": "en",
+    "text": "Mark did not arrive on time.",
+    "phenomena": [
+      "state"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 28,
+          "testo": "Mark did not arrive on time.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "arrive",
+          "span": "did not arrive on time",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": true,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 27
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-098",
+    "lang": "en",
+    "text": "Mark knocked every morning.",
+    "phenomena": [
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 27,
+          "testo": "Mark knocked every morning.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "knock",
+          "span": "knocked every morning",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": true,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 26
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-099",
+    "lang": "en",
+    "text": "Mark was tired, but he kept walking.",
+    "phenomena": [
+      "contrast",
+      "state",
+      "imperfect"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 36,
+          "testo": "Mark was tired, but he kept walking.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "be",
+          "span": "was tired",
+          "e_testa": true,
+          "tempo": "imperfetto",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 5,
+          "offset_fine": 14
+        },
+        {
+          "lemma": "keep",
+          "span": "kept walking",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "he",
+              "tipo_superficiale": "pronome"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 23,
+          "offset_fine": 35
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "CONTRASTO",
+          "relazione_allen": null,
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-100",
+    "lang": "en",
+    "text": "With more time, Mark would have finished the work.",
+    "phenomena": [
+      "modal",
+      "condition"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 50,
+          "testo": "With more time, Mark would have finished the work.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "finish",
+          "span": "would have finished the work",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "ipotetico",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "IPOTETICO",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the work",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 21,
+          "offset_fine": 49
+        }
+      ],
+      "relazioni": []
+    }
+  },
+  {
+    "id": "eval-101",
+    "lang": "it",
+    "text": "Il Dr. Rossi pagò 12.50 euro e partì.",
+    "phenomena": [
+      "abbreviation",
+      "decimal",
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 37,
+          "testo": "Il Dr. Rossi pagò 12.50 euro e partì.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "pagare",
+          "span": "pagò 12.50 euro",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il Dr. Rossi",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "12.50 euro",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 13,
+          "offset_fine": 28
+        },
+        {
+          "lemma": "partire",
+          "span": "partì",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Il Dr. Rossi",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 31,
+          "offset_fine": 36
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-102",
+    "lang": "en",
+    "text": "Dr. Smith paid 12.50 euros and left.",
+    "phenomena": [
+      "abbreviation",
+      "decimal",
+      "coordinated_predicates"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 36,
+          "testo": "Dr. Smith paid 12.50 euros and left.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "pay",
+          "span": "paid 12.50 euros",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Dr. Smith",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "12.50 euros",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 10,
+          "offset_fine": 26
+        },
+        {
+          "lemma": "leave",
+          "span": "left",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Dr. Smith",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 31,
+          "offset_fine": 35
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "SEQUENZA",
+          "relazione_allen": "meets",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-103",
+    "lang": "it",
+    "text": "Dopo che Marco partì, Anna chiuse la porta.",
+    "phenomena": [
+      "cause"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 43,
+          "testo": "Dopo che Marco partì, Anna chiuse la porta.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "partire",
+          "span": "partì",
+          "e_testa": false,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Marco",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 15,
+          "offset_fine": 20
+        },
+        {
+          "lemma": "chiudere",
+          "span": "chiuse la porta",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "la porta",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 27,
+          "offset_fine": 42
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "PRECEDE",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "eval-104",
+    "lang": "en",
+    "text": "After Mark left, Anna closed the door.",
+    "phenomena": [
+      "cause"
+    ],
+    "gold": {
+      "sentences": [
+        {
+          "indice": 0,
+          "offset_inizio": 0,
+          "offset_fine": 38,
+          "testo": "After Mark left, Anna closed the door.",
+          "tipo": "narrativa"
+        }
+      ],
+      "eventi": [
+        {
+          "lemma": "leave",
+          "span": "left",
+          "e_testa": false,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Mark",
+              "tipo_superficiale": "nome_proprio"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 0,
+          "offset_inizio": 11,
+          "offset_fine": 15
+        },
+        {
+          "lemma": "close",
+          "span": "closed the door",
+          "e_testa": true,
+          "tempo": "passato",
+          "modalita": "fattuale",
+          "polarita_negata": false,
+          "iterativo": false,
+          "fattualita": "FATTUALE",
+          "marca_dialogo": false,
+          "argomenti": [
+            {
+              "ruolo": "SOGG",
+              "forma": "Anna",
+              "tipo_superficiale": "nome_proprio"
+            },
+            {
+              "ruolo": "OGG",
+              "forma": "the door",
+              "tipo_superficiale": "sn_comune"
+            }
+          ],
+          "sogg_speciale": "nessuno",
+          "indice": 1,
+          "offset_inizio": 22,
+          "offset_fine": 37
+        }
+      ],
+      "relazioni": [
+        {
+          "da_indice": 0,
+          "a_indice": 1,
+          "tipo": "PRECEDE",
+          "relazione_allen": "before",
+          "confidenza": 1.0,
+          "intra_frase": true
+        }
+      ]
+    }
+  }
+]

@@ -26,22 +26,15 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Unit tests (no Docker)
-        # Metagraph unit tests (Fasi 0–14 E2E + kernel stress) ride this job.
-        # Docker schema/GDS tests: backend-integration + backend-integration-metagraph.
+        # M16: default unit job is the event-graph suite only.
         run: >
           pytest -q
-          --ignore=tests/test_schema.py
-          --ignore=tests/test_health.py
-          --ignore=tests/test_ingestion_integration.py
-          --ignore=tests/test_embeddings.py
-          --ignore=tests/test_nodes_integration.py
-          --ignore=tests/test_ppr_projection_integration.py
-          --ignore=tests/test_node_query_engine_integration.py
-          --ignore=tests/test_documents_list.py
-          --ignore=tests/test_graph_reset.py
-          --ignore=tests/test_metagraph_schema_integration.py
+          tests/test_event_graph_m*.py
+          tests/test_acceptance_event_graph_e2e.py
 
   backend-integration:
+    # M16: legacy path out of default CI; run locally / workflow_dispatch
+    if: false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,6 +64,8 @@ jobs:
           --tb=short
 
   backend-integration-metagraph:
+    # M16: legacy path out of default CI; run locally / workflow_dispatch
+    if: false
     runs-on: ubuntu-latest
     defaults:
       run:

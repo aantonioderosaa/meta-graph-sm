@@ -41,3 +41,12 @@ graphify-out/
 # Session artifacts (not project docs — never commit)
 .loop-progress.md
 .loop_progress*
+.loop-*.json
+
+# Ad-hoc debug/E2E scratch scripts (backend/_*.py, dumps) — local only
+backend/_*.py
+backend/_*.json
+backend/_*.out.txt
+
+# Run / audit logs (kept locally, never committed)
+*.log

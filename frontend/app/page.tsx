@@ -1,5 +1,5 @@
-import { DashboardShell } from "@/components/DashboardShell";
+import { EventGraphShell } from "@/components/event-graph/EventGraphShell";
 
 export default function Home() {
-  return <DashboardShell />;
+  return <EventGraphShell />;
 }
