@@ -26,6 +26,10 @@ _EVENTO_KEYS = (
     "tempo",
     "documento",
     "tempo_assoluto",
+    "posizione_doc",
+    "posizione_chunk",
+    "offset_inizio",
+    "score",
 )
 
 # Hardcoded traversal fragments — keys are TraversalKind, never user text.
@@ -95,6 +99,20 @@ def _safe_rel_type(tipo: str) -> str:
     raise ValueError(f"tipo_relazione non ammesso: {tipo}")
 
 
+_LUCENE_SPECIAL = set('+-&|!(){}[]^"~*?:\\/')
+
+
+def _escape_lucene(testo: str) -> str:
+    """Escape Lucene special chars so free text is a safe fulltext query.
+
+    Not a security boundary against Cypher injection (this only ever becomes
+    a query-string parameter to db.index.fulltext.queryNodes, never
+    interpolated into Cypher) — it's here so punctuation in the user's
+    wording doesn't get read as Lucene operators.
+    """
+    return "".join(f"\\{ch}" if ch in _LUCENE_SPECIAL else ch for ch in testo)
+
+
 def _finestra_bounds(finestra: Any) -> tuple[str | None, str | None]:
     if finestra is None:
         return None, None
@@ -112,6 +130,21 @@ def compile_cypher(spec: EventQuerySpec) -> tuple[str, dict]:
     params: dict[str, Any] = {}
     where: list[str] = ["(e.fuso_in IS NULL OR e.fuso_in = '')"]
     extra: list[str] = []
+
+    # Free-text search (Lucene fulltext index eg_evento_testo, not an exact
+    # match) — this is the only keyword/topic retrieval path: lemma below is
+    # an exact-string filter, and since Addendum 4 e.lemma holds the whole
+    # event sentence, exact match almost never hits a paraphrase or a name.
+    testo = getattr(spec, "testo", None)
+    start = "MATCH (e:Evento)"
+    order_prefix = ""
+    if testo:
+        start = (
+            "CALL db.index.fulltext.queryNodes('eg_evento_testo', $testo) "
+            "YIELD node AS e, score"
+        )
+        params["testo"] = _escape_lucene(str(testo))
+        order_prefix = "score DESC, "
 
     lemma = getattr(spec, "lemma", None)
     if lemma is not None:
@@ -167,19 +200,24 @@ def compile_cypher(spec: EventQuerySpec) -> tuple[str, dict]:
         params["target"] = target
         extra.append(_TRAVERSAL_CLAUSES[kind])
 
+    return_score = ", score" if testo else ""
     parts = [
-        "MATCH (e:Evento)",
+        start,
         "WHERE " + " AND ".join(where),
         *extra,
         (
             "RETURN DISTINCT e.id AS id, e.lemma AS lemma, e.piano AS piano, "
             "e.fattualita AS fattualita, e.tempo AS tempo, e.documento AS documento, "
-            "e.tempo_assoluto AS tempo_assoluto"
+            "e.tempo_assoluto AS tempo_assoluto, e.posizione_doc AS posizione_doc, "
+            "e.posizione_chunk AS posizione_chunk, e.offset_inizio AS offset_inizio"
+            + return_score
         ),
+        # Exposition order (how the story tells events) is the default tiebreak
+        # everywhere; a fulltext search (order_prefix) ranks by relevance first,
+        # position only to keep ties stable.
+        f"ORDER BY {order_prefix}e.posizione_doc, e.posizione_chunk",
     ]
     cypher = " ".join(parts)
-    if str(getattr(spec, "traversal", None) or "") == "catena_di":
-        cypher += " ORDER BY e.posizione_doc, e.posizione_chunk"
     return cypher, params
 
 

@@ -188,12 +188,16 @@ def test_schema_cypher_constraints_indexes_and_labels():
         assert name in raw
     assert raw.count("CREATE CONSTRAINT") == 7
     assert raw.count("CREATE INDEX") == 9
-    assert raw.count("IF NOT EXISTS") == 16
+    assert raw.count("IF NOT EXISTS") == 17
     assert ":EgChunk" in raw
     assert ":Zona" in raw
     assert ":Chunk" not in raw.replace(":EgChunk", "")
     assert "VECTOR" not in raw.upper()
-    assert "FULLTEXT" not in raw.upper()
+    # Addendum 5: one Lucene fulltext index on :Evento is the deliberate,
+    # scoped exception to the no-search-index rule — keyword/topic retrieval
+    # for /query/structured's `testo` field. Still no vector/ML embeddings.
+    assert raw.upper().count("FULLTEXT") == 1
+    assert "eg_evento_testo" in raw
 
 
 def _import_modules(tree: ast.AST) -> list[str]:
@@ -274,4 +278,4 @@ def test_call_structured_is_package_local():
 
 def test_load_schema_statements_count():
     statements = load_schema_statements()
-    assert len(statements) == 16
+    assert len(statements) == 17

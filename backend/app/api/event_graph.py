@@ -383,6 +383,8 @@ async def event_graph_query_nl(body: EventGraphNlQueryRequest) -> dict:
         "modo": "nl",
         "spec_generata": _spec_dump(outcome.spec),
         "risultato": _risultato_dump(outcome.risultato),
+        "risposta": outcome.risposta,
+        "eventi_citati": outcome.eventi_citati,
     }
 
 

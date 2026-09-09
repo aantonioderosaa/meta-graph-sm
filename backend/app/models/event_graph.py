@@ -193,8 +193,16 @@ class FinestraTempoAssoluto(BaseModel):
     a: str | None = None
 
 
+class RispostaSintetizzata(BaseModel):
+    """Answer synthesized from retrieved events only (Addendum 5)."""
+
+    risposta: str
+    eventi_citati: list[str] = Field(default_factory=list)
+
+
 class EventQuerySpec(BaseModel):
     lemma: str | None = None
+    testo: str | None = None
     piano: PianoNarrativo | None = None
     fattualita: Fattualita | None = None
     tempo: TempoVerbale | None = None
@@ -495,6 +503,7 @@ __all__ = [
     "PairEdgeDecision",
     "PianoNarrativo",
     "PredicatoNonFinito",
+    "RispostaSintetizzata",
     "QuarantenaItem",
     "RelazioneSegnale",
     "RuoloArgomentale",

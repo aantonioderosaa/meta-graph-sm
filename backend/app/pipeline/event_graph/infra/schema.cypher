@@ -15,3 +15,7 @@ CREATE INDEX eg_evento_catena    IF NOT EXISTS FOR (e:Evento) ON (e.catena_id);
 CREATE INDEX eg_menzione_forma   IF NOT EXISTS FOR (m:Menzione) ON (m.forma_canonica);
 CREATE INDEX eg_zona_doc         IF NOT EXISTS FOR (z:Zona) ON (z.documento);
 CREATE INDEX eg_zona_offset      IF NOT EXISTS FOR (z:Zona) ON (z.offset_inizio, z.offset_fine);
+
+// Lucene full-text (not embeddings — stays inside the D6 no-ML-search rule).
+// lemma/ancora hold the same event-sentence text; both indexed for resilience.
+CREATE FULLTEXT INDEX eg_evento_testo IF NOT EXISTS FOR (e:Evento) ON EACH [e.lemma, e.ancora];

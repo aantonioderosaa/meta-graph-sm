@@ -6,12 +6,13 @@ then executes with query_structured.esegui. No Cypher, PPR, or embeddings.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.models.event_graph import EventQuerySpec
+from app.pipeline.event_graph.answer import sintetizza_risposta
 from app.pipeline.event_graph.infra.llm import call_structured
 from app.pipeline.event_graph.query_nl_prompts import SYSTEM_NL_QUERY, user_nl_query
 from app.pipeline.event_graph.query_structured import QueryResult, esegui, registra_query
@@ -22,6 +23,8 @@ class NlQueryOutcome:
     spec: EventQuerySpec
     risultato: QueryResult
     stored_id: str
+    risposta: str | None = None
+    eventi_citati: list[str] = field(default_factory=list)
 
 
 def _as_spec(parsed: Any) -> EventQuerySpec:
@@ -62,13 +65,33 @@ async def esegui_nl(
     testo: str,
     *,
     call_structured: Any = None,
+    sintetizza: Any = None,
     job_id: str | None = None,
 ) -> NlQueryOutcome:
-    """compila then query_structured.esegui. registra_query(..., modo='nl')."""
+    """compila then query_structured.esegui, then a best-effort answer.
+
+    ``sintetizza`` — if given — replaces ``answer.sintetizza_risposta`` (same
+    ``(testo, risultato, job_id=...)`` signature), for tests/injection. The
+    synthesis step never raises: a failure just leaves ``risposta`` as
+    ``None``, it never fails the query itself.
+    """
     spec = await compila(testo, call_structured=call_structured, job_id=job_id)
     risultato = await esegui(session, spec)
     stored = registra_query(spec, risultato, modo="nl")
-    return NlQueryOutcome(spec=spec, risultato=risultato, stored_id=stored.id)
+    sintesi_fn = sintetizza if sintetizza is not None else sintetizza_risposta
+    try:
+        sintesi = await sintesi_fn(testo, risultato, job_id=job_id)
+    except Exception:
+        sintesi = None
+    risposta = sintesi.risposta if sintesi is not None else None
+    eventi_citati = list(sintesi.eventi_citati) if sintesi is not None else []
+    return NlQueryOutcome(
+        spec=spec,
+        risultato=risultato,
+        stored_id=stored.id,
+        risposta=risposta,
+        eventi_citati=eventi_citati,
+    )
 
 
 __all__ = [
