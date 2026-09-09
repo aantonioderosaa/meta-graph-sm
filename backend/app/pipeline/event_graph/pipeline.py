@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-from app.models.event_graph import SottoGrafo
+from app.models.event_graph import ArcoEvento, EventoRisolto, SottoGrafo
 from app.pipeline.event_graph import (
     RULESET_VERSION,
     chains,
@@ -71,6 +71,54 @@ def _merge_sotto(sotto_doc: SottoGrafo, piece: SottoGrafo) -> None:
         quarantena=list(piece.quarantena),
         menzioni=list(piece.menzioni.values()),
     )
+
+
+def _eventi_di_zona(sotto: SottoGrafo, zona_id: str) -> list[EventoRisolto]:
+    """Events of one zone, in appearance order, skipping fused duplicates."""
+    return sorted(
+        (e for e in sotto.eventi if e.chunk_id == zona_id and not e.fuso_in),
+        key=lambda e: e.posizione_chunk if e.posizione_chunk is not None else 0,
+    )
+
+
+def _ponte_gia_presente(sotto: SottoGrafo, da_id: str, a_id: str) -> bool:
+    return any(
+        arco.tipo == "SEQUENZA" and arco.da_id == da_id and arco.a_id == a_id
+        for arco in sotto.archi
+    )
+
+
+def collega_dorsale_zone(sotto: SottoGrafo, zone: list[Zona]) -> None:
+    """The narrative railway: one SEQUENZA arc from the last event of each
+    expanded zone to the first event of the next expanded one, in exposition
+    order (zona.ordinale). Non-invasive by construction: runs once, after all
+    per-zone linking (sentence_pair_linking / chiusura_temporale) is done,
+    and only ever appends arcs — never touches those modules or re-classifies
+    anything. A zone left unexpanded (flash mode, not yet requested) is
+    skipped, bridging straight to the next expanded one.
+    """
+    ordinate = sorted((z for z in zone if z.espansa), key=lambda z: z.ordinale)
+    precedente: EventoRisolto | None = None
+    for zona in ordinate:
+        eventi_zona = _eventi_di_zona(sotto, zona.id)
+        if not eventi_zona:
+            continue
+        primo, ultimo = eventi_zona[0], eventi_zona[-1]
+        if precedente is not None and precedente.id != primo.id:
+            if not _ponte_gia_presente(sotto, precedente.id, primo.id):
+                sotto.archi.append(
+                    ArcoEvento(
+                        tipo="SEQUENZA",
+                        da_id=precedente.id,
+                        a_id=primo.id,
+                        props={
+                            "regola": "pipeline.collega_dorsale_zone",
+                            "versione_regole": RULESET_VERSION,
+                            "livello": "ponte_zona",
+                        },
+                    )
+                )
+        precedente = ultimo
 
 
 @asynccontextmanager
@@ -277,6 +325,8 @@ async def run_event_graph_ingestion(
         chunks_kept = zones_expanded
         chunks_skipped = max(len(zone) - zones_expanded, 0)
 
+        collega_dorsale_zone(sotto, zone)
+
         await _fase_b_if_available(session, sotto, job_id, doc_id)
         stats = {
             "doc_id": doc_id,
@@ -314,6 +364,7 @@ async def run_event_graph_ingestion(
 __all__ = [
     "EspansioneZona",
     "IngestionOutcome",
+    "collega_dorsale_zone",
     "espandi_zona",
     "run_event_graph_ingestion",
     "zone_da_espandere_subito",
