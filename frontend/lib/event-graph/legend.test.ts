@@ -205,6 +205,15 @@ describe("swatches", () => {
     expect(swatchForArc("CAUSA")).toBe(
       encodeEdge({ id: "CAUSA", source: "s", target: "t", tipo: "CAUSA" }).color,
     );
+    expect(swatchForArc("CONTEMPORANEO")).not.toBe(swatchForArc("PRECEDE"));
+    expect(swatchForArc("CONTEMPORANEO")).toBe(
+      encodeEdge({
+        id: "CONTEMPORANEO",
+        source: "s",
+        target: "t",
+        tipo: "CONTEMPORANEO",
+      }).color,
+    );
   });
 
   it("uses encodeNode / PIANO_COLORS for nodes and piano traits", () => {

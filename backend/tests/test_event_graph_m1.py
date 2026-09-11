@@ -170,6 +170,7 @@ def test_schema_cypher_constraints_indexes_and_labels():
         "eg_chunk_id",
         "eg_zona_id",
         "eg_run_id",
+        "eg_cluster_temporale_id",
     ]
     indexes = [
         "eg_evento_doc",
@@ -181,16 +182,20 @@ def test_schema_cypher_constraints_indexes_and_labels():
         "eg_menzione_forma",
         "eg_zona_doc",
         "eg_zona_offset",
+        "eg_cluster_temporale_doc",
+        # MT5: il frontend ordina l'asse temporale su chiave_ordine.
+        "eg_cluster_temporale_ord",
     ]
     for name in constraints:
         assert name in raw
     for name in indexes:
         assert name in raw
-    assert raw.count("CREATE CONSTRAINT") == 7
-    assert raw.count("CREATE INDEX") == 9
-    assert raw.count("IF NOT EXISTS") == 17
+    assert raw.count("CREATE CONSTRAINT") == 8
+    assert raw.count("CREATE INDEX") == 11
+    assert raw.count("IF NOT EXISTS") == 20
     assert ":EgChunk" in raw
     assert ":Zona" in raw
+    assert ":ClusterTemporale" in raw
     assert ":Chunk" not in raw.replace(":EgChunk", "")
     assert "VECTOR" not in raw.upper()
     # Addendum 5: one Lucene fulltext index on :Evento is the deliberate,
@@ -278,4 +283,4 @@ def test_call_structured_is_package_local():
 
 def test_load_schema_statements_count():
     statements = load_schema_statements()
-    assert len(statements) == 17
+    assert len(statements) == 20

@@ -11,6 +11,7 @@ import pytest
 from httpx import ASGITransport
 
 from app.models.event_graph import (
+    GRANULARITA_TEMPORALI,
     Fattualita,
     PianoNarrativo,
     TempoVerbale,
@@ -21,6 +22,9 @@ from app.pipeline.event_graph.catalog import (
     dettaglio_arco,
     dettaglio_nodo,
     grafo,
+    grafo_livello1,
+    grafo_livello2,
+    grafo_livello3,
     stats,
 )
 
@@ -126,7 +130,7 @@ def _archi_tipi(payload: dict) -> set[str]:
 def test_catalogo_covers_all_tipo_relazione():
     payload = catalogo()
     found = _archi_tipi(payload)
-    expected = set(get_args(TipoRelazione))
+    expected = set(get_args(TipoRelazione)) | {"SUCCESSIONE_ZONA", "CONTIENE"}
     assert "SATELLITE_DI" in expected
     assert found == expected
     arches = payload["arches"]
@@ -145,7 +149,30 @@ def test_catalogo_covers_all_tipo_relazione():
             assert entry["significato"]
     assert "catena" not in arches
     node_ids = {node["id"] for node in payload["nodes"]}
-    assert node_ids == {"Evento", "Menzione", "Quarantena"}
+    assert node_ids == {
+        "Evento",
+        "Menzione",
+        "Quarantena",
+        "Zona",
+        "ClusterTemporale",
+    }
+    by_id = {node["id"]: node for node in payload["nodes"]}
+    assert by_id["Zona"]["shape"] == "round-rectangle"
+    assert by_id["ClusterTemporale"]["shape"] == "round-rectangle"
+    succ = next(
+        entry
+        for entry in payload["arches"]["struttura"]
+        if entry["tipo"] == "SUCCESSIONE_ZONA"
+    )
+    assert succ["direzione"] == "Zona→Zona"
+    assert succ["significato"]
+    contiene = next(
+        entry
+        for entry in payload["arches"]["struttura"]
+        if entry["tipo"] == "CONTIENE"
+    )
+    assert contiene["direzione"] == "ClusterTemporale→ClusterTemporale"
+    assert contiene["significato"]
     traits = payload["traits"]
     assert "catena" in traits
     assert set(traits["catena"]["ruoli"]) == {
@@ -159,6 +186,8 @@ def test_catalogo_covers_all_tipo_relazione():
     assert False in traits["iterativita"] and True in traits["iterativita"]
     assert traits["fattualita"] == list(get_args(Fattualita))
     assert traits["piano"] == list(get_args(PianoNarrativo))
+    assert traits["granularita"] == list(GRANULARITA_TEMPORALI)
+    assert False in traits["stimato"] and True in traits["stimato"]
     fonte = traits["fonte"]
     fonte_blob = " ".join(fonte) if isinstance(fonte, list) else str(fonte)
     assert "NARRATORE" in fonte_blob
@@ -170,6 +199,86 @@ def test_catalogo_does_not_hit_session():
     catalogo()
     assert session.runs == []
     assert catalogo.__code__.co_argcount == 0
+
+
+def _payload_text(payload: dict) -> str:
+    chunks: list[str] = []
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, str):
+            chunks.append(value)
+
+    walk(payload)
+    return " ".join(chunks)
+
+
+def test_catalogo_viste_covers_levels_and_meanings():
+    payload = catalogo()
+    viste = payload["viste"]
+    assert set(viste) == {"tutto", "ordine", "temporale", "relazioni"}
+    for key in ("tutto", "ordine", "temporale", "relazioni"):
+        entry = viste[key]
+        assert entry["nodi"]
+        assert entry["archi"]
+        assert entry["significato"]
+
+    assert set(viste["tutto"]["nodi"]) == {"Evento", "Menzione", "Quarantena"}
+    assert "SUCCESSIONE_ZONA" not in viste["tutto"]["archi"]
+    assert "APPARTIENE_A" not in viste["tutto"]["archi"]
+    assert "CONTIENE" not in viste["tutto"]["archi"]
+    assert "CONTEMPORANEO" in viste["tutto"]["archi"]
+
+    assert set(viste["ordine"]["nodi"]) == {"Zona", "Evento"}
+    assert set(viste["ordine"]["archi"]) == {
+        "SUCCESSIONE_ZONA",
+        "SEQUENZA",
+        "COLLEGATO",
+    }
+    assert "CAUSA" not in viste["ordine"]["archi"]
+    assert "CONTIENE" not in viste["ordine"]["archi"]
+
+    assert set(viste["temporale"]["nodi"]) == {"ClusterTemporale", "Evento"}
+    # PIANO-LIVELLO-TEMPORALE-V2.md MT7 (righe 121–125): la vista temporale
+    # deve includere CONTIENE nella legenda, anche se grafo_livello2 lo usa
+    # solo per data.parent e non lo disegna (come APPARTIENE_A).
+    assert set(viste["temporale"]["archi"]) == {
+        "PRECEDE",
+        "CONTEMPORANEO",
+        "APPARTIENE_A",
+        "CONTIENE",
+    }
+    assert "SEQUENZA" not in viste["temporale"]["archi"]
+
+    assert viste["relazioni"]["nodi"] == ["Evento"]
+    assert set(viste["relazioni"]["archi"]) == {
+        "CAUSA",
+        "CONDIZIONE",
+        "SCOPO",
+        "CONCESSIONE",
+        "CONTRASTO",
+        "LIMITE",
+        "CONTENUTO",
+    }
+    assert "CONTIENE" not in viste["relazioni"]["archi"]
+    assert "livello='3'" in viste["relazioni"]["significato"]
+
+    blob = _payload_text(payload)
+    assert "stesso momento, non direzionale" in blob
+    assert "successione narrativa fra zone espanse" in blob
+    assert "evento appartenente a un cluster temporale" in blob
+    assert "CONTEMPORANEO" in viste["temporale"]["significato"]
+    assert "APPARTIENE_A" in viste["temporale"]["significato"]
+    assert "CONTIENE" in viste["temporale"]["significato"]
+    assert "stimato" in viste["temporale"]["significato"]
+    assert "granularita" in viste["temporale"]["significato"]
+    assert "cluster temporale che ne contiene un altro" in blob
+    assert "SUCCESSIONE_ZONA" in viste["ordine"]["significato"]
 
 
 @pytest.mark.asyncio
@@ -235,6 +344,7 @@ async def test_grafo_fakesession_cytoscape_shape():
                 "segnale": None,
                 "superato_da": None,
                 "conflitto": None,
+                "confidenza": 0.9,
             },
         ]
     )
@@ -255,6 +365,7 @@ async def test_grafo_fakesession_cytoscape_shape():
     assert edges[0]["data"]["source"] == "ev-1"
     assert edges[0]["data"]["target"] == "m-1"
     assert edges[0]["data"]["tipo"] == "SOGG"
+    assert edges[0]["data"]["confidenza"] == 0.9
     blob = " ".join(query for query, _ in session.runs)
     assert "fuso_in" in blob
     assert any(params.get("documento") == "doc-1" for _, params in session.runs)
@@ -331,6 +442,43 @@ async def test_dettaglio_nodo_returns_full_property_map():
 
 
 @pytest.mark.asyncio
+async def test_dettaglio_nodo_cluster_temporale_mostra_proprieta_nuove():
+    """MT7: properties(n) already returns the full map; a ClusterTemporale
+    stored with the v2 fields must surface them unprojected.
+    """
+    proprieta = {
+        "id": "cl-sera",
+        "etichetta": "24 dic, sera",
+        "descrizione": "sera del 24 dicembre 1843",
+        "granularita": "ora",
+        "inizio": "1843-12-24T18",
+        "fine": "1843-12-24T23",
+        "chiave_ordine": 930540096007,
+        "posizione_doc_min": 3,
+        "stimato": True,
+        "confidenza": 0.72,
+        "tipo": "intervallo",
+        "documento": "doc-1",
+    }
+    session = FakeSession(
+        rows=[{"props": proprieta, "labels": ["ClusterTemporale"]}]
+    )
+    result = await dettaglio_nodo(session, "cl-sera")
+    assert result is not None
+    assert result["id"] == "cl-sera"
+    assert result["labels"] == ["ClusterTemporale"]
+    assert result["proprieta"]["descrizione"] == "sera del 24 dicembre 1843"
+    assert result["proprieta"]["granularita"] == "ora"
+    assert result["proprieta"]["inizio"] == "1843-12-24T18"
+    assert result["proprieta"]["fine"] == "1843-12-24T23"
+    assert result["proprieta"]["chiave_ordine"] == 930540096007
+    assert result["proprieta"]["posizione_doc_min"] == 3
+    assert result["proprieta"]["stimato"] is True
+    assert result["proprieta"]["confidenza"] == 0.72
+    assert "catena" not in result
+
+
+@pytest.mark.asyncio
 async def test_dettaglio_nodo_none_when_absent():
     session = FakeSession(rows=[{"props": None, "labels": []}])
     assert await dettaglio_nodo(session, "ghost") is None
@@ -364,6 +512,52 @@ async def test_dettaglio_arco_returns_full_property_map_and_endpoints():
 async def test_dettaglio_arco_none_when_absent():
     session = FakeSession(rows=[{"props": None, "tipo": None}])
     assert await dettaglio_arco(session, "ghost") is None
+
+
+@pytest.mark.asyncio
+async def test_dettaglio_arco_resolves_synthetic_id_without_rel_id():
+    """SOGG / SUCCESSIONE_ZONA / CONTEMPORANEO / livello-3 have no r.id."""
+    row = {
+        "props": {
+            "regola": "livello_relazioni",
+            "livello": "3",
+            "spiegazione": "il vento spinge perché il sole ha fallito",
+        },
+        "tipo": "CAUSA",
+        "source_id": "ev-1",
+        "source_labels": ["Evento"],
+        "source_label": "soffiare",
+        "target_id": "ev-2",
+        "target_labels": ["Evento"],
+        "target_label": "cadere",
+    }
+    session = FakeSession(
+        mapping={
+            "MATCH (a)-[r {id: $id}]->(b)": [],
+            "/* dettaglio_arco_endpoints */": [row],
+        }
+    )
+    arco_id = "CAUSA|ev-1|ev-2"
+    result = await dettaglio_arco(session, arco_id)
+    assert result is not None
+    assert result["id"] == arco_id
+    assert result["tipo"] == "CAUSA"
+    assert result["proprieta"]["livello"] == "3"
+    assert result["proprieta"]["spiegazione"]
+    assert result["source"]["id"] == "ev-1"
+    assert result["target"]["id"] == "ev-2"
+    assert any("dettaglio_arco_endpoints" in query for query, _ in session.runs)
+
+
+@pytest.mark.asyncio
+async def test_dettaglio_arco_synthetic_unknown_still_none():
+    session = FakeSession(
+        mapping={
+            "MATCH (a)-[r {id: $id}]->(b)": [],
+            "/* dettaglio_arco_endpoints */": [],
+        }
+    )
+    assert await dettaglio_arco(session, "SOGG|ghost-a|ghost-b") is None
 
 
 @pytest.mark.asyncio
@@ -422,12 +616,18 @@ async def test_get_catalog_200_without_driver():
         response = await client.get("/event-graph/catalog")
     assert response.status_code == 200
     body = response.json()
-    assert _archi_tipi(body) == set(get_args(TipoRelazione))
+    assert _archi_tipi(body) == set(get_args(TipoRelazione)) | {
+        "SUCCESSIONE_ZONA",
+        "CONTIENE",
+    }
     assert {node["id"] for node in body["nodes"]} == {
         "Evento",
         "Menzione",
         "Quarantena",
+        "Zona",
+        "ClusterTemporale",
     }
+    assert set(body["viste"]) == {"tutto", "ordine", "temporale", "relazioni"}
 
 
 @pytest.mark.asyncio
@@ -553,3 +753,640 @@ def test_catalog_isolation_ast():
 def test_legacy_files_untouched():
     for path in LEGACY_FILES:
         assert path.is_file(), f"legacy file missing: {path}"
+
+
+_L1_FORBIDDEN_EDGE_TIPI = frozenset(
+    {
+        "CAUSA",
+        "CONTRASTO",
+        "CONDIZIONE",
+        "SCOPO",
+        "CONCESSIONE",
+        "LIMITE",
+        "CONTENUTO",
+    }
+)
+
+
+def _livello1_session() -> FakeSession:
+    return FakeSession(
+        mapping={
+            "grafo_livello1_zone": [
+                {
+                    "id": "zona-1",
+                    "ordinale": 0,
+                    "riassunto": "arrivo",
+                    "evento_centrale": "ev-1",
+                    "documento": "doc-1",
+                    "tipo": "Zona",
+                },
+                {
+                    "id": "zona-2",
+                    "ordinale": 1,
+                    "riassunto": "partenza",
+                    "evento_centrale": "ev-2",
+                    "documento": "doc-1",
+                    "tipo": "Zona",
+                },
+            ],
+            "grafo_livello1_eventi": [
+                {
+                    "id": "ev-1",
+                    "label": "arrivare",
+                    "parent": "zona-1",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_chunk": 0,
+                },
+                {
+                    "id": "ev-1b",
+                    "lemma": "fermarsi",
+                    "chunk_id": "zona-1",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_chunk": 1,
+                },
+                {
+                    "id": "ev-2",
+                    "label": "partire",
+                    "parent": "zona-2",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_chunk": 0,
+                },
+                {
+                    "id": "ev-fused",
+                    "label": "andare",
+                    "parent": "zona-1",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "fuso_in": "ev-1",
+                },
+                {
+                    "id": "m-1",
+                    "label": "Mario",
+                    "tipo": "Menzione",
+                    "documento": "doc-1",
+                    "parent": "zona-1",
+                },
+            ],
+            "grafo_livello1_successione_zona": [
+                {
+                    "source": "zona-1",
+                    "target": "zona-2",
+                    "tipo": "SUCCESSIONE_ZONA",
+                    "riassunto_transizione": "dal arrivo alla partenza",
+                },
+            ],
+            "grafo_livello1_ordine_eventi": [
+                {
+                    "id": "seq-1",
+                    "source": "ev-1",
+                    "target": "ev-1b",
+                    "tipo": "SEQUENZA",
+                },
+                {
+                    "id": "col-1",
+                    "source": "ev-1",
+                    "target": "ev-1b",
+                    "tipo": "COLLEGATO",
+                },
+                {
+                    "id": "causa-1",
+                    "source": "ev-1",
+                    "target": "ev-1b",
+                    "tipo": "CAUSA",
+                },
+                {
+                    "id": "orphan-1",
+                    "source": "ev-ghost",
+                    "target": "ev-1",
+                    "tipo": "SEQUENZA",
+                },
+            ],
+        }
+    )
+
+
+def _assert_livello1_shape(body: dict) -> None:
+    nodes = body["elements"]["nodes"]
+    edges = body["elements"]["edges"]
+    by_id = {node["data"]["id"]: node["data"] for node in nodes}
+    assert "zona-1" in by_id
+    assert "zona-2" in by_id
+    assert by_id["zona-1"]["tipo"] == "Zona"
+    assert "parent" not in by_id["zona-1"]
+    assert by_id["zona-1"]["ordinale"] == 0
+    assert by_id["zona-1"]["riassunto"] == "arrivo"
+    assert by_id["zona-1"]["evento_centrale"] == "ev-1"
+    assert by_id["ev-1"]["tipo"] == "Evento"
+    assert by_id["ev-1"]["parent"] == "zona-1"
+    assert by_id["ev-1b"]["parent"] == "zona-1"
+    assert by_id["ev-2"]["parent"] == "zona-2"
+    # Il layout preset impila i figli di una zona nell'ordine dell'array nodes:
+    # posizione_chunk deve arrivare al client per rendere quell'ordine leggibile.
+    assert by_id["ev-1"]["posizione_chunk"] == 0
+    assert by_id["ev-1b"]["posizione_chunk"] == 1
+    assert by_id["ev-2"]["posizione_chunk"] == 0
+    assert "ev-fused" not in by_id
+    assert "m-1" not in by_id
+    tipi = {edge["data"]["tipo"] for edge in edges}
+    assert "SUCCESSIONE_ZONA" in tipi
+    succ = next(e["data"] for e in edges if e["data"]["tipo"] == "SUCCESSIONE_ZONA")
+    assert succ["riassunto_transizione"] == "dal arrivo alla partenza"
+    assert succ["source"] == "zona-1"
+    assert succ["target"] == "zona-2"
+    assert tipi & {"SEQUENZA", "COLLEGATO"}
+    assert tipi.isdisjoint(_L1_FORBIDDEN_EDGE_TIPI)
+    assert all(e["data"]["tipo"] not in _L1_FORBIDDEN_EDGE_TIPI for e in edges)
+    edge_ids = {edge["data"]["id"] for edge in edges}
+    assert "causa-1" not in edge_ids
+    assert "orphan-1" not in edge_ids
+
+
+@pytest.mark.asyncio
+async def test_grafo_livello1_fakesession_a_e3_shape():
+    session = _livello1_session()
+    result = await grafo_livello1(session, documento="doc-1")
+    _assert_livello1_shape(result)
+    blob = " ".join(query for query, _ in session.runs)
+    assert "grafo_livello1_zone" in blob
+    assert "grafo_livello1_eventi" in blob
+    assert "e.posizione_chunk AS posizione_chunk" in blob
+    assert "ORDER BY z.ordinale, e.posizione_chunk" in blob
+    assert "SUCCESSIONE_ZONA" in blob
+    assert "SEQUENZA" in blob
+    assert "COLLEGATO" in blob
+    assert any(params.get("documento") == "doc-1" for _, params in session.runs)
+    assert "Menzione" not in blob
+    assert "Quarantena" not in blob
+    assert "ClusterTemporale" not in blob
+
+
+@pytest.mark.asyncio
+async def test_get_graph_vista_ordine_200(monkeypatch):
+    session = _livello1_session()
+    monkeypatch.setattr(
+        "app.api.event_graph.get_driver", lambda: FakeDriver(session)
+    )
+    from app.main import app
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/event-graph/graph",
+            params={"vista": "ordine", "documento": "doc-1"},
+        )
+    assert response.status_code == 200
+    _assert_livello1_shape(response.json())
+
+
+_L2_FORBIDDEN_NODE_TIPI = frozenset({"Zona", "Menzione", "Quarantena"})
+_L2_FORBIDDEN_EDGE_TIPI = frozenset(
+    {
+        "CAUSA",
+        "SEQUENZA",
+        "COLLEGATO",
+        "SUCCESSIONE_ZONA",
+        "APPARTIENE_A",
+        "SOGG",
+        "CONTRASTO",
+        "CONDIZIONE",
+        "SCOPO",
+        "CONCESSIONE",
+        "LIMITE",
+        "CONTENUTO",
+    }
+)
+
+
+def _livello2_session() -> FakeSession:
+    return FakeSession(
+        mapping={
+            "grafo_livello2_cluster": [
+                {
+                    "id": "cl-1",
+                    "label": "1994",
+                    "etichetta": "1994",
+                    "tipo_cluster": "data_esplicita",
+                    "documento": "doc-1",
+                    "tipo": "ClusterTemporale",
+                },
+                {
+                    "id": "zona-1",
+                    "ordinale": 0,
+                    "riassunto": "arrivo",
+                    "tipo": "Zona",
+                    "documento": "doc-1",
+                },
+            ],
+            "grafo_livello2_eventi": [
+                {
+                    "id": "ev-1",
+                    "label": "arrivare",
+                    "parent": "cl-1",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                },
+                {
+                    "id": "ev-2",
+                    "lemma": "partire",
+                    "parent": "cl-1",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                },
+                {
+                    "id": "ev-3",
+                    "label": "ricordare",
+                    "parent": None,
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                },
+                {
+                    "id": "ev-fused",
+                    "label": "andare",
+                    "parent": "cl-1",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "fuso_in": "ev-1",
+                },
+                {
+                    "id": "m-1",
+                    "label": "Mario",
+                    "tipo": "Menzione",
+                    "documento": "doc-1",
+                    "parent": "cl-1",
+                },
+                {
+                    "id": "q-1",
+                    "label": "frammento",
+                    "tipo": "Quarantena",
+                    "documento": "doc-1",
+                },
+            ],
+            "grafo_livello2_precede": [
+                {
+                    "id": "prec-1",
+                    "source": "ev-1",
+                    "target": "ev-2",
+                    "tipo": "PRECEDE",
+                    "superato_da": None,
+                },
+                {
+                    "id": "prec-old",
+                    "source": "ev-1",
+                    "target": "ev-2",
+                    "tipo": "PRECEDE",
+                    "superato_da": "prec-1",
+                },
+                {
+                    "id": "causa-1",
+                    "source": "ev-1",
+                    "target": "ev-2",
+                    "tipo": "CAUSA",
+                },
+                {
+                    "id": "app-1",
+                    "source": "ev-1",
+                    "target": "cl-1",
+                    "tipo": "APPARTIENE_A",
+                },
+                {
+                    "id": "orphan-1",
+                    "source": "ev-ghost",
+                    "target": "ev-1",
+                    "tipo": "PRECEDE",
+                },
+            ],
+            "grafo_livello2_contemporaneo": [
+                {
+                    "id": "cont-1",
+                    "source": "ev-1",
+                    "target": "ev-3",
+                    "tipo": "CONTEMPORANEO",
+                },
+            ],
+        }
+    )
+
+
+def _assert_livello2_shape(body: dict) -> None:
+    nodes = body["elements"]["nodes"]
+    edges = body["elements"]["edges"]
+    by_id = {node["data"]["id"]: node["data"] for node in nodes}
+    assert "cl-1" in by_id
+    assert by_id["cl-1"]["tipo"] == "ClusterTemporale"
+    assert "parent" not in by_id["cl-1"]
+    assert by_id["cl-1"]["etichetta"] == "1994"
+    assert by_id["cl-1"]["label"] == "1994"
+    assert by_id["cl-1"]["tipo_cluster"] == "data_esplicita"
+    assert by_id["ev-1"]["tipo"] == "Evento"
+    assert by_id["ev-1"]["parent"] == "cl-1"
+    assert by_id["ev-2"]["parent"] == "cl-1"
+    assert by_id["ev-3"]["tipo"] == "Evento"
+    assert "parent" not in by_id["ev-3"]
+    assert "ev-fused" not in by_id
+    assert "m-1" not in by_id
+    assert "q-1" not in by_id
+    assert "zona-1" not in by_id
+    node_tipi = {node["data"]["tipo"] for node in nodes}
+    assert node_tipi.isdisjoint(_L2_FORBIDDEN_NODE_TIPI)
+    tipi = {edge["data"]["tipo"] for edge in edges}
+    assert "PRECEDE" in tipi
+    assert "CONTEMPORANEO" in tipi
+    assert tipi <= {"PRECEDE", "CONTEMPORANEO"}
+    assert tipi.isdisjoint(_L2_FORBIDDEN_EDGE_TIPI)
+    edge_ids = {edge["data"]["id"] for edge in edges}
+    assert "prec-1" in edge_ids
+    assert "cont-1" in edge_ids
+    assert "prec-old" not in edge_ids
+    assert "causa-1" not in edge_ids
+    assert "app-1" not in edge_ids
+    assert "orphan-1" not in edge_ids
+    prec = next(e["data"] for e in edges if e["data"]["id"] == "prec-1")
+    assert prec["source"] == "ev-1"
+    assert prec["target"] == "ev-2"
+    cont = next(e["data"] for e in edges if e["data"]["id"] == "cont-1")
+    assert cont["source"] == "ev-1"
+    assert cont["target"] == "ev-3"
+
+
+@pytest.mark.asyncio
+async def test_grafo_livello2_fakesession_b_e2_shape():
+    session = _livello2_session()
+    result = await grafo_livello2(session, documento="doc-1")
+    _assert_livello2_shape(result)
+    blob = " ".join(query for query, _ in session.runs)
+    assert "grafo_livello2_cluster" in blob
+    assert "grafo_livello2_eventi" in blob
+    assert "grafo_livello2_precede" in blob
+    assert "grafo_livello2_contemporaneo" in blob
+    assert "superato_da" in blob
+    assert "APPARTIENE_A" in blob
+    assert any(params.get("documento") == "doc-1" for _, params in session.runs)
+    assert "Menzione" not in blob
+    assert "Quarantena" not in blob
+    assert ":Zona" not in blob
+
+
+@pytest.mark.asyncio
+async def test_get_graph_vista_temporale_200(monkeypatch):
+    session = _livello2_session()
+    monkeypatch.setattr(
+        "app.api.event_graph.get_driver", lambda: FakeDriver(session)
+    )
+    from app.main import app
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/event-graph/graph",
+            params={"vista": "temporale", "documento": "doc-1"},
+        )
+    assert response.status_code == 200
+    _assert_livello2_shape(response.json())
+
+
+_L3_FORBIDDEN_NODE_TIPI = frozenset({"Zona", "ClusterTemporale", "Menzione", "Quarantena"})
+_L3_FORBIDDEN_EDGE_TIPI = frozenset(
+    {
+        "SEQUENZA",
+        "COLLEGATO",
+        "PRECEDE",
+        "SUCCESSIONE_ZONA",
+        "APPARTIENE_A",
+        "SOGG",
+        "CONTEMPORANEO",
+    }
+)
+_L3_ALLOWED_EDGE_TIPI = frozenset(
+    {
+        "CAUSA",
+        "CONDIZIONE",
+        "SCOPO",
+        "CONCESSIONE",
+        "CONTRASTO",
+        "LIMITE",
+        "CONTENUTO",
+    }
+)
+
+
+def _livello3_session() -> FakeSession:
+    return FakeSession(
+        mapping={
+            "grafo_livello3_eventi": [
+                {
+                    "id": "ev-1",
+                    "label": "arrivare",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "parent": "zona-1",
+                },
+                {
+                    "id": "ev-2",
+                    "lemma": "partire",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                },
+                {
+                    "id": "ev-3",
+                    "label": "fermare",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                },
+                {
+                    "id": "ev-fused",
+                    "label": "andare",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "fuso_in": "ev-1",
+                },
+                {
+                    "id": "m-1",
+                    "label": "Mario",
+                    "tipo": "Menzione",
+                    "documento": "doc-1",
+                },
+                {
+                    "id": "zona-1",
+                    "ordinale": 0,
+                    "riassunto": "arrivo",
+                    "tipo": "Zona",
+                    "documento": "doc-1",
+                },
+                {
+                    "id": "cl-1",
+                    "etichetta": "1994",
+                    "tipo": "ClusterTemporale",
+                    "documento": "doc-1",
+                },
+                {
+                    "id": "q-1",
+                    "label": "frammento",
+                    "tipo": "Quarantena",
+                    "documento": "doc-1",
+                },
+            ],
+            "grafo_livello3_archi": [
+                {
+                    "id": "causa-l3",
+                    "source": "ev-1",
+                    "target": "ev-2",
+                    "tipo": "CAUSA",
+                    "livello": "3",
+                    "spiegazione": "l'arrivo provoca la partenza",
+                },
+                {
+                    "id": "cond-l3",
+                    "source": "ev-2",
+                    "target": "ev-3",
+                    "tipo": "CONDIZIONE",
+                    "livello": 3,
+                    "spiegazione": "si ferma solo se parte",
+                },
+                {
+                    "id": "causa-no-l3",
+                    "source": "ev-1",
+                    "target": "ev-3",
+                    "tipo": "CAUSA",
+                    "spiegazione": "nesso per-zona senza livello 3",
+                },
+                {
+                    "id": "seq-1",
+                    "source": "ev-1",
+                    "target": "ev-2",
+                    "tipo": "SEQUENZA",
+                    "livello": "3",
+                },
+                {
+                    "id": "col-1",
+                    "source": "ev-1",
+                    "target": "ev-2",
+                    "tipo": "COLLEGATO",
+                },
+                {
+                    "id": "prec-1",
+                    "source": "ev-1",
+                    "target": "ev-2",
+                    "tipo": "PRECEDE",
+                    "livello": "3",
+                },
+                {
+                    "id": "sz-1",
+                    "source": "zona-1",
+                    "target": "zona-1",
+                    "tipo": "SUCCESSIONE_ZONA",
+                },
+                {
+                    "id": "app-1",
+                    "source": "ev-1",
+                    "target": "cl-1",
+                    "tipo": "APPARTIENE_A",
+                },
+                {
+                    "id": "sogg-1",
+                    "source": "ev-1",
+                    "target": "m-1",
+                    "tipo": "SOGG",
+                },
+                {
+                    "id": "orphan-1",
+                    "source": "ev-ghost",
+                    "target": "ev-1",
+                    "tipo": "CAUSA",
+                    "livello": "3",
+                    "spiegazione": "endpoint assente",
+                },
+            ],
+        }
+    )
+
+
+def _assert_livello3_shape(body: dict) -> None:
+    nodes = body["elements"]["nodes"]
+    edges = body["elements"]["edges"]
+    by_id = {node["data"]["id"]: node["data"] for node in nodes}
+    assert "ev-1" in by_id
+    assert "ev-2" in by_id
+    assert "ev-3" in by_id
+    assert by_id["ev-1"]["tipo"] == "Evento"
+    assert by_id["ev-2"]["tipo"] == "Evento"
+    assert "parent" not in by_id["ev-1"]
+    assert "parent" not in by_id["ev-2"]
+    assert "parent" not in by_id["ev-3"]
+    assert all("parent" not in node["data"] for node in nodes)
+    assert "ev-fused" not in by_id
+    assert "m-1" not in by_id
+    assert "zona-1" not in by_id
+    assert "cl-1" not in by_id
+    assert "q-1" not in by_id
+    node_tipi = {node["data"]["tipo"] for node in nodes}
+    assert node_tipi == {"Evento"}
+    assert node_tipi.isdisjoint(_L3_FORBIDDEN_NODE_TIPI)
+    tipi = {edge["data"]["tipo"] for edge in edges}
+    assert "CAUSA" in tipi
+    assert "CONDIZIONE" in tipi
+    assert tipi <= _L3_ALLOWED_EDGE_TIPI
+    assert tipi.isdisjoint(_L3_FORBIDDEN_EDGE_TIPI)
+    edge_ids = {edge["data"]["id"] for edge in edges}
+    assert "causa-l3" in edge_ids
+    assert "cond-l3" in edge_ids
+    assert "causa-no-l3" not in edge_ids
+    assert "seq-1" not in edge_ids
+    assert "col-1" not in edge_ids
+    assert "prec-1" not in edge_ids
+    assert "sz-1" not in edge_ids
+    assert "app-1" not in edge_ids
+    assert "sogg-1" not in edge_ids
+    assert "orphan-1" not in edge_ids
+    for edge in edges:
+        data = edge["data"]
+        assert str(data["livello"]) == "3"
+        assert data.get("spiegazione")
+    causa = next(e["data"] for e in edges if e["data"]["id"] == "causa-l3")
+    assert causa["source"] == "ev-1"
+    assert causa["target"] == "ev-2"
+    assert causa["livello"] == "3"
+    assert causa["spiegazione"] == "l'arrivo provoca la partenza"
+    cond = next(e["data"] for e in edges if e["data"]["id"] == "cond-l3")
+    assert cond["source"] == "ev-2"
+    assert cond["target"] == "ev-3"
+    assert str(cond["livello"]) == "3"
+    assert cond["spiegazione"] == "si ferma solo se parte"
+
+
+@pytest.mark.asyncio
+async def test_grafo_livello3_fakesession_c_e2_shape():
+    session = _livello3_session()
+    result = await grafo_livello3(session, documento="doc-1")
+    _assert_livello3_shape(result)
+    blob = " ".join(query for query, _ in session.runs)
+    assert "grafo_livello3_eventi" in blob
+    assert "grafo_livello3_archi" in blob
+    assert "r.livello" in blob
+    assert "spiegazione" in blob
+    assert any(params.get("documento") == "doc-1" for _, params in session.runs)
+    assert "Menzione" not in blob
+    assert "Quarantena" not in blob
+    assert "ClusterTemporale" not in blob
+    assert ":Zona" not in blob
+    assert "parent" not in blob
+
+
+@pytest.mark.asyncio
+async def test_get_graph_vista_relazioni_200(monkeypatch):
+    session = _livello3_session()
+    monkeypatch.setattr(
+        "app.api.event_graph.get_driver", lambda: FakeDriver(session)
+    )
+    from app.main import app
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/event-graph/graph",
+            params={"vista": "relazioni", "documento": "doc-1"},
+        )
+    assert response.status_code == 200
+    _assert_livello3_shape(response.json())

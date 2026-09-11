@@ -6,6 +6,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -17,6 +18,9 @@ from app.pipeline.event_graph.catalog import (
     dettaglio_arco,
     dettaglio_nodo,
     grafo,
+    grafo_livello1,
+    grafo_livello2,
+    grafo_livello3,
     stats,
 )
 from app.pipeline.event_graph.infra.bus import run_tracked_job, subscribe, unsubscribe
@@ -24,6 +28,7 @@ from app.pipeline.event_graph.infra.driver import get_driver
 from app.pipeline.event_graph.infra.llm import LLMValidationError
 from app.pipeline.event_graph.metrics import elenca_run
 from app.pipeline.event_graph.persistence import (
+    azzera_grafo,
     carica_archi_macro,
     carica_documento_testo,
     carica_zona,
@@ -259,15 +264,43 @@ async def event_graph_stats() -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.delete("/documents")
+async def event_graph_reset() -> dict:
+    """Full, explicit reset of the event-graph domain.
+
+    Destructive and unscoped by design (unlike everything else this router
+    exposes) — it exists only for a manual "start over" action, never called
+    from the ingestion pipeline itself.
+    """
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            rimossi = await azzera_grafo(session)
+            return {"rimossi": rimossi}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.get("/graph")
 async def event_graph_graph(
     documento: str | None = Query(default=None),
     piano: str | None = Query(default=None),
     lemma: str | None = Query(default=None),
+    vista: Literal["tutto", "ordine", "temporale", "relazioni"] = Query(
+        default="tutto"
+    ),
 ) -> dict:
     try:
         driver = get_driver()
         async with driver.session() as session:
+            if vista == "ordine":
+                return await grafo_livello1(session, documento=documento)
+            if vista == "temporale":
+                return await grafo_livello2(session, documento=documento)
+            if vista == "relazioni":
+                return await grafo_livello3(session, documento=documento)
             return await grafo(
                 session, documento=documento, piano=piano, lemma=lemma
             )

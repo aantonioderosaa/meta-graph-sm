@@ -58,5 +58,9 @@ def zona_id(doc_id: str, ordinale: int | str, testo: str) -> str:
     return content_hash(f"{doc_id}|{ordinale}|{content_hash(testo)}")
 
 
+def cluster_temporale_id(doc_id: str, etichetta: str, tipo: str) -> str:
+    return content_hash(f"{doc_id}|{etichetta}|{tipo}")
+
+
 def quarantena_id(doc_id: str, testo_chunk: str, span: str, motivo: str) -> str:
     return content_hash(f"{doc_id}|{content_hash(testo_chunk)}|{span}|{motivo}")

@@ -215,7 +215,9 @@ def _collegato_ordine_menzione(
     for earlier, later in _consecutive_pairs(heads):
         if earlier.id == later.id:
             continue
-        if _has_event_event(sotto, earlier.id, later.id, "PRECEDE", "COLLEGATO"):
+        if _has_event_event(
+            sotto, earlier.id, later.id, "PRECEDE", "COLLEGATO", "SEQUENZA"
+        ):
             continue
         rel_id = content_hash(
             f"COLLEGATO|{earlier.id}|{later.id}|ordine_menzione"

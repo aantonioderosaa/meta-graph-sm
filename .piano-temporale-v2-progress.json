@@ -1,0 +1,150 @@
+{
+  "plan": "PIANO-LIVELLO-TEMPORALE-V2.md",
+  "current_mt": "MT10",
+  "status": "closed",
+  "completed": ["MT1", "MT2", "MT3", "MT4", "MT5", "MT6", "MT7", "MT8", "MT9", "MT10"],
+  "failed_attempts": {
+    "MT2_tentativo_1": "subagent interrotto da caduta di rete dopo ~14 min senza scrivere nulla su disco; rilanciato da zero, secondo tentativo riuscito",
+    "MT6_tentativo_1": "primo lancio subagent fallito per errore di fatturazione Cursor; implementazione di grafo_livello2 gia' presente in catalog.py (scritta prima dell'interruzione). Secondo tentativo: solo test + verifica, riuscito."
+  },
+  "last_success": "MT10",
+  "baseline_pytest": {
+    "cmd": "cd backend; .\\.venv\\Scripts\\python.exe -m pytest tests/ -q -k \"event_graph or temporal or models\"",
+    "pre_mt1": "8 failed, 420 passed, 497 deselected",
+    "failing_out_of_scope": [
+      "test_event_graph_m4.py (5)",
+      "test_event_graph_m_dedup.py (1)",
+      "test_node_graph_api.py (2, routing 404)"
+    ]
+  },
+  "mt_log": {
+    "MT1": {
+      "esito": "ok",
+      "verificato_orchestratore": "8 failed, 434 passed, 497 deselected — stesso insieme di rossi della baseline",
+      "file": [
+        "backend/app/models/event_graph.py (GranularitaTemporale + GRANULARITA_TEMPORALI + _PayloadTemporale con validator tolleranti; SegnaleTemporaleEvento esteso con granularita/stimato/confidenza/base; ClusterTemporaleProposto esteso con descrizione/granularita/inizio/fine/stimato/confidenza/padre)",
+        "backend/tests/test_event_graph_models_temporali.py (nuovo, 14 test)"
+      ],
+      "scelte": "padre = etichetta testuale del cluster padre (MT4 risolve la foresta); base = str libera (id ancora o motivazione); confidenza clampata in [0,1] invece che rifiutata, default 1.0; chiave_ordine fuori dal modello LLM (derivata dal backend); eventi ora opzionale (un cluster padre puo' contenere solo cluster).",
+      "aperto_per_dopo": "_sanitize/_merge_results in livello_temporale.py ricostruiscono i modelli coi soli campi vecchi: i nuovi verrebbero persi (da sistemare in MT3/MT4). persistence._merge_cluster_temporale e cluster_temporale_id ancora su (doc, etichetta, tipo) (MT4/MT5). Nessuna validazione ISO su inizio/fine (MT2)."
+    },
+    "MT2": {
+      "esito": "ok",
+      "verificato_orchestratore": "8 failed, 632 passed, 497 deselected (stessi 8 rossi fuori scope); verifica indipendente: ordinamento misto corretto (1800 secolo < 1843 < 1843-12 < 1843-12-24 < ...T18 < ...T18:30 < ...T18:30:15 < 1844), _expand_bounds su anno/mese/giorno identico ai valori vecchi, ore/minuti ora riconosciuti, input malformati -> None senza eccezioni, normalizza fonde '1843-12-24 18:30' e '1843-12-24T18:30Z' sulla stessa chiave, tie-break a pari istante ordina la granularita' piu' grossa per prima",
+      "file": [
+        "backend/app/pipeline/event_graph/tempo_iso.py (nuovo, modulo puro: analizza, precisione, chiave_ordine, bounds, normalizza, rango_granularita, piu_grossa; SCALA_CHIAVE=16)",
+        "backend/tests/test_event_graph_tempo_iso.py (nuovo, 198 test tabellari)",
+        "backend/app/pipeline/event_graph/temporal_placement.py (_bound_start/_bound_end estesi a ora/minuto/secondo, _ISO_HOUR, guardia ValueError su date da calendario impossibile)"
+      ],
+      "scelte": "scala = sedicesimi di secondo dall'epoca 0001-01-01 (i bit bassi ospitano il tie-break di granularita', 0=secolo .. 9=secondo, cosi' il padre ordina prima del figlio); istante d'inizio sempre dalla stringa, ampiezza dalla granularita' piu' grossa fra precisione della stringa e granularita' dichiarata; stagione = trimestre ancorato all'inizio (nessuna data fissa emisferica); tempo_iso.bounds e' semi-aperto [inizio, fine) per ottenere 'meets' di Allen, mentre _expand_bounds resta chiuso a :59 come prima.",
+      "impatto_allen": "anno/mese/giorno invariati byte per byte; sotto il giorno le precisioni ora/minuto passano da 'during' a 'starts'/'finishes' (nessun test esistente copriva quel caso: le date assolute nei test Allen sono tutte a granularita' anno/mese/giorno). test Allen/chiusura temporale/placement: 133 passed.",
+      "bug_preesistenti": "corretto: _expand_bounds('1843-13-45') sollevava ValueError (violava il best-effort). lasciato aperto: _parse_datetime restituisce datetime tz-aware per suffissi Z/+01:00, confrontabili con naive solo a costo di TypeError; tempo_iso e' immune per costruzione (scarta l'offset).",
+      "aperto_per_dopo": "normalizza(inizio, granularita) e' pronta per la fusione dei cluster di MT4 (ma non tronca alla granularita' dichiarata: fonde riformulazioni della stessa stringa, non collocazioni diverse nella stessa unita'). piu_grossa/rango_granularita pronti per il vincolo della foresta. normalizza_ancora/_extract_single_iso/_ISO_ANY NON estesi alla precisione oraria: se MT3 vuole le ore da tempo_assoluto_grezzo va fatto li'. chiave_ordine non e' ancora scritta da nessuno: calcolo e persistenza in MT5, proiezione in MT6."
+    },
+    "MT3": {
+      "esito": "ok",
+      "verificato_orchestratore": "8 failed, 647 passed, 497 deselected (stessi 8 rossi fuori scope). Verifica indipendente: il prompt utente contiene i riassunti di zona e le ancore e NON il testo integrale; senza zone degrada alla sola sezione eventi; gate a 0.6 inclusivo (cluster a 0.59 scartato, a 0.6 mantenuto) e l'evento escluso conserva la collocazione stimata (eventi_senza_collocazione = []); campi nuovi propagati (descrizione, padre, inizio, base, stimato, confidenza) e granularita dedotta dalla precisione ISO ('1843-12-24T18' -> ora, '...T18:30' -> minuto).",
+      "file": [
+        "backend/app/pipeline/event_graph/livello_temporale.py (riscritto: nuovo SYSTEM_LIVELLO_TEMPORALE, input dai riassunti di zona, SOGLIA_CLUSTER=0.6, propagazione campi nuovi, deduzione granularita via tempo_iso.precisione, nuovo helper eventi_senza_collocazione, tagli LIVELLO_MAX_CHAR_RIASSUNTO=600 e LIVELLO_MAX_CHAR_ANCORE=200)",
+        "backend/app/pipeline/event_graph/pipeline.py (una riga: estrai_livello_temporale(sotto.eventi, zone, job_id=job_id))",
+        "backend/tests/test_event_graph_livello_temporale.py (7 -> 22 test; 6 call site adeguati alla firma nuova, 1 assert rimosso)"
+      ],
+      "firme": "user_livello_temporale(eventi, zone=None) -> str; estrai_livello_temporale(eventi, zone=None, *, job_id=None). Il parametro testo_documento e' stato rimosso.",
+      "scelte": "per ogni zona si manda riassunto + ancore_temporali, mai il testo; le zone coinvolte sono quelle che contengono un evento della finestra secondo ponte_verifica.evento_nella_zona, rinumerate 1..N nel prompt; il gate 0.6 e' su ClusterTemporaleProposto.confidenza (confidenza < SOGLIA scarta i membri, non il cluster se e' padre di un figlio sopravvissuto), mentre la confidenza del segnale non e' mai un gate; un inizio non parsabile via tempo_iso.analizza viene azzerato ma il cluster resta; fallback a gradini: zona senza riassunto entra con le sole ancore, zona senza nulla viene scartata, nessuna zona -> sola sezione eventi.",
+      "budget_contesto": "stima ~1 token / 4 char, tarata sul testo integrale di christmas-carol (39.448 token, vs ~39.400 dichiarati dal piano). sole-e-vento: ~1.478 token totali. christmas-carol (303 zone, 700 eventi ipotetici, 12 finestre): finestra peggiore ~4.642 token. Tetto duro ~15.000 token grazie ai tagli per zona: il prompt cresce con la finestra, non con il documento.",
+      "assert_modificati": "uno solo, rimosso: prompt.startswith('testo intero') in test_user_prompt_orders_by_exposition_and_span_fallback, imposto dalla riga 99 del piano (sostituire il testo integrale con i riassunti di zona).",
+      "aperto_per_dopo": "MT4: fusione ancora per etichetta identica (collisione documentata in _fondi_cluster: stessa etichetta + inizio diverso -> vince il primo); inizio non canonicalizzato (tempo_iso.normalizza e' il posto giusto); foresta non costruita (qui si azzerano solo i padre auto-referenziali e quelli orfani: cicli, unicita' del padre e vincolo di granularita' restano a MT4); fine < inizio non controllato; segnali duplicati fra finestre non deduplicati. MT5: chiave_ordine non calcolata ne' persistita; DECISIONE APERTA: la confidenza dell'arco APPARTIENE_A va presa dal cluster (sorgente attuale del gate) o dal segnale dell'evento? Nello schema non esiste una confidenza di appartenenza per-evento."
+    },
+    "MT4": {
+      "esito": "ok",
+      "verificato_orchestratore": "8 failed, 697 passed, 497 deselected (stessi 8 rossi fuori scope). Verifica indipendente su casi degeneri: fusione per (inizio, granularita) con etichette diverse e riformulazioni ISO ('1843-12-24 18:30' + '1843-12-24T18:30Z' -> un solo cluster, prosa >40 char spostata in descrizione); stessa etichetta + inizio diverso NON si fondono (il secondo viene disambiguato in 'X (1900)'); invarianza all'ordine verificata su TUTTE le 120 permutazioni dell'esempio -> 1 sola forma di foresta; ciclo di 3 e ciclo di 2 rotti in modo deterministico anche a input invertito; padre con granularita uguale o piu fine -> arco scartato ma cluster conservati come radici; padre 1850 con figlio 1843-12 -> arco scartato per finestre non annidate; padre inesistente e padre = se stesso -> azzerati; annidamento a due livelli con granularita dedotte -> foresta valida; input None/[] -> [] senza eccezioni.",
+      "file": [
+        "backend/app/pipeline/event_graph/foresta_temporale.py (nuovo, 804 righe, funzioni pure: etichetta_normalizzata, chiave_iso, chiave_collocazione, granularita_effettiva, fondi_cluster, fondi_per_collocazione, mappa_etichette, costruisci_foresta, scarta_contenitori_sterili, archi_contiene, violazioni_foresta, chiave_ordine_cluster, chiavi_ordine)",
+        "backend/app/pipeline/event_graph/livello_temporale.py (_merge_results/_cluster_sanificati/_sanitize/eventi_senza_collocazione delegano al modulo nuovo; _fondi_cluster spostato)",
+        "backend/tests/test_event_graph_foresta_temporale.py (nuovo, 50 test + isolamento AST che vieta anche 'infra', non solo app.core)"
+      ],
+      "scelte": "modulo separato perche' MT5/MT6 hanno bisogno della riconciliazione senza importare il modulo che parla con l'LLM. Chiave di identita': (inizio canonico, granularita effettiva) via tempo_iso.normalizza; ripiego sull'etichetta normalizzata per i cluster non datati, con assorbimento del gruppo non datato dentro l'unico gruppo datato che porta la stessa etichetta. Etichetta canonica: rispetta i 40 char, poi la piu informativa, poi alfabetica; la prosa scartata finisce in descrizione. Granularita uguale -> arco scartato; una delle due None -> arco accettato (sono i cluster relativo/simbolico, senza i quali l'annidamento sparirebbe). Contenimento delle finestre controllato solo quando entrambe leggibili, leggendo anche 'fine' per gli intervalli. Cicli rotti processando gli archi in ordine canonico di chiave_ordine: cade quello dichiarato dall'ultimo figlio. Padri multipli (dalla fusione): vince (verificabilita, antenato piu prossimo, alfabetico). chiave_ordine calcolata qui come funzione pura, non aggiunta al modello LLM.",
+      "bonus": "eventi_senza_collocazione ora risale CONTIENE: un evento in 'sette anni prima' dentro '1843' risulta collocato al 1843. Le etichette sono rese uniche dentro il documento (disambiguazione tipo 'X (1900)'), il che serve a MT5 dato che cluster_temporale_id e' su (doc, etichetta, tipo). I cluster escono in ordine canonico, padri prima dei figli.",
+      "aperto_per_dopo": "MT5 deve: tradurre etichette in id, scrivere chiave_ordine/granularita/stimato/descrizione/fine sul nodo, decidere il fallback di chiave_ordine quando e' None (minima posizione_doc degli eventi contenuti, mai l'id - MT8 lo esige), emettere APPARTIENE_A solo sulla foglia deduplicando lungo la catena padre, e decidere se confidenza/stimato dell'arco APPARTIENE_A vengono dal cluster o dal segnale. Limiti dichiarati: due cluster non datati con stessa etichetta ma momenti diversi si fondono; un cluster con due padri non riprova il secondo candidato se il primo e' bocciato dalle finestre; tempo_iso.normalizza non tronca, quindi '1843-12-24' e '1843-12-24T00:00:00' restano distinti. L'invarianza all'ordine vale per la forma della foresta, non per l'ordine dei membri dentro eventi."
+    },
+    "MT5": {
+      "esito": "ok",
+      "verificato_orchestratore": "8 failed, 719 passed, 497 deselected (stessi 8 rossi fuori scope). Verifica indipendente con FakeSession: il contenitore puro (eventi=[]) VIENE scritto (era il bug bloccante del 'continue'); CONTIENE creato per entrambi gli archi; un evento dichiarato sia nella foglia sia nell'antenato produce UN SOLO APPARTIENE_A verso la foglia; l'arco porta confidenza=min(cluster,segnale) e stimato=cluster or segnale (verificato: e-1 min(0.75,0.5)=0.5, e-2 min(0.75,1.0)=0.75); chiave_ordine combacia con tempo_iso.chiave_ordine ed e' monotona (930045542402 < 930507264004 < 930540096007); posizione_doc_min calcolata sul sottoalbero (3 su tutti e tre, corretto); la query CONTEMPORANEO e' rimasta testualmente identica; livello_tempo=None e result vuoto -> 0 query; sessione che fallisce sui nodi -> nessuna eccezione e le altre 13 query passano.",
+      "file": [
+        "backend/app/pipeline/event_graph/persistence.py (_merge_cluster_temporale con tutte le proprieta' nuove + posizione_doc_min; _merge_contiene e _merge_appartiene_a con attivo/confidenza/stimato; _disattiva_contiene_obsoleti e _disattiva_appartiene_a_obsoleti; _foglia_per_evento; persisti_livello_temporale in tre passate)",
+        "backend/app/pipeline/event_graph/infra/schema.cypher (+1 indice: CREATE INDEX eg_cluster_temporale_ord ... ON (c.chiave_ordine))",
+        "backend/tests/test_event_graph_livello_temporale_persist.py (4 -> 26 test)",
+        "backend/tests/test_event_graph_m1.py (conteggi schema aggiornati e rafforzati: aggiunti eg_cluster_temporale_id/doc/ord alle liste e l'assert ':ClusterTemporale' in raw)"
+      ],
+      "scelte": "chiave_ordine resta null quando non c'e' collocazione (le due scale sono incompatibili: 9e11 vs ordinale di esposizione); NUOVA PROPRIETA' posizione_doc_min = minima posizione_doc degli eventi del SOTTOALBERO, aggiunta apposta per rendere implementabile il fallback di MT8. APPARTIENE_A: si scarta ogni candidato che sia antenato di un altro candidato; fra due non imparentati vince la granularita effettiva piu fine, tie-break sull'etichetta. confidenza dell'arco = min(cluster, segnale), stimato = cluster or segnale (il nodo porta la confidenza del raggruppamento, il segnale quella della collocazione: l'arco afferma la congiunzione). Tre passate di scrittura (nodi, poi CONTIENE, poi APPARTIENE_A) invece di affidarsi all'ordine canonico di MT4, perche' gli archi sono MATCH-based e un nodo mancante li farebbe sparire in silenzio. Ogni MERGE in un suppress(Exception) separato.",
+      "ATTENZIONE_MT6": "invece di cancellare, gli archi superati da una re-ingestione restano con attivo=false e sostituito_da (tombstone), per garantire l'invariante '<= 1 padre' senza violare l'append-only. Di conseguenza MT6 DEVE filtrare: le query su CONTIENE e APPARTIENE_A vanno scritte con WHERE coalesce(r.attivo, true). Il punto da correggere in catalog.py e' l'OPTIONAL MATCH (e)-[:APPARTIENE_A]->(c:ClusterTemporale) intorno alla riga 681.",
+      "aperto_per_dopo": "MT6 deve proiettare chiave_ordine, posizione_doc_min, granularita, stimato, confidenza, etichetta, descrizione, inizio, fine; la gerarchia da CONTIENE come data.parent; ordinare per chiave_ordine con posizione_doc_min come chiave secondaria; e filtrare attivo (vedi sopra). MT8 ha bisogno di chiave_ordine (primario) e posizione_doc_min (fallback), mai l'id, mai le due scale sommate. Non toccati come da piano: CONTEMPORANEO, catalogo()/dettaglio_nodo (MT7), frontend (MT8/MT9), E2E live (MT10)."
+    },
+    "MT6": {
+      "esito": "ok",
+      "verificato_orchestratore": "8 failed, 731 passed, 497 deselected (stessi 8 rossi fuori scope; +12 = i test nuovi). Verifica indipendente: Cypher contiene coalesce(r.attivo, true) su CONTIENE e APPARTIENE_A; gerarchia due livelli (nonno senza parent, foglia parent=nonno, evento parent=foglia); CONTEMPORANEO intra-foglia droppato; CONTEMPORANEO cross-foglia droppato se la coppia ha gia' PRECEDE (filtro esplicito, coppia non orientata); bande di ordinamento cl-50 < cl-100 < cl-narr; parent fantasma rimosso dall'evento.",
+      "file": [
+        "backend/app/pipeline/event_graph/catalog.py (gia' completo al ripresa: parent CONTIENE, proprieta' nuove, filtri attivo, bande chiave_ordine/posizione_doc_min, drop CONTEMPORANEO intra-foglia e coppie PRECEDE+CONTEMPORANEO; catalogo() NON toccato)",
+        "backend/tests/test_event_graph_livello2_vista.py (nuovo, 12 test FakeSession)"
+      ],
+      "scelte": "intra-cluster = stesso parent FOGLIA (APPARTIENE_A), non LCA: due eventi in foglie diverse sotto lo stesso nonno restano cross-cluster (il box non li copre entrambi). Filto esplicito sulle coppie PRECEDE+CONTEMPORANEO non orientate, perche' l'esclusione intra-cluster da sola non lo garantisce strutturalmente dopo una re-ingestione. Tre bande non sommabili: datato (chiave_ordine) < narrativo (posizione_doc_min) < ignoto (id solo tie-break). ordine_vista = rango preorder DFS (padre prima dei figli). MT8: i rank edge invisibili vanno solo fra fratelli dello stesso parent, non interpolando ordine_vista.",
+      "aperto_per_dopo": "MT7: catalogo() deve aggiungere CONTIENE e i significati di stimato/granularita; attenzione a test_catalogo_viste_covers_levels_and_meanings che asserisce l'insieme esatto degli archi della vista temporale (oggi PRECEDE, CONTEMPORANEO, APPARTIENE_A). dettaglio_nodo per ClusterTemporale deve mostrare le proprieta' nuove. MT8: layout per chiave_ordine/ordine_vista, niente parse date client, rank edge solo fra fratelli. MT9: CONTEMPORANEO distinguibile, bordo stimato. MT10: E2E live."
+    },
+    "MT7": {
+      "esito": "ok",
+      "verificato_orchestratore": "8 failed, 732 passed, 497 deselected (stessi 8 rossi; +1 test dettaglio ClusterTemporale). Verifica indipendente: viste.temporale.archi = PRECEDE, CONTEMPORANEO, APPARTIENE_A, CONTIENE; CONTIENE assente da tutto/ordine/relazioni; traits.granularita == GRANULARITA_TEMPORALI (10 valori); traits.stimato = [False, True]; CONTIENE direzione ClusterTemporale->ClusterTemporale; significato vista cita stimato e granularita.",
+      "file": [
+        "backend/app/pipeline/event_graph/catalog.py (CONTIENE in _STRUTTURA e _TEMPORALE_ARCHI, direzione cluster->cluster, traits granularita/stimato, testo vista temporale)",
+        "backend/tests/test_event_graph_m19.py (insieme esatto archi aggiornato; nuovo test_dettaglio_nodo_cluster_temporale_mostra_proprieta_nuove)"
+      ],
+      "scelte": "CONTIENE entra in viste.temporale.archi come APPARTIENE_A: presente in legenda, non disegnato (assegna data.parent). stimato/granularita sia in traits (vocabolario chiuso dai Literal) sia nel testo della vista (il piano chiede il significato, non solo l'elenco). dettaglio_nodo non arricchito con padre/figli: properties(n) basta e il piano non lo chiede.",
+      "assert_modificati": "test_catalogo_viste_covers_levels_and_meanings: insieme archi temporale + CONTIENE/stimato/granularita nel significato. Imposto da piano righe 121-125 (MT7). tutto/ordine/relazioni invariati.",
+      "aperto_per_dopo": "MT8: layout-temporale.ts — ordinare per chiave_ordine (bande/ordine_vista dal backend), eliminare parseIsoDate/extractDateKey/isDatedCluster/resolveDatedAnchor; fallback posizione_doc_min mai l'id; rank edge invisibili solo fra fratelli dello stesso livello. MT9 encoding. MT10 E2E."
+    },
+    "MT8": {
+      "esito": "ok",
+      "verificato_orchestratore": "frontend npm test: 25 file, 141 passed, 0 failed. Grep: parseIsoDate/extractDateKey/isDatedCluster/resolveDatedAnchor assenti dal frontend. localeCompare resta solo come tie-break a parita' (layout-temporale.ts) e nell'inspector (fuori scope). Test rank edge: A,A1,A2,B,B1 -> solo A->B e A1->A2. Ordine per chiave_ordine anche con id z/a/m al contrario. Fallback posizione_doc dagli eventi su payload vecchio (zzz prima di aaa).",
+      "file": [
+        "frontend/lib/event-graph/types.ts (chiave_ordine, posizione_doc_min, ordine_vista, posizione_doc, descrizione, granularita, inizio, fine, stimato, confidenza)",
+        "frontend/lib/event-graph/layout-temporale.ts (riscritto: tre bande, niente parse date, timelineRankEdges(nodes) solo fratelli)",
+        "frontend/lib/event-graph/layout-temporale.test.ts (3 test vecchi riscritti + tabellari; 12 test)",
+        "frontend/components/event-graph/EventGraphPanel.tsx (timelineRankEdges(nodes))"
+      ],
+      "scelte": "se TUTTI i cluster hanno ordine_vista si usa quello (preorder backend); altrimenti DFS locale sulle tre bande. posizione_doc_min assente si ricalcola dagli eventi e si propaga al sottoalbero. id solo tie-break. Rank edge raggruppati per parent (radici = parent vuoto).",
+      "assert_modificati": "i 3 test vecchi: ISO etichetta -> chiave_ordine; relativo 'dopo il 1994' non si ancora piu' per menzione, va in banda narrativa dopo i datati. Imposto da piano 127-129.",
+      "aperto_per_dopo": "MT9 encoding.ts: CONTEMPORANEO distinguibile da PRECEDE (niente punta, tratteggiato, colore proprio); cluster stimato bordo tratteggiato; box = etichetta breve, descrizione nel tooltip. Campi gia' sul tipo. MT10 E2E live sole-e-vento."
+    },
+    "MT9": {
+      "esito": "ok",
+      "verificato_orchestratore": "frontend npm test: 25 file, 142 passed, 0 failed. CONTEMPORANEO_COLOR=#C026D3; encodeEdge CONTEMPORANEO: markedArrow false, lineStyle dashed, colore proprio; PRECEDE resta #0D9488 con punta. ClusterTemporale stimato -> borderStyle dashed. EventGraphPanel: target-arrow-shape none se !markedArrow; mapping passa stimato/descrizione/etichetta; boxLabel = etichetta || label; tooltip descrizione.",
+      "file": [
+        "frontend/lib/event-graph/encoding.ts",
+        "frontend/lib/event-graph/encoding.test.ts",
+        "frontend/components/event-graph/EventGraphPanel.tsx",
+        "frontend/lib/event-graph/legend.test.ts"
+      ],
+      "scelte": "colore fuchsia #C026D3 opposto al teal PRECEDE, non riusa CAUSA/SEQUENZA. Punta spenta per-arco (target-arrow-shape none), non solo arrow-scale. PRECEDE con base riferimento_testuale resta dashed come prima.",
+      "aperto_per_dopo": "MT10: wipe + re-ingestione sole-e-vento (~3 min, non killare). Criteri: primo cluster a sinistra contiene evento con posizione_doc minima; CONTIENE > 0 e foresta valida; zero eventi senza posizione; nessun CONTEMPORANEO intra-cluster; nessuna coppia PRECEDE+CONTEMPORANEO; granularita e chiave_ordine su tutti i cluster; viste tutto/ordine/relazioni invariate."
+    },
+    "MT10": {
+      "esito": "ok",
+      "verificato_orchestratore": "Criteri numerati 1-8 del piano PASS. Indipendente Neo4j+HTTP: eventi=23 cluster=6 CONTIENE=2 APPARTIENE_A=23 padri multipli=0 orfani=0; granularita 6/6; chiave_ordine coerente con tempo_iso e monotona; foglie tutte con inizio; posizione_doc min=0 nella foglia '24 dic, sera' che e' il primo cluster della vista. Vista: CONTEMPORANEO=0 intra=0 PRECEDE=244 overlap=0 archi=251. Viste tutto/ordine/relazioni 200, ClusterTemporale solo in temporale. NOTA: violazioni_foresta non e' vuota (1 finestra non annidata: 'Vento prova, minuti 6-7' 18:05:30 minuto -> 'Vento arrendersi' 18:07:30 secondo). Il testo dei criteri 1-8 chiede ciclo/padre unico/granularita decrescente, tutti ok.",
+      "numeri": {
+        "n_eventi": 23,
+        "n_cluster": 6,
+        "n_CONTIENE": 2,
+        "n_APPARTIENE_A": 23,
+        "n_PRECEDE_vista": 244,
+        "n_archi_vista": 251,
+        "n_CONTEMPORANEO_vista": 0,
+        "n_intra_cluster": 0,
+        "n_coppie_PRECEDE_CONTEMPORANEO": 0,
+        "n_eventi_senza_posizione": 0,
+        "primo_cluster": "24 dic, sera",
+        "posizione_doc_min": 0,
+        "foresta": "2 CONTIENE, 0 cicli, 0 padri multipli; ora>minuto>secondo; 1 avviso finestra non annidata (fuori dal testo dei criteri 1-8)"
+      }
+    }
+  },
+  "notes": "Piano v2 CHIUSO 2026-09-10. Nessun commit git. Loop non riarmato."
+}

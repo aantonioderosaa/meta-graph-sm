@@ -66,6 +66,13 @@ _ISO_DATETIME = re.compile(
 _ISO_DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})$")
 _ISO_MONTH = re.compile(r"^(\d{4}-\d{2})$")
 _ISO_YEAR = re.compile(r"^(\d{4})$")
+# Precisione oraria: _ISO_DATETIME esige i minuti, quindi "1843-12-24T18" non
+# era riconosciuto. Il livello temporale v2 la ammette (MT2).
+_ISO_HOUR = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2})(Z|[+-]\d{2}:\d{2})?$")
+# Quanti campi orari porta una stringa già riconosciuta da _ISO_DATETIME:
+# serve solo a _bound_end, per chiudere l'ultima unità invece di restituire
+# un intervallo di larghezza zero.
+_ISO_HAS_SECONDS = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 _ISO_ANY = re.compile(
     r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?"
     r"|\d{4}-\d{2}-\d{2}|\d{4}-\d{2}|\d{4})"
@@ -380,31 +387,55 @@ def _bound_start(token: Any) -> datetime | None:
     parsed = _parse_datetime(text)
     if parsed is not None:
         return parsed
-    if _ISO_DATE.match(text):
-        return datetime.fromisoformat(text)
-    if _ISO_MONTH.match(text):
-        year, month = int(text[:4]), int(text[5:7])
-        return datetime(year, month, 1)
-    if _ISO_YEAR.match(text):
-        return datetime(int(text), 1, 1)
+    hour = _parse_hour(text)
+    if hour is not None:
+        return hour
+    try:
+        if _ISO_DATE.match(text):
+            return datetime.fromisoformat(text)
+        if _ISO_MONTH.match(text):
+            year, month = int(text[:4]), int(text[5:7])
+            return datetime(year, month, 1)
+        if _ISO_YEAR.match(text):
+            return datetime(int(text), 1, 1)
+    except ValueError:
+        # "1843-13-45" passa la regex ma non il calendario: il livello
+        # temporale è best-effort, non collocabile ≠ ingestione interrotta.
+        return None
     return None
 
 
 def _bound_end(token: Any) -> datetime | None:
+    """Ultimo istante *incluso* nell'unità denotata dal token.
+
+    Le tre precisioni sotto il giorno seguono la stessa regola di anno / mese /
+    giorno — l'ultimo secondo intero dell'unità — invece di collassare su un
+    intervallo di larghezza zero come faceva _parse_datetime da sola. Il
+    secondo resta l'unità atomica, quindi per una stringa al secondo inizio e
+    fine coincidono, come prima.
+    """
     if not isinstance(token, str):
         return None
     text = token.strip()
     parsed = _parse_datetime(text)
     if parsed is not None:
-        return parsed
-    if _ISO_DATE.match(text):
-        return datetime.fromisoformat(text + "T23:59:59")
-    if _ISO_MONTH.match(text):
-        year, month = int(text[:4]), int(text[5:7])
-        last = calendar.monthrange(year, month)[1]
-        return datetime(year, month, last, 23, 59, 59)
-    if _ISO_YEAR.match(text):
-        return datetime(int(text), 12, 31, 23, 59, 59)
+        if _ISO_HAS_SECONDS.match(text):
+            return parsed
+        return parsed.replace(second=59)
+    hour = _parse_hour(text)
+    if hour is not None:
+        return hour.replace(minute=59, second=59)
+    try:
+        if _ISO_DATE.match(text):
+            return datetime.fromisoformat(text + "T23:59:59")
+        if _ISO_MONTH.match(text):
+            year, month = int(text[:4]), int(text[5:7])
+            last = calendar.monthrange(year, month)[1]
+            return datetime(year, month, last, 23, 59, 59)
+        if _ISO_YEAR.match(text):
+            return datetime(int(text), 12, 31, 23, 59, 59)
+    except (ValueError, calendar.IllegalMonthError):
+        return None
     return None
 
 
@@ -412,6 +443,21 @@ def _parse_datetime(text: str) -> datetime | None:
     if not _ISO_DATETIME.match(text):
         return None
     cleaned = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+
+
+def _parse_hour(text: str) -> datetime | None:
+    """Precisione oraria, "1843-12-24T18". Il fuso è tenuto come da _parse_datetime."""
+    match = _ISO_HOUR.match(text)
+    if match is None:
+        return None
+    cleaned = match.group(1) + ":00"
+    offset = match.group(2)
+    if offset:
+        cleaned += "+00:00" if offset in {"Z", "z"} else offset
     try:
         return datetime.fromisoformat(cleaned)
     except ValueError:

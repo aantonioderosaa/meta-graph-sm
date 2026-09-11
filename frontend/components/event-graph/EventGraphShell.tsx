@@ -16,7 +16,25 @@ import type {
   EventGraphCatalog,
   EventGraphElements,
   EventGraphStats,
+  GraphFilters,
 } from "@/lib/event-graph/types";
+import { cn } from "@/lib/utils";
+
+type VistaGraph = NonNullable<GraphFilters["vista"]>;
+
+const VISTA_BUTTONS: { id: VistaGraph; label: string }[] = [
+  { id: "tutto", label: "Tutto" },
+  { id: "ordine", label: "Ordine" },
+  { id: "temporale", label: "Temporale" },
+  { id: "relazioni", label: "Relazioni" },
+];
+
+const LAYOUT_BY_VISTA = {
+  tutto: "dagre",
+  ordine: "ordine",
+  temporale: "temporale",
+  relazioni: "cose",
+} as const;
 
 const EventGraphPanel = dynamic(
   () =>
@@ -37,10 +55,13 @@ export function EventGraphShell() {
   );
   const [legendFilter, setLegendFilter] = useState<LegendFilter>(null);
   const [selection, setSelection] = useState<ElementSelection | null>(null);
+  const [vista, setVista] = useState<VistaGraph>("tutto");
 
   const loadGraph = useCallback(async () => {
     try {
-      const graph = await fetchGraph();
+      const graph = await fetchGraph(
+        vista === "tutto" ? {} : { vista },
+      );
       setElements(graph.elements);
       setError(null);
     } catch (err) {
@@ -56,7 +77,7 @@ export function EventGraphShell() {
     } catch {
       setStats(EMPTY_STATS);
     }
-  }, []);
+  }, [vista]);
 
   useEffect(() => {
     void loadGraph();
@@ -64,11 +85,38 @@ export function EventGraphShell() {
 
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
-      <header className="border-b border-border px-4 py-3">
-        <h1 className="text-lg font-semibold tracking-tight">Grafo degli eventi</h1>
-        <p className="text-xs text-muted-foreground">
-          Ingestione, pipeline e visualizzazione del grafo degli eventi
-        </p>
+      <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Grafo degli eventi</h1>
+          <p className="text-xs text-muted-foreground">
+            Ingestione, pipeline e visualizzazione del grafo degli eventi
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Vista</span>
+          <div
+            role="group"
+            aria-label="Vista del grafo"
+            className="inline-flex overflow-hidden rounded-md border border-border text-xs"
+          >
+            {VISTA_BUTTONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={cn(
+                  "px-2.5 py-1",
+                  vista === option.id
+                    ? "bg-muted font-medium text-foreground"
+                    : "bg-background text-muted-foreground hover:bg-muted/50",
+                )}
+                aria-pressed={vista === option.id}
+                onClick={() => setVista(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <main className="min-h-0 min-w-0 flex-1 p-3">
@@ -81,12 +129,17 @@ export function EventGraphShell() {
             elements={elements}
             highlights={highlights}
             legendFilter={legendFilter}
+            layout={LAYOUT_BY_VISTA[vista]}
             onSelect={setSelection}
             className="h-full"
           />
         </main>
         <aside className="flex w-full shrink-0 flex-col gap-3 overflow-y-auto border-t border-border p-3 lg:w-80 lg:border-l lg:border-t-0">
-          <ElementInspector selection={selection} onSelectRelated={setSelection} />
+          <ElementInspector
+            selection={selection}
+            elements={elements}
+            onSelectRelated={setSelection}
+          />
           <EventLegend
             catalog={catalog}
             stats={stats}
@@ -94,7 +147,7 @@ export function EventGraphShell() {
             onFilterChange={setLegendFilter}
           />
           <EventQueryPanel onHighlightsChange={setHighlights} />
-          <EventIngestPanel onJobStarted={setJobId} />
+          <EventIngestPanel onJobStarted={setJobId} onGraphReset={loadGraph} />
           <EventPipelineMonitor jobId={jobId} onDone={loadGraph} />
         </aside>
       </div>

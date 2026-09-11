@@ -9,18 +9,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ingestDocument } from "@/lib/event-graph/api";
+import { ingestDocument, resetGraph } from "@/lib/event-graph/api";
 
 type EventIngestPanelProps = {
   onJobStarted?: (jobId: string) => void;
+  onGraphReset?: () => void;
 };
 
-export function EventIngestPanel({ onJobStarted }: EventIngestPanelProps) {
+export function EventIngestPanel({ onJobStarted, onGraphReset }: EventIngestPanelProps) {
   const [docId, setDocId] = useState("doc-1");
   const [text, setText] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetResult, setResetResult] = useState<number | null>(null);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -35,6 +41,21 @@ export function EventIngestPanel({ onJobStarted }: EventIngestPanelProps) {
       setError(err instanceof Error ? err.message : "Ingestione fallita");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onConfirmReset() {
+    setResetting(true);
+    setResetError(null);
+    try {
+      const result = await resetGraph();
+      setResetResult(result.rimossi);
+      setConfirmingReset(false);
+      onGraphReset?.();
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : "Pulizia del grafo fallita");
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -78,6 +99,61 @@ export function EventIngestPanel({ onJobStarted }: EventIngestPanelProps) {
             </p>
           ) : null}
         </form>
+
+        <div className="mt-4 flex flex-col gap-2 border-t border-border pt-3">
+          {!confirmingReset ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="text-destructive"
+              onClick={() => {
+                setConfirmingReset(true);
+                setResetError(null);
+                setResetResult(null);
+              }}
+            >
+              Pulisci grafo
+            </Button>
+          ) : (
+            <div className="flex flex-col gap-2 text-xs">
+              <p className="text-destructive">
+                Elimina TUTTI i documenti, eventi, zone e cluster dal grafo. L&apos;operazione
+                non è reversibile. Confermi?
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={resetting}
+                  onClick={() => void onConfirmReset()}
+                >
+                  {resetting ? "Pulizia…" : "Conferma pulizia"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={resetting}
+                  onClick={() => setConfirmingReset(false)}
+                >
+                  Annulla
+                </Button>
+              </div>
+            </div>
+          )}
+          {resetResult != null ? (
+            <p className="text-xs text-foreground" data-testid="reset-result">
+              Grafo pulito: {resetResult} nodi rimossi.
+            </p>
+          ) : null}
+          {resetError ? (
+            <p className="text-xs text-destructive" role="alert">
+              {resetError}
+            </p>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

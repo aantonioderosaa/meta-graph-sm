@@ -64,6 +64,27 @@ describe("event-graph api paths", () => {
     );
   });
 
+  it("fetchGraph forwards vista=ordine when set", async () => {
+    await fetchGraph({ vista: "ordine", documento: "doc-1" });
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("vista=ordine");
+    expect(url).toContain("documento=doc-1");
+  });
+
+  it("fetchGraph forwards vista=temporale when set", async () => {
+    await fetchGraph({ vista: "temporale", documento: "doc-1" });
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("vista=temporale");
+    expect(url).toContain("documento=doc-1");
+  });
+
+  it("fetchGraph forwards vista=relazioni when set", async () => {
+    await fetchGraph({ vista: "relazioni", documento: "doc-1" });
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("vista=relazioni");
+    expect(url).toContain("documento=doc-1");
+  });
+
   it("fetchNodoDettaglio GETs /event-graph/nodo/:id", async () => {
     fetchMock.mockResolvedValue(okResponse({ id: "ev-1", labels: ["Evento"], proprieta: {} }));
     const result = await fetchNodoDettaglio("ev-1");

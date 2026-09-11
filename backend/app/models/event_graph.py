@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 _T = TypeVar("_T")
 
@@ -82,6 +82,8 @@ TipoRelazione = Literal[
     "CONTENUTO",
     "COLLEGATO",
     "SATELLITE_DI",
+    "CONTEMPORANEO",
+    "APPARTIENE_A",
 ]
 CatenaTipo = Literal["STESSO_EVENTO", "AGGIORNA", "CONTRADDICE"]
 TraversalKind = Literal[
@@ -370,6 +372,277 @@ class PairEdgeDecision(ZonaEdgeDecision):
     """
 
 
+class TransizioneZonaResult(BaseModel):
+    """Livello 1: what changes in context from zone A to zone B."""
+
+    riassunto: str  # cosa cambia nel contesto passando da zona A a zona B
+
+
+GranularitaTemporale = Literal[
+    "secondo",
+    "minuto",
+    "ora",
+    "giorno",
+    "settimana",
+    "mese",
+    "stagione",
+    "anno",
+    "decennio",
+    "secolo",
+]
+
+GRANULARITA_TEMPORALI: tuple[GranularitaTemporale, ...] = get_args(
+    GranularitaTemporale
+)
+"""The ten granularities, ordered from the finest to the coarsest."""
+
+_GRANULARITA_SINONIMI: dict[str, GranularitaTemporale] = {
+    "secondi": "secondo",
+    "second": "secondo",
+    "seconds": "secondo",
+    "minuti": "minuto",
+    "minute": "minuto",
+    "minutes": "minuto",
+    "ore": "ora",
+    "hour": "ora",
+    "hours": "ora",
+    "giorni": "giorno",
+    "data": "giorno",
+    "day": "giorno",
+    "days": "giorno",
+    "date": "giorno",
+    "settimane": "settimana",
+    "week": "settimana",
+    "weeks": "settimana",
+    "mesi": "mese",
+    "month": "mese",
+    "months": "mese",
+    "stagioni": "stagione",
+    "season": "stagione",
+    "seasons": "stagione",
+    "anni": "anno",
+    "year": "anno",
+    "years": "anno",
+    "decenni": "decennio",
+    "decade": "decennio",
+    "decades": "decennio",
+    "secoli": "secolo",
+    "century": "secolo",
+    "centuries": "secolo",
+}
+
+_TESTO_NULLO = frozenset({"null", "none", "nil", "n/a", "na", "-", "sconosciuto"})
+
+
+class _PayloadTemporale(BaseModel):
+    """Lenient coercions shared by the two livello-temporale payloads.
+
+    These models are the structured-output schema of a local LLM
+    (``infra.llm.call_structured``): one dirty field must never reject the
+    whole window, so the validators below coerce and fall back to the default
+    instead of raising. ``check_fields=False`` because the fields live in the
+    subclasses.
+    """
+
+    @field_validator("granularita", mode="before", check_fields=False)
+    @classmethod
+    def _coerce_granularita(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return None
+        token = value.strip().casefold()
+        if token in GRANULARITA_TEMPORALI:
+            return token
+        return _GRANULARITA_SINONIMI.get(token)
+
+    @field_validator("stimato", mode="before", check_fields=False)
+    @classmethod
+    def _coerce_stimato(cls, value: Any) -> Any:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            token = value.strip().casefold()
+            if token in {"vero", "sì", "si", "stimato"}:
+                return True
+            if token in {"falso", "no", "esplicito", ""}:
+                return False
+        return value
+
+    @field_validator("confidenza", mode="before", check_fields=False)
+    @classmethod
+    def _coerce_confidenza(cls, value: Any) -> Any:
+        """Clamp to [0, 1]; anything unreadable means 'not declared' (1.0)."""
+        if isinstance(value, str):
+            value = value.strip().replace(",", ".")
+        try:
+            numero = float(value)
+        except (TypeError, ValueError):
+            return 1.0
+        if numero != numero:
+            return 1.0
+        return min(1.0, max(0.0, numero))
+
+    @field_validator(
+        "descrizione", "inizio", "fine", "padre", "base",
+        mode="before",
+        check_fields=False,
+    )
+    @classmethod
+    def _coerce_testo_opzionale(cls, value: Any) -> Any:
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return str(value)
+        if not isinstance(value, str):
+            return None
+        testo = value.strip()
+        if not testo or testo.casefold() in _TESTO_NULLO:
+            return None
+        return testo
+
+
+class SegnaleTemporaleEvento(_PayloadTemporale):
+    """Where one event sits in time, as proposed by the LLM.
+
+    Placing is always required: when the text states nothing, the model still
+    infers a position and declares it with ``stimato=True`` and a
+    ``confidenza``. Every field added after the first version has a default,
+    so payloads built with the original four fields stay valid.
+    """
+
+    evento_id: str
+    tempo_assoluto: str | None = None
+    espressione_relativa: str | None = None
+    contemporaneo_a: list[str] = Field(default_factory=list)
+    precede: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Ids of events that happen after this one. Mutually exclusive "
+            "with contemporaneo_a on the same pair."
+        ),
+    )
+    granularita: GranularitaTemporale | None = Field(
+        default=None,
+        description=(
+            "Finest granularity the placement is sure about, from secondo to "
+            "secolo. Null when none can be stated."
+        ),
+    )
+    stimato: bool = Field(
+        default=False,
+        description=(
+            "True when the placement is inferred rather than stated by the "
+            "text. Absent means declared, which is what old payloads meant."
+        ),
+    )
+    confidenza: float = Field(
+        default=1.0,
+        description=(
+            "Confidence in the placement, between 0 and 1. Out-of-range or "
+            "unreadable values are clamped, never rejected."
+        ),
+    )
+    base: str | None = Field(
+        default=None,
+        description=(
+            "What an estimate rests on: the id of the anchor event when the "
+            "placement is derived from another event, otherwise a short "
+            "reason in free text. Only meaningful when stimato is true."
+        ),
+    )
+
+
+class ClusterTemporaleProposto(_PayloadTemporale):
+    """One temporal cluster proposed by the LLM, possibly nested.
+
+    ``padre`` is a textual reference to the ``etichetta`` of the parent
+    cluster in the same proposal: the label is already the key clusters are
+    identified by across windows, and asking a local model for a plain string
+    it has just written is far more reliable than an index or a synthetic id.
+    MT4 turns those references into the CONTIENE forest (at most one parent,
+    no cycles, coarser granularity going up).
+
+    ``chiave_ordine`` is deliberately not here: it is derived by the backend
+    from ``inizio`` and ``granularita``, so letting the LLM emit it would only
+    add a hallucinable integer that the backend would overwrite anyway.
+    """
+
+    etichetta: str = Field(
+        description=(
+            "Short readable placement, at most 40 characters: '24 dic, sera'. "
+            "The prose goes in descrizione."
+        ),
+    )
+    tipo: Literal["data_esplicita", "intervallo", "relativo", "simbolico"]
+    eventi: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Ids of the events placed directly in this cluster. Empty for a "
+            "cluster that only contains other clusters."
+        ),
+    )
+    descrizione: str | None = Field(
+        default=None,
+        description="Longer prose about the moment, or null.",
+    )
+    granularita: GranularitaTemporale | None = Field(
+        default=None,
+        description=(
+            "Granularity of the cluster, from secondo to secolo. A parent is "
+            "always coarser than its children."
+        ),
+    )
+    inizio: str | None = Field(
+        default=None,
+        description=(
+            "ISO 8601 at variable precision: 1843, 1843-12, 1843-12-24, "
+            "1843-12-24T18, 1843-12-24T18:30, 1843-12-24T18:30:15."
+        ),
+    )
+    fine: str | None = Field(
+        default=None,
+        description="Same format as inizio, for intervals. Null otherwise.",
+    )
+    stimato: bool = Field(
+        default=False,
+        description="True when inizio is inferred and not stated by the text.",
+    )
+    confidenza: float = Field(
+        default=1.0,
+        description=(
+            "Confidence in the grouping, between 0 and 1. Out-of-range or "
+            "unreadable values are clamped, never rejected."
+        ),
+    )
+    padre: str | None = Field(
+        default=None,
+        description=(
+            "Etichetta of the cluster containing this one, or null when this "
+            "cluster is a root."
+        ),
+    )
+
+
+class LivelloTemporaleResult(BaseModel):
+    segnali: list[SegnaleTemporaleEvento] = Field(default_factory=list)
+    cluster: list[ClusterTemporaleProposto] = Field(default_factory=list)
+
+
+TipoRelazioneLibera = Literal[
+    "CAUSA", "CONDIZIONE", "SCOPO", "CONCESSIONE", "CONTRASTO", "LIMITE", "CONTENUTO"
+]
+
+
+class RelazioneLibera(BaseModel):
+    da_id: str
+    a_id: str
+    tipo: TipoRelazioneLibera
+    spiegazione: str
+
+
+class LivelloRelazioniResult(BaseModel):
+    relazioni: list[RelazioneLibera] = Field(default_factory=list)
+
+
 @dataclass
 class RunState:
     tempo_base_precedente: TempoVerbale | None = None
@@ -485,6 +758,7 @@ __all__ = [
     "BasePrecede",
     "ChunkFactsheet",
     "ClasseVerboReggente",
+    "ClusterTemporaleProposto",
     "EventEntityExtractionResult",
     "EventEntityParticipation",
     "EventQuerySpec",
@@ -495,8 +769,12 @@ __all__ = [
     "FrammentoQuarantena",
     "FraseFactsheet",
     "FraseTipo",
+    "GRANULARITA_TEMPORALI",
+    "GranularitaTemporale",
     "Modalita",
     "GenereMenzione",
+    "LivelloRelazioniResult",
+    "LivelloTemporaleResult",
     "MenzioneRisolta",
     "NumeroMenzione",
     "OrientamentoArco",
@@ -505,17 +783,21 @@ __all__ = [
     "PredicatoNonFinito",
     "RispostaSintetizzata",
     "QuarantenaItem",
+    "RelazioneLibera",
     "RelazioneSegnale",
     "RuoloArgomentale",
     "RuoloSe",
     "RunState",
     "Segmentazione",
+    "SegnaleTemporaleEvento",
     "SoggSpeciale",
     "SottoGrafo",
     "TempoVerbale",
     "TipoRelazione",
+    "TipoRelazioneLibera",
     "TipoSuperficiale",
     "TraversalKind",
+    "TransizioneZonaResult",
     "ZonaEdgeDecision",
     "ZonaSummary",
 ]

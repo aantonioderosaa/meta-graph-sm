@@ -30,6 +30,10 @@ from app.pipeline.event_graph.zona_segmentation import Zona
 
 REGOLA = "zona_edges.collega"
 
+# Zona↔Zona succession (Livello 1). Independent of ArcoZona / collega_zone /
+# TipoRelazione (that enum is Evento↔Evento/Menzione).
+SUCCESSIONE_ZONA = "SUCCESSIONE_ZONA"
+
 # Implicit classifier: typed arc only at or above this score.
 # Adjacent pairs below it still emit COLLEGATO {segnale: "implicito"} so
 # consecutive zones are never structurally isolated. Non-adjacent pairs
@@ -303,6 +307,7 @@ async def collega_zone(
 __all__ = [
     "REGOLA",
     "SOGLIA_CONFIDENZA",
+    "SUCCESSIONE_ZONA",
     "SYSTEM_ZONA_EDGE",
     "ArcoZona",
     "collega_zone",

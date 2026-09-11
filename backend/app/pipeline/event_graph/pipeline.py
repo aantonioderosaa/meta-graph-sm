@@ -18,6 +18,7 @@ from app.pipeline.event_graph import (
 from app.pipeline.event_graph.chiusura_temporale import chiusura_temporale
 from app.pipeline.event_graph.config import settings
 from app.pipeline.event_graph.dedup import DedupResult, espandi_zona_fino_dedup
+from app.pipeline.event_graph.ids import content_hash
 from app.pipeline.event_graph.infra.bus import publish
 from app.pipeline.event_graph.infra.driver import get_driver, get_session
 from app.pipeline.event_graph.infra.schema_bootstrap import ensure_event_graph_schema
@@ -27,6 +28,16 @@ from app.pipeline.event_graph.via_principale import annota_vie, calcola_vie
 from app.pipeline.event_graph.zona_edges import ArcoZona, collega_zone
 from app.pipeline.event_graph.zona_segmentation import Zona, segmenta_zone
 from app.pipeline.event_graph.zona_summary import riassumi_zone
+from app.pipeline.event_graph.livello_relazioni import estrai_livello_relazioni
+from app.pipeline.event_graph.livello_temporale import (
+    coppie_precede_da_archi,
+    estrai_livello_temporale,
+)
+from app.pipeline.event_graph.zona_transizioni import genera_transizioni_zona
+
+# Regola/base of the intra-zone exposition dorsale (collega_dorsale_eventi).
+REGOLA_DORSALE_ESPOSIZIONE = "pipeline.dorsale_esposizione"
+BASE_DORSALE_ESPOSIZIONE = "esposizione"
 
 
 @dataclass
@@ -119,6 +130,62 @@ def collega_dorsale_zone(sotto: SottoGrafo, zone: list[Zona]) -> None:
                     )
                 )
         precedente = ultimo
+
+
+def _pos_key_esposizione(evento: EventoRisolto) -> tuple[int, int, int, str]:
+    """Exposition order inside one zone: posizione_chunk first, then fallbacks."""
+    return (
+        evento.posizione_chunk if evento.posizione_chunk is not None else 0,
+        evento.posizione_doc if evento.posizione_doc is not None else 0,
+        evento.offset_inizio if evento.offset_inizio is not None else 0,
+        evento.id or "",
+    )
+
+
+def collega_dorsale_eventi(sotto: SottoGrafo, zone: list[Zona]) -> None:
+    """The intra-zone half of the narrative railway: one SEQUENZA arc between
+    every pair of consecutive events of the same zone, in exposition order.
+
+    Deterministic by construction (``posizione_chunk`` is already known, no LLM
+    call, no re-classification): the blue chain must not depend on which label
+    the pair classifier happened to pick. Append-only and idempotent — an arc is
+    written only when that ordered pair has no SEQUENZA yet, and the content-hash
+    ``id`` makes the Neo4j MERGE stable across runs. A pre-existing PRECEDE or
+    CAUSA on the same pair is left alone and the dorsale arc is added next to it:
+    exposition order and semantic relation are two distinct assertions.
+
+    Cross-zone joints are ``collega_dorsale_zone``'s job, not this one's.
+    """
+    for zona in sorted(zone, key=lambda z: z.ordinale):
+        eventi_zona = sorted(
+            (
+                event
+                for event in sotto.eventi
+                if event.chunk_id == zona.id and event.id and not event.fuso_in
+            ),
+            key=_pos_key_esposizione,
+        )
+        for precedente, successivo in zip(eventi_zona, eventi_zona[1:]):
+            if precedente.id == successivo.id:
+                continue
+            if _ponte_gia_presente(sotto, precedente.id, successivo.id):
+                continue
+            sotto.archi.append(
+                ArcoEvento(
+                    tipo="SEQUENZA",
+                    da_id=precedente.id,
+                    a_id=successivo.id,
+                    props={
+                        "id": content_hash(
+                            f"SEQUENZA|{precedente.id}|{successivo.id}"
+                            f"|{BASE_DORSALE_ESPOSIZIONE}"
+                        ),
+                        "base": BASE_DORSALE_ESPOSIZIONE,
+                        "regola": REGOLA_DORSALE_ESPOSIZIONE,
+                        "versione_regole": RULESET_VERSION,
+                    },
+                )
+            )
 
 
 @asynccontextmanager
@@ -231,6 +298,13 @@ async def _run_fase_b(session, sotto: SottoGrafo, job_id: str, doc_id: str) -> N
     mention_coref.risolvi_intra(sotto.eventi, None, sotto)
     await mention_coref.fondi_referenziali_vs_persistente(session, sotto)
     await persistence.persisti(session, sotto, job_id=job_id)
+    # collega_dorsale_eventi/zone (già in sotto.archi sopra) possono coprire
+    # una coppia il cui COLLEGATO era già stato scritto nel MERGE per-zona,
+    # prima che la dorsale esistesse: quel COLLEGATO non viene mai rivisto
+    # dal dedup di persisti() perché non è più nel batch. Un solo giro qui,
+    # con tutte le SEQUENZA del documento ormai a grafo: marca (mai cancella,
+    # append-only) i COLLEGATO ormai ridondanti.
+    await persistence.sopprimi_collegato_ridondanti(session, doc_id)
     for event in sotto.eventi_per_posizione():
         esito = event_coref.classifica(
             event,
@@ -325,7 +399,60 @@ async def run_event_graph_ingestion(
         chunks_kept = zones_expanded
         chunks_skipped = max(len(zone) - zones_expanded, 0)
 
+        collega_dorsale_eventi(sotto, zone)
         collega_dorsale_zone(sotto, zone)
+        try:
+            transizioni = await genera_transizioni_zona(zone, job_id=job_id)
+        except Exception:
+            transizioni = {}
+        try:
+            async with _maybe_session(session) as persist_session:
+                if persist_session is not None:
+                    await persistence.persisti_transizioni_zona(
+                        persist_session, transizioni, job_id
+                    )
+        except Exception:
+            pass
+        try:
+            coppie_precede = coppie_precede_da_archi(sotto.archi)
+            livello_tempo = await estrai_livello_temporale(
+                sotto.eventi,
+                zone,
+                job_id=job_id,
+                coppie_precede=coppie_precede,
+            )
+        except Exception:
+            livello_tempo = None
+            coppie_precede = coppie_precede_da_archi(sotto.archi)
+        try:
+            async with _maybe_session(session) as persist_session:
+                if persist_session is not None:
+                    await persistence.persisti_livello_temporale(
+                        persist_session,
+                        livello_tempo,
+                        doc_id,
+                        job_id,
+                        eventi=sotto.eventi,
+                        coppie_precede=coppie_precede,
+                    )
+        except Exception:
+            pass
+        try:
+            livello_rel = await estrai_livello_relazioni(
+                sotto.eventi,
+                job_id=job_id,
+                archi_causa_esistenti=sotto.archi,
+            )
+        except Exception:
+            livello_rel = None
+        try:
+            async with _maybe_session(session) as persist_session:
+                if persist_session is not None:
+                    await persistence.persisti_livello_relazioni(
+                        persist_session, livello_rel, job_id, eventi=sotto.eventi
+                    )
+        except Exception:
+            pass
 
         await _fase_b_if_available(session, sotto, job_id, doc_id)
         stats = {
@@ -362,8 +489,11 @@ async def run_event_graph_ingestion(
 
 
 __all__ = [
+    "BASE_DORSALE_ESPOSIZIONE",
     "EspansioneZona",
     "IngestionOutcome",
+    "REGOLA_DORSALE_ESPOSIZIONE",
+    "collega_dorsale_eventi",
     "collega_dorsale_zone",
     "espandi_zona",
     "run_event_graph_ingestion",

@@ -4,7 +4,12 @@ export type PianoNarrativo = "PRIMO_PIANO" | "SFONDO" | "FUORI_LINEA";
 
 export type Fattualita = "FATTUALE" | "NON_FATTUALE" | "IPOTETICO";
 
-export type EventGraphNodeTipo = "Evento" | "Menzione" | "Quarantena";
+export type EventGraphNodeTipo =
+  | "Evento"
+  | "Menzione"
+  | "Quarantena"
+  | "Zona"
+  | "ClusterTemporale";
 
 export type PipelineStage =
   | "estrazione"
@@ -26,6 +31,22 @@ export type EventGraphNodeData = {
   modalizzato?: boolean | string | null;
   iterativita?: boolean | string | null;
   fonte?: string | null;
+  parent?: string | null;
+  ordinale?: number | null;
+  riassunto?: string | null;
+  evento_centrale?: string | null;
+  etichetta?: string | null;
+  tipo_cluster?: string | null;
+  chiave_ordine?: number | null;
+  posizione_doc_min?: number | null;
+  ordine_vista?: number | null;
+  posizione_doc?: number | null;
+  descrizione?: string | null;
+  granularita?: string | null;
+  inizio?: string | null;
+  fine?: string | null;
+  stimato?: boolean | string | null;
+  confidenza?: number | null;
 };
 
 export type EventGraphEdgeData = {
@@ -37,6 +58,10 @@ export type EventGraphEdgeData = {
   segnale?: string | null;
   superato_da?: string | null;
   conflitto?: boolean | null;
+  confidenza?: number | null;
+  riassunto_transizione?: string | null;
+  spiegazione?: string | null;
+  livello?: string | null;
 };
 
 export type EventGraphNodeElement = { data: EventGraphNodeData };
@@ -63,6 +88,7 @@ export type GraphFilters = {
   documento?: string;
   piano?: string;
   lemma?: string;
+  vista?: "tutto" | "ordine" | "temporale" | "relazioni";
 };
 
 export type TempoVerbale =
@@ -218,10 +244,17 @@ export type CatalogCatenaTrait = {
 
 export type CatalogTraitValue = string | boolean | CatalogCatenaTrait;
 
+export type CatalogVista = {
+  nodi: string[];
+  archi: string[];
+  significato: string;
+};
+
 export type EventGraphCatalog = {
   nodes: CatalogNode[];
   traits: Record<string, CatalogTraitValue[] | CatalogCatenaTrait>;
   arches: Record<string, CatalogArc[]>;
+  viste?: Record<string, CatalogVista>;
 };
 
 export type EventGraphStats = {

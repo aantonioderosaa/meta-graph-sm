@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   ARGOMENTALE_COLOR,
+  CLUSTER_TEMPORALE_COLOR,
   COLLEGATO_COLOR,
   CONFLITTO_BORDER,
+  CONTEMPORANEO_COLOR,
   DIZIONARIO_COLORS,
   PIANO_COLORS,
+  SUCCESSIONE_ZONA_COLOR,
+  ZONA_COLOR,
   encodeEdge,
   encodeNode,
 } from "./encoding";
@@ -49,6 +53,76 @@ describe("event-graph visual encoding", () => {
     expect(ipotetico.color).not.toBe(PIANO_COLORS.PRIMO_PIANO);
   });
 
+  it("encodes Zona as a distinct round-rectangle hub, not Evento piano colors", () => {
+    const zona = encodeNode({
+      id: "z0",
+      label: "zona 0",
+      tipo: "Zona",
+      piano: "PRIMO_PIANO",
+      ordinale: 0,
+    });
+    const eventoPiano = encodeNode(evento("PRIMO_PIANO"));
+    expect(zona.shape).toBe("round-rectangle");
+    expect(zona.color).toBe(ZONA_COLOR);
+    expect(zona.color).not.toBe(eventoPiano.color);
+    expect(zona.color).not.toBe(PIANO_COLORS.PRIMO_PIANO);
+    expect(zona.filled).toBe(true);
+  });
+
+  it("encodes ClusterTemporale as a filled round-rectangle distinct from Zona", () => {
+    const cluster = encodeNode({
+      id: "cl-1",
+      label: "1994",
+      tipo: "ClusterTemporale",
+      etichetta: "1994",
+      tipo_cluster: "data_esplicita",
+    });
+    const zona = encodeNode({
+      id: "z0",
+      label: "zona 0",
+      tipo: "Zona",
+      ordinale: 0,
+    });
+    expect(cluster.shape).toBe("round-rectangle");
+    expect(cluster.filled).toBe(true);
+    expect(cluster.color).toBe(CLUSTER_TEMPORALE_COLOR);
+    expect(cluster.color).not.toBe(zona.color);
+    expect(cluster.color).not.toBe(ZONA_COLOR);
+    expect(cluster.color).not.toBe(PIANO_COLORS.PRIMO_PIANO);
+    expect(cluster.borderStyle).toBe("solid");
+  });
+
+  it("dashes ClusterTemporale border when stimato is truthy; absent stays solid", () => {
+    const stimato = encodeNode({
+      id: "cl-st",
+      label: "sera",
+      tipo: "ClusterTemporale",
+      etichetta: "sera",
+      stimato: true,
+    });
+    const stimatoStr = encodeNode({
+      id: "cl-st-s",
+      label: "sera",
+      tipo: "ClusterTemporale",
+      stimato: "true",
+    });
+    const nonStimato = encodeNode({
+      id: "cl-ok",
+      label: "1843",
+      tipo: "ClusterTemporale",
+      stimato: false,
+    });
+    const assente = encodeNode({
+      id: "cl-abs",
+      label: "1843",
+      tipo: "ClusterTemporale",
+    });
+    expect(stimato.borderStyle).toBe("dashed");
+    expect(stimatoStr.borderStyle).toBe("dashed");
+    expect(nonStimato.borderStyle).toBe("solid");
+    expect(assente.borderStyle).toBe("solid");
+  });
+
   it("encodes Evento filled, Menzione ellipse/thin, Quarantena dashed", () => {
     const ev = encodeNode({
       id: "e",
@@ -79,6 +153,14 @@ describe("event-graph visual encoding", () => {
 
     expect(qua.borderStyle).toBe("dashed");
     expect(qua.filled).toBe(false);
+
+    const quaStimato = encodeNode({
+      id: "q2",
+      label: "frammento",
+      tipo: "Quarantena",
+      stimato: false,
+    });
+    expect(quaStimato.borderStyle).toBe("dashed");
   });
 
   it("accepts cytoscape element wrappers { data }", () => {
@@ -157,6 +239,82 @@ describe("event-graph visual encoding", () => {
     expect(esplicito.color).toBe(DIZIONARIO_COLORS.PRECEDE);
   });
 
+  it("treats CONTEMPORANEO as temporale family", () => {
+    // Piano 38–40, 136–137: stesso family, stile distinto da PRECEDE
+    // (niente punta, dashed, colore proprio — non #0D9488).
+    const edge = encodeEdge({
+      id: "ct",
+      source: "a",
+      target: "b",
+      tipo: "CONTEMPORANEO",
+    });
+    const precede = encodeEdge({
+      id: "p",
+      source: "a",
+      target: "b",
+      tipo: "PRECEDE",
+    });
+    expect(edge.family).toBe("temporale");
+    expect(edge.color).toBe(CONTEMPORANEO_COLOR);
+    expect(edge.color).not.toBe(DIZIONARIO_COLORS.PRECEDE);
+    expect(edge.color).not.toBe(precede.color);
+    expect(edge.color).not.toBe(DIZIONARIO_COLORS.CAUSA);
+    expect(edge.color).not.toBe(DIZIONARIO_COLORS.SEQUENZA);
+    expect(edge.lineStyle).toBe("dashed");
+    expect(edge.markedArrow).toBe(false);
+    expect(precede.markedArrow).toBe(true);
+    expect(precede.color).toBe(DIZIONARIO_COLORS.PRECEDE);
+    expect(precede.lineStyle).toBe("solid");
+  });
+
+  it("does not change dizionario color when spiegazione is present", () => {
+    const plain = encodeEdge({
+      id: "c",
+      source: "a",
+      target: "b",
+      tipo: "CAUSA",
+    });
+    const withSpieg = encodeEdge({
+      id: "c2",
+      source: "a",
+      target: "b",
+      tipo: "CAUSA",
+      spiegazione: "l'arrivo provoca la partenza",
+    });
+    expect(withSpieg.family).toBe("dizionario");
+    expect(withSpieg.color).toBe(plain.color);
+    expect(withSpieg.color).toBe(DIZIONARIO_COLORS.CAUSA);
+  });
+
+  it("styles SUCCESSIONE_ZONA as struttura, not CAUSA or SEQUENZA", () => {
+    const edge = encodeEdge({
+      id: "sz",
+      source: "z0",
+      target: "z1",
+      tipo: "SUCCESSIONE_ZONA",
+      riassunto_transizione: "cambia il luogo",
+    });
+    const seq = encodeEdge({
+      id: "s",
+      source: "a",
+      target: "b",
+      tipo: "SEQUENZA",
+    });
+    const causa = encodeEdge({
+      id: "c",
+      source: "a",
+      target: "b",
+      tipo: "CAUSA",
+    });
+    expect(edge.family).toBe("struttura");
+    expect(edge.family).not.toBe("dizionario");
+    expect(edge.color).toBe(SUCCESSIONE_ZONA_COLOR);
+    expect(edge.color).not.toBe(seq.color);
+    expect(edge.color).not.toBe(causa.color);
+    expect(edge.color).not.toBe(DIZIONARIO_COLORS.SEQUENZA);
+    expect(edge.color).not.toBe(DIZIONARIO_COLORS.CAUSA);
+  });
+
   it("styles COLLEGATO ordine_* very light", () => {
     const edge = encodeEdge({
       id: "col",
@@ -189,5 +347,32 @@ describe("event-graph visual encoding", () => {
     expect(superseded.opacity).toBeLessThan(1);
     expect(superseded.opacity).toBe(0.35);
     expect(conflict.borderColor).toBe(CONFLITTO_BORDER);
+  });
+
+  it("scales edge width from confidenza (0.9 is thicker than 0.4)", () => {
+    const high = encodeEdge({
+      id: "c-hi",
+      source: "a",
+      target: "b",
+      tipo: "CAUSA",
+      confidenza: 0.9,
+    });
+    const low = encodeEdge({
+      id: "c-lo",
+      source: "a",
+      target: "b",
+      tipo: "CAUSA",
+      confidenza: 0.4,
+    });
+    const missing = encodeEdge({
+      id: "c",
+      source: "a",
+      target: "b",
+      tipo: "CAUSA",
+    });
+    expect(high.width).toBe(5.5);
+    expect(low.width).toBe(3);
+    expect(missing.width).toBe(2.5);
+    expect(high.width).toBeGreaterThan(low.width);
   });
 });

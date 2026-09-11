@@ -20,6 +20,9 @@ export const PIANO_FALLBACK = "#334155";
 
 export const MENZIONE_COLOR = "#64748B";
 export const QUARANTENA_COLOR = "#B45309";
+export const ZONA_COLOR = "#57534E";
+/** Temporal cluster hub — filled round-rectangle, distinct from Zona. */
+export const CLUSTER_TEMPORALE_COLOR = "#0E7490";
 
 export const ARGOMENTALE_COLOR = "#94A3B8";
 export const COLLEGATO_COLOR = "#E2E8F0";
@@ -37,7 +40,15 @@ export const DIZIONARIO_COLORS: Record<string, string> = {
   CONTENUTO: "#0F766E",
 };
 
+/**
+ * Symmetric contemporaneity (piano D2 / MT9). Fuchsia, not teal PRECEDE
+ * (#0D9488) and not CAUSA/SEQUENZA — same family, different stroke.
+ */
+export const CONTEMPORANEO_COLOR = "#C026D3";
+
 export const STRUTTURA_COLOR = "#0F766E";
+/** Trunk edge between Zona hubs — struttura family, not SEQUENZA/CAUSA. */
+export const SUCCESSIONE_ZONA_COLOR = "#A16207";
 /** Node-trait swatch only — catena is not an arc family. */
 export const CATENA_COLOR = "#4F46E5";
 
@@ -113,6 +124,16 @@ function asEdgeData(
   return edge as EventGraphEdgeData;
 }
 
+/** Neo4j / cytoscape may surface bool flags as `"true"` strings. */
+function isTruthyFlag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "true" || normalized === "1";
+  }
+  return false;
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const n = hex.replace("#", "");
   return [
@@ -139,10 +160,10 @@ export function desaturateHex(hex: string, amount = 0.55): string {
 export function edgeFamily(tipo: string): EdgeFamily {
   const t = (tipo ?? "").toUpperCase();
   if (CHAIN_TIPI_IGNORATI.has(t)) return "other";
-  if (t === "PRECEDE") return "temporale";
+  if (t === "PRECEDE" || t === "CONTEMPORANEO") return "temporale";
   if (ARGOMENTALI.has(t)) return "argomentali";
   if (t === "COLLEGATO") return "placeholder";
-  if (t === "SATELLITE_DI") return "struttura";
+  if (t === "SATELLITE_DI" || t === "SUCCESSIONE_ZONA") return "struttura";
   if (DIZIONARIO.has(t)) return "dizionario";
   return "other";
 }
@@ -157,7 +178,11 @@ export function encodeNode(
   const desaturated = Boolean(fattualita) && fattualita !== "FATTUALE";
 
   let color: string = PIANO_FALLBACK;
-  if (tipo === "Menzione") {
+  if (tipo === "Zona") {
+    color = ZONA_COLOR;
+  } else if (tipo === "ClusterTemporale") {
+    color = CLUSTER_TEMPORALE_COLOR;
+  } else if (tipo === "Menzione") {
     color = MENZIONE_COLOR;
   } else if (tipo === "Quarantena") {
     color = QUARANTENA_COLOR;
@@ -173,20 +198,38 @@ export function encodeNode(
     color = desaturateHex(color);
   }
 
-  const filled = tipo === "Evento";
+  const filled = tipo === "Evento" || tipo === "Zona" || tipo === "ClusterTemporale";
   const thin = tipo === "Menzione";
-  const dashed = tipo === "Quarantena";
+  const dashed =
+    tipo === "Quarantena" ||
+    (tipo === "ClusterTemporale" && isTruthyFlag(data.stimato));
+  const hub = tipo === "Zona" || tipo === "ClusterTemporale";
 
   return {
     color,
     borderColor: color,
     borderWidth: thin ? 1 : 2,
     borderStyle: dashed ? "dashed" : "solid",
-    shape: "ellipse",
+    shape: hub ? "round-rectangle" : "ellipse",
     filled,
     desaturated,
     opacity: 1,
   };
+}
+
+export const EDGE_WIDTH_MIN = 1;
+export const EDGE_WIDTH_MAX = 6;
+
+/** Map a stored confidence in [0, 1] to stroke width. 0.9 → 5.5. */
+export function edgeWidthFromConfidenza(
+  confidenza: unknown,
+  fallback: number,
+): number {
+  const n =
+    typeof confidenza === "number" ? confidenza : Number(confidenza);
+  if (!Number.isFinite(n)) return fallback;
+  const clamped = Math.max(0, Math.min(1, n));
+  return EDGE_WIDTH_MIN + clamped * (EDGE_WIDTH_MAX - EDGE_WIDTH_MIN);
 }
 
 export function encodeEdge(
@@ -213,10 +256,11 @@ export function encodeEdge(
     color = DIZIONARIO_COLORS[tipo] ?? ARGOMENTALE_COLOR;
     width = 2.5;
   } else if (family === "temporale") {
-    color = DIZIONARIO_COLORS.PRECEDE;
+    const contemporaneo = tipo === "CONTEMPORANEO";
+    color = contemporaneo ? CONTEMPORANEO_COLOR : DIZIONARIO_COLORS.PRECEDE;
     width = 2.5;
-    markedArrow = true;
-    lineStyle = base === "riferimento_testuale" ? "dashed" : "solid";
+    markedArrow = !contemporaneo;
+    lineStyle = contemporaneo || base === "riferimento_testuale" ? "dashed" : "solid";
   } else if (family === "placeholder") {
     color = COLLEGATO_COLOR;
     width = 1;
@@ -224,9 +268,11 @@ export function encodeEdge(
       color = COLLEGATO_COLOR;
     }
   } else if (family === "struttura") {
-    color = STRUTTURA_COLOR;
-    width = 2;
+    color = tipo === "SUCCESSIONE_ZONA" ? SUCCESSIONE_ZONA_COLOR : STRUTTURA_COLOR;
+    width = tipo === "SUCCESSIONE_ZONA" ? 3 : 2;
   }
+
+  width = edgeWidthFromConfidenza(data.confidenza, width);
 
   return {
     color,

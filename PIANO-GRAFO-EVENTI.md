@@ -169,3 +169,82 @@ Metriche (sez. 19 / spec §16): `distribuzione_esiti_coref` e densità
 | Id content-addressed menzione | `ids.menzione_id` |
 | Materializzazione catene | `chains.applica` / `applica_persistente` |
 | Dashboard nodo | `GET /event-graph/nodo/{id}` (`api/event_graph.py`) |
+
+---
+
+## Addendum 5 (2026-09-09): tre viste dello stesso grafo
+
+Piano di implementazione: `PIANO-TRE-LIVELLI-GRAFO.md` (MT1–MT16). Non tre grafi
+separati: **lo stesso grafo persistito, tre proiezioni**. Addendum 4
+(`extract_event_entities`) è citato nel piano tre-livelli e **non** è in
+questo file.
+
+### 1. Tre viste, una rotta
+
+`GET /event-graph/graph?vista=ordine|temporale|relazioni|tutto` — default
+`tutto` = `catalog.grafo()` invariato (Evento / Menzione / Quarantena; niente
+Zona né ClusterTemporale; `SUCCESSIONE_ZONA` e `APPARTIENE_A` restano fuori
+da questa proiezione). `piano` e `lemma` valgono solo su `tutto`.
+
+| Vista | Nodi | Archi nel payload | Frontend |
+|---|---|---|---|
+| `ordine` (L1) | Zona hub + Evento `parent=zona` | `SUCCESSIONE_ZONA` + SEQUENZA/COLLEGATO intra-zona | `EventGraphPanel` layout `ordine` — preset a tronco (`layout-ordine.ts`: hub `y=0`, `x` per `ordinale`; rami sopra/sotto a `ordinale` pari/dispari) |
+| `temporale` (L2) | ClusterTemporale + Evento via `APPARTIENE_A` (`parent=cluster`; l'arco non è disegnato) | PRECEDE live (`superato_da` vuoto) + `CONTEMPORANEO` | dagre `rankDir: 'LR'` (`layout-temporale.ts` ordina i cluster) |
+| `relazioni` (L3) | solo Evento (nessun compound `parent`) | `TipoRelazioneLibera` con `livello='3'` + `spiegazione` | `cose` (Cytoscape core, nessuna nuova dipendenza npm) |
+| `tutto` | Evento, Menzione, Quarantena | micro esistenti (argomentali, dizionario, PRECEDE/CONTEMPORANEO, COLLEGATO, SATELLITE_DI) | dagre TB (layout pre-piano) |
+
+`EventGraphShell` espone i pulsanti Vista (Tutto / Ordine / Temporale / Relazioni)
+e mappa `LAYOUT_BY_VISTA` → `dagre` / `ordine` / `temporale` / `cose`.
+
+### 2. Decisioni D1–D6
+
+- **D1 — Livello 3 additivo.** `sentence_pair_linking.py` resta invariato
+  (CAUSA/CONDIZIONE/… per-zona). Gli archi L3 portano `livello:'3'` in
+  `props`; due segnali distinti, non due scritture dello stesso arco.
+- **D2 — Un solo nuovo tipo L2:** `CONTEMPORANEO` ("stesso momento", uso
+  non direzionale, persistito come arco diretto). Date esplicite, PRECEDE
+  e Allen restano la macchina già esistente.
+- **D3 — `SUCCESSIONE_ZONA` è Zona→Zona**, una per confine ordinale-adiacente,
+  con `riassunto_transizione`. Non entra in `TipoRelazione` (enum Evento↔Evento
+  / Menzione); costante in `zona_edges.py`, come gli altri archi Zona-Zona.
+- **D4 — Le viste sono un query param** sulla rotta esistente, default `tutto`.
+- **D5 — L2 e L3 a documento intero** (lista `id \| span` di tutti gli eventi
+  già estratti; L2 riceve anche il testo integrale). Cap
+  `LIVELLO_MAX_EVENTI_PER_CHIAMATA=60` (`livello_temporale.py`, riusato da
+  `livello_relazioni.py`); oltre, finestre consecutive fuse.
+- **D6 — Isolamento.** Nessuna dipendenza da `app.core`. LLM solo via
+  `app.pipeline.event_graph.infra.llm.call_structured`. Tutte le tre fasi
+  sono best-effort: eccezione → skip, mai abort dell'ingestione.
+
+### 3. Spec → modulo
+
+| Spec | Modulo |
+|---|---|
+| Transizione di zona (D3) | `zona_transizioni.py` (`genera_transizione` / `genera_transizioni_zona`) + `persisti_transizioni_zona` — `MATCH` le due `:Zona` (vincolo unico `eg_zona_id`) poi `MERGE` la rel; niente `CREATE` nodo |
+| Livello 2 estrazione + cluster | `livello_temporale.py` + `persisti_livello_temporale` (`:ClusterTemporale`, `APPARTIENE_A`, `CONTEMPORANEO`, append `tempo_assoluto_revisioni`) |
+| Livello 3 relazioni libere | `livello_relazioni.py` + `persisti_livello_relazioni` — ciclo CAUSA → `:Quarantena {motivo:"ciclo CAUSA livello 3"}`, arco non scritto |
+| Viste HTTP | `catalog.py`: `grafo_livello1` / `grafo_livello2` / `grafo_livello3`; `catalogo()["viste"]`; dispatch in `api/event_graph.py` |
+| Id / schema cluster | `ids.cluster_temporale_id`; `schema.cypher` `eg_cluster_temporale_id` (UNIQUE) / `eg_cluster_temporale_doc` |
+| Frontend | `EventGraphShell` pulsanti Vista; `EventGraphPanel` layout `dagre` \| `ordine` \| `temporale` \| `cose` |
+| Innesco pipeline | `pipeline.py` dopo `collega_dorsale_zone`, prima di `_fase_b_if_available` (tre try/except indipendenti) |
+
+### 4. Legenda catalogo
+
+`GET /event-graph/catalog` (`catalogo()`) elenca i tipi di nodo **Zona** e
+**ClusterTemporale** (shape `round-rectangle`) e, in `arches` / `viste`, i
+significati:
+
+| Tipo | Famiglia | Direzione | Significato |
+|---|---|---|---|
+| `CONTEMPORANEO` | temporale | Evento→Evento | stesso momento, non direzionale |
+| `SUCCESSIONE_ZONA` | struttura | Zona→Zona | successione narrativa fra zone espanse |
+| `APPARTIENE_A` | struttura | Evento→ClusterTemporale | evento appartenente a un cluster temporale (assegna `parent` in L2, non è arco visibile) |
+
+`catalogo()["viste"]` ripete per `tutto` / `ordine` / `temporale` / `relazioni`
+i nodi e gli archi ammessi in ciascuna proiezione.
+
+### 5. Verifica MT15
+
+L'E2E live MT15 su `sole-e-vento` ha verificato A-e1 = 4 `SUCCESSIONE_ZONA`,
+archi Livello 3 cross-zona, e le tre viste HTTP; la verifica visiva A-e4
+(tronco a rami alternati) non è automatizzata.

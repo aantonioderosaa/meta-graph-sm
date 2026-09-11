@@ -8,23 +8,36 @@ from __future__ import annotations
 
 import inspect
 import json
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, get_args
 
 from app.models.event_graph import (
+    GRANULARITA_TEMPORALI,
     ArcoEvento,
+    ClusterTemporaleProposto,
     EventoRisolto,
+    LivelloRelazioniResult,
+    LivelloTemporaleResult,
     MenzioneRisolta,
     QuarantenaItem,
+    SegnaleTemporaleEvento,
     SottoGrafo,
+    TipoRelazioneLibera,
 )
-from app.pipeline.event_graph import RULESET_VERSION
-from app.pipeline.event_graph.ids import content_hash, quarantena_id
-from app.pipeline.event_graph.zona_edges import ArcoZona
+from app.pipeline.event_graph import RULESET_VERSION, foresta_temporale, tempo_iso
+from app.pipeline.event_graph.ids import cluster_temporale_id, content_hash, quarantena_id
+from app.pipeline.event_graph.livello_relazioni import relazioni_causa_ciclo
+from app.pipeline.event_graph.zona_edges import SUCCESSIONE_ZONA, ArcoZona
 from app.pipeline.event_graph.zona_segmentation import Zona
+from app.pipeline.event_graph.zona_transizioni import REGOLA as REGOLA_SUCCESSIONE_ZONA
 
 REGOLA = "persistence.persisti"
+REGOLA_LIVELLO_TEMPORALE = "livello_temporale.estrai"
+REGOLA_LIVELLO_RELAZIONI = "livello_relazioni.estrai"
+_TIPI_RELAZIONE_LIBERA = frozenset(get_args(TipoRelazioneLibera))
+MOTIVO_CICLO_CAUSA_LIVELLO3 = "ciclo CAUSA livello 3"
 
 ARG_RUOLI = frozenset({"SOGG", "OGG", "OBL", "TEMPO", "LUOGO", "MODO"})
 
@@ -45,6 +58,21 @@ EVENT_EVENT_TIPI = frozenset(
 )
 
 CROSS_DOC_ALLOWED = frozenset({"PRECEDE", "COLLEGATO"})
+
+# Same label set as backend/_wipe_eg.py — kept in sync by hand, both are the
+# full node inventory of the isolated event-graph domain (D6: no label here
+# is shared with the legacy app.core.*/app.pipeline.* graph).
+_LABELS_GRAFO_EVENTI = (
+    "Evento",
+    "Menzione",
+    "Zona",
+    "Quarantena",
+    "EgChunk",
+    "EgUnita",
+    "Documento",
+    "EventGraphRun",
+    "ClusterTemporale",
+)
 
 
 @dataclass
@@ -500,10 +528,25 @@ async def persisti(
             )
             archi += 1
 
+    # SEQUENZA (ordine narrativo asserito) copre già la coppia: un COLLEGATO
+    # (placeholder d'ordine debole) fra gli stessi due eventi è ridondante e
+    # non si scrive. Micro-fix: nessun arco cancellato, solo non persistito.
+    _coppie_sequenza = {
+        frozenset((arco.da_id, arco.a_id))
+        for arco in sotto.archi
+        if str(arco.tipo) == "SEQUENZA"
+        and arco.da_id
+        and arco.a_id
+        and not _cross_doc_vietato(arco, sotto)  # una SEQUENZA non scritta non copre nulla
+    }
+
     skipped = 0
     for arco in sotto.archi:
         tipo = str(arco.tipo)
         if tipo not in EVENT_EVENT_TIPI:
+            continue
+        if tipo == "COLLEGATO" and frozenset((arco.da_id, arco.a_id)) in _coppie_sequenza:
+            skipped += 1
             continue
         if _cross_doc_vietato(arco, sotto):
             skipped += 1
@@ -521,6 +564,66 @@ async def persisti(
         skipped_cross_doc=skipped,
         queries=queries,
     )
+
+
+async def sopprimi_collegato_ridondanti(session: Any, doc_id: str) -> int:
+    """Same append-only rule as everywhere else: SET, never DELETE.
+
+    A COLLEGATO (weak, non-committal order placeholder) between two events
+    that also have a SEQUENZA (asserted narrative order) says strictly less
+    than the SEQUENZA and adds no information — unlike PRECEDE/CAUSA, which
+    are independent semantic claims kept *alongside* a SEQUENZA on purpose
+    (see ``pipeline.collega_dorsale_eventi``). The redundant COLLEGATO can
+    only exist because the intra-zone COLLEGATO (``chiusura_temporale``,
+    ``sentence_pair_linking``) is persisted before the document-wide
+    exposition SEQUENZA is computed, so the in-memory dedup in ``persisti()``
+    above never sees it in time. Call once per ingestion, after the dorsale
+    arcs are persisted.
+
+    Marks ``superato_da`` with the covering SEQUENZA's id — the same
+    convention ``query_structured``'s traversals already read on COLLEGATO
+    (``superato_da IS NOT NULL`` → excluded). The graph-view queries
+    (``catalog._EDGES_CYPHER`` / ``_L1_ORDER_EDGES_CYPHER``) apply the same
+    filter, so a suppressed COLLEGATO never renders. Nothing is removed.
+    """
+    rows = await _run(
+        session,
+        "MATCH (a:Evento {documento: $doc_id})-[c:COLLEGATO]-(b:Evento) "
+        "WHERE c.superato_da IS NULL AND EXISTS { MATCH (a)-[:SEQUENZA]-(b) } "
+        "WITH DISTINCT c "
+        "SET c.superato_da = 'sequenza' "
+        "RETURN count(c) AS marcati",
+        doc_id=doc_id,
+    )
+    if rows:
+        first = rows[0]
+        value = first.get("marcati") if isinstance(first, dict) else None
+        if isinstance(value, int):
+            return value
+    return 0
+
+
+async def azzera_grafo(session: Any) -> int:
+    """Full reset of the event-graph domain — explicit user action only.
+
+    Unlike everything else in this module (MERGE-only, append-only, or the
+    scoped ``superato_da`` marking above), this is a real, unscoped
+    ``DETACH DELETE`` across every label the domain writes. It exists for
+    exactly one reason: the user asked for a button to start over, not for
+    anything the ingestion pipeline itself ever calls. Same label list as
+    ``backend/_wipe_eg.py``. Returns the node count removed.
+    """
+    where = " OR ".join(f"n:{label}" for label in _LABELS_GRAFO_EVENTI)
+    count_rows = await _run(session, f"MATCH (n) WHERE {where} RETURN count(n) AS n")
+    totale = 0
+    if count_rows:
+        first = count_rows[0]
+        value = first.get("n") if isinstance(first, dict) else None
+        if isinstance(value, int):
+            totale = value
+    if totale:
+        await _run(session, f"MATCH (n) WHERE {where} DETACH DELETE n")
+    return totale
 
 
 def _as_str_list(value: Any) -> list[str]:
@@ -813,6 +916,794 @@ async def persisti_archi_macro(session: Any, archi: list[ArcoZona]) -> None:
         await persisti_arco_macro(session, arco)
 
 
+async def _merge_successione_zona(
+    session: Any,
+    id_a: str,
+    id_b: str,
+    riassunto: str,
+    job_id: str | None,
+) -> str:
+    """Idempotent Zona→Zona SUCCESSIONE_ZONA. MERGE on type, not a unique rel id."""
+    del job_id  # accepted for caller symmetry; not stored on the arc
+    query = (
+        f"MATCH (za:Zona {{id: $id_a}}) "
+        f"MATCH (zb:Zona {{id: $id_b}}) "
+        f"MERGE (za)-[r:{SUCCESSIONE_ZONA}]->(zb) "
+        f"SET r.riassunto_transizione = $riassunto, "
+        f"r.regola = $regola, "
+        f"r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "id_a": id_a,
+            "id_b": id_b,
+            "riassunto": riassunto,
+            "regola": REGOLA_SUCCESSIONE_ZONA,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def persisti_transizioni_zona(
+    session: Any,
+    transizioni: dict,
+    job_id: str | None,
+) -> None:
+    for key, riassunto in (transizioni or {}).items():
+        if not isinstance(key, (tuple, list)) or len(key) != 2:
+            continue
+        id_a, id_b = key
+        text = riassunto if isinstance(riassunto, str) else str(riassunto or "")
+        if not text.strip():
+            continue
+        await _merge_successione_zona(session, str(id_a), str(id_b), text, job_id)
+
+
+def _evento_overlay(
+    eventi: list[EventoRisolto] | None,
+) -> dict[str, EventoRisolto]:
+    if not eventi:
+        return {}
+    return {event.id: event for event in eventi if event.id}
+
+
+def _known_evento_ids(overlay: dict[str, EventoRisolto]) -> set[str] | None:
+    if not overlay:
+        return None
+    return set(overlay)
+
+
+def _evento_id_known(evento_id: str, known: set[str] | None) -> bool:
+    if not evento_id:
+        return False
+    if known is None:
+        return True
+    return evento_id in known
+
+
+@dataclass(frozen=True)
+class _PropsCluster:
+    """Le proprietà derivate di un ``ClusterTemporale``, già pronte per Cypher.
+
+    ``chiave_ordine`` e ``posizione_doc_min`` sono le uniche calcolate qui e non
+    dichiarate dal modello, e vivono su **due scale diverse** che non vanno
+    mescolate: la prima è in sedicesimi di secondo dall'anno 1 (ordine 9e11), la
+    seconda è l'ordinale di esposizione di un evento nel documento (ordine 10).
+    Un cluster senza collocazione ha ``chiave_ordine`` a ``null``, mai un
+    surrogato preso dall'altra scala: sommare le due metterebbe ogni cluster non
+    datato all'estrema sinistra dell'asse.
+    """
+
+    descrizione: str | None
+    granularita: str | None
+    inizio: str | None
+    fine: str | None
+    chiave_ordine: int | None
+    posizione_doc_min: int | None
+    stimato: bool
+    confidenza: float
+
+
+def _prop_testo(valore: Any) -> str | None:
+    if not isinstance(valore, str):
+        return None
+    return valore.strip() or None
+
+
+def _prop_confidenza(valore: Any) -> float:
+    """Confidenza in [0, 1]; un valore illeggibile vale 1.0, mai un errore."""
+    try:
+        numero = float(valore)
+    except (TypeError, ValueError):
+        return 1.0
+    if numero != numero:
+        return 1.0
+    return min(1.0, max(0.0, numero))
+
+
+def _etichetta_cluster(cluster: ClusterTemporaleProposto) -> str:
+    return (cluster.etichetta or "").strip()
+
+
+def _cluster_per_etichetta(
+    clusters: list[ClusterTemporaleProposto],
+) -> dict[str, ClusterTemporaleProposto]:
+    """Cluster per etichetta, la stessa chiave che entra in ``cluster_temporale_id``.
+
+    Il primo vince: MT4 garantisce etichette distinte dentro il documento, e se
+    la garanzia saltasse due cluster omonimi finirebbero comunque in un nodo
+    solo, quindi tenerne uno è più onesto che sovrascriverne le proprietà.
+    """
+    fuori: dict[str, ClusterTemporaleProposto] = {}
+    for cluster in clusters:
+        etichetta = _etichetta_cluster(cluster)
+        if etichetta and etichetta not in fuori:
+            fuori[etichetta] = cluster
+    return fuori
+
+
+def _padri_per_etichetta(
+    clusters: list[ClusterTemporaleProposto],
+) -> dict[str, str]:
+    """Figlio → padre, letto dagli archi che MT4 ha già validato."""
+    return {
+        figlio: padre
+        for padre, figlio in foresta_temporale.archi_contiene(clusters)
+    }
+
+
+def _antenati(etichetta: str, padre_di: dict[str, str]) -> set[str]:
+    fuori: set[str] = set()
+    corrente = padre_di.get(etichetta)
+    while corrente is not None and corrente not in fuori:
+        fuori.add(corrente)
+        corrente = padre_di.get(corrente)
+    return fuori
+
+
+def _rango_specificita(cluster: ClusterTemporaleProposto) -> int:
+    """Quanto è stretto il cluster: 0 = secondi, il massimo = granularità ignota.
+
+    Un cluster ``relativo``/``simbolico`` non ha una granularità leggibile e
+    conta come il più largo di tutti, così fra due cluster non imparentati che
+    reclamano lo stesso evento vince quello datato.
+    """
+    rango = tempo_iso.rango_granularita(
+        foresta_temporale.granularita_effettiva(cluster)
+    )
+    return len(GRANULARITA_TEMPORALI) if rango is None else rango
+
+
+def _foglia_per_evento(
+    per_etichetta: dict[str, ClusterTemporaleProposto],
+    padre_di: dict[str, str],
+    known: set[str] | None,
+) -> dict[str, str]:
+    """Evento → l'unico cluster a cui appende, il più specifico che lo dichiara.
+
+    Il piano vuole ``APPARTIENE_A`` **solo sulla foglia**: i cluster più grossi
+    si ricavano risalendo ``CONTIENE``, quindi un arco verso un antenato non
+    aggiunge informazione e raddoppia il box in cui l'evento comparirebbe.
+    Niente garantisce che il modello non abbia messo lo stesso evento anche in
+    un contenitore, perciò un candidato che è antenato di un altro candidato
+    viene scartato. Restano i candidati non imparentati, dove "più specifico"
+    non è definito dalla gerarchia: lì decide la granularità più fine, e a pari
+    granularità l'etichetta, perché la scelta dev'essere la stessa a ogni run.
+    """
+    candidati: dict[str, list[str]] = {}
+    for etichetta, cluster in per_etichetta.items():
+        for raw in cluster.eventi or []:
+            evento_id = str(raw or "").strip()
+            if not _evento_id_known(evento_id, known):
+                continue
+            lista = candidati.setdefault(evento_id, [])
+            if etichetta not in lista:
+                lista.append(etichetta)
+
+    fuori: dict[str, str] = {}
+    for evento_id, etichette in candidati.items():
+        antenati = {a for e in etichette for a in _antenati(e, padre_di)}
+        discendenti = [e for e in etichette if e not in antenati] or etichette
+        fuori[evento_id] = min(
+            discendenti,
+            key=lambda e: (_rango_specificita(per_etichetta[e]), e),
+        )
+    return fuori
+
+
+def _posizione_doc_minima(
+    per_etichetta: dict[str, ClusterTemporaleProposto],
+    padre_di: dict[str, str],
+    overlay: dict[str, EventoRisolto],
+) -> dict[str, int | None]:
+    """Minima ``posizione_doc`` del **sottoalbero** di ogni cluster.
+
+    È il dato con cui MT8 ordina i cluster che ``chiave_ordine`` lascia a
+    ``null`` ("mai l'id"), e va calcolato sul sottoalbero e non sui soli membri
+    diretti: un contenitore puro non ha eventi propri, quindi sui membri diretti
+    resterebbe senza nessuna delle due chiavi.
+    """
+    fuori: dict[str, int | None] = {}
+    for etichetta, cluster in per_etichetta.items():
+        fuori.setdefault(etichetta, None)
+        posizioni = [
+            evento.posizione_doc
+            for raw in (cluster.eventi or [])
+            if (evento := overlay.get(str(raw or "").strip())) is not None
+            and isinstance(evento.posizione_doc, int)
+        ]
+        if not posizioni:
+            continue
+        minima = min(posizioni)
+        corrente: str | None = etichetta
+        visti: set[str] = set()
+        while corrente is not None and corrente not in visti:
+            visti.add(corrente)
+            attuale = fuori.get(corrente)
+            if attuale is None or minima < attuale:
+                fuori[corrente] = minima
+            corrente = padre_di.get(corrente)
+    return fuori
+
+
+def _props_cluster(
+    cluster: ClusterTemporaleProposto,
+    posizione_doc_min: int | None,
+) -> _PropsCluster:
+    return _PropsCluster(
+        descrizione=_prop_testo(cluster.descrizione),
+        granularita=_prop_testo(cluster.granularita),
+        inizio=_prop_testo(cluster.inizio),
+        fine=_prop_testo(cluster.fine),
+        chiave_ordine=foresta_temporale.chiave_ordine_cluster(cluster),
+        posizione_doc_min=posizione_doc_min,
+        stimato=bool(cluster.stimato),
+        confidenza=_prop_confidenza(cluster.confidenza),
+    )
+
+
+def _segnale_per_evento(
+    livello_tempo: LivelloTemporaleResult,
+) -> dict[str, SegnaleTemporaleEvento]:
+    fuori: dict[str, SegnaleTemporaleEvento] = {}
+    for segnale in livello_tempo.segnali or []:
+        evento_id = str(segnale.evento_id or "").strip()
+        if evento_id and evento_id not in fuori:
+            fuori[evento_id] = segnale
+    return fuori
+
+
+def _peso_appartenenza(
+    cluster: ClusterTemporaleProposto,
+    segnale: SegnaleTemporaleEvento | None,
+) -> tuple[float, bool]:
+    """``confidenza``/``stimato`` dell'arco: raggruppamento **e** collocazione.
+
+    Le due sorgenti dicono cose diverse e nessuna delle due da sola descrive
+    l'arco. La confidenza del ``ClusterTemporaleProposto`` è quella del
+    *raggruppamento* ed è già sul nodo, dove il gate di MT3 l'ha filtrata; il
+    ``SegnaleTemporaleEvento`` porta quella della *collocazione* del singolo
+    evento, che è l'unica cosa che distingue un membro dall'altro dentro lo
+    stesso cluster. L'arco afferma la congiunzione delle due ("questo evento sta
+    davvero qui"), quindi non è più sicuro della meno sicura: ``confidenza`` è
+    il minimo e ``stimato`` è l'or logico. Senza segnale i default del modello
+    (1.0 / False) fanno cadere l'arco esattamente sui valori del cluster.
+    """
+    confidenza = _prop_confidenza(cluster.confidenza)
+    stimato = bool(cluster.stimato)
+    if segnale is not None:
+        confidenza = min(confidenza, _prop_confidenza(segnale.confidenza))
+        stimato = stimato or bool(segnale.stimato)
+    return confidenza, stimato
+
+
+async def _merge_cluster_temporale(
+    session: Any,
+    cid: str,
+    doc_id: str,
+    etichetta: str,
+    tipo: str,
+    props: _PropsCluster,
+) -> str:
+    query = (
+        "MERGE (c:ClusterTemporale {id: $id}) "
+        "SET c.documento = $documento, "
+        "c.etichetta = $etichetta, "
+        "c.tipo = $tipo, "
+        "c.descrizione = $descrizione, "
+        "c.granularita = $granularita, "
+        "c.inizio = $inizio, "
+        "c.fine = $fine, "
+        "c.chiave_ordine = $chiave_ordine, "
+        "c.posizione_doc_min = $posizione_doc_min, "
+        "c.stimato = $stimato, "
+        "c.confidenza = $confidenza, "
+        "c.regola = $regola, "
+        "c.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "id": cid,
+            "documento": doc_id,
+            "etichetta": etichetta,
+            "tipo": tipo,
+            "descrizione": props.descrizione,
+            "granularita": props.granularita,
+            "inizio": props.inizio,
+            "fine": props.fine,
+            "chiave_ordine": props.chiave_ordine,
+            "posizione_doc_min": props.posizione_doc_min,
+            "stimato": props.stimato,
+            "confidenza": props.confidenza,
+            "regola": REGOLA_LIVELLO_TEMPORALE,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _merge_contiene(session: Any, padre_id: str, figlio_id: str) -> str:
+    query = (
+        "MATCH (p:ClusterTemporale {id: $p_id}) "
+        "MATCH (f:ClusterTemporale {id: $f_id}) "
+        "MERGE (p)-[r:CONTIENE]->(f) "
+        "SET r.attivo = true, "
+        "r.regola = $regola, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "p_id": padre_id,
+            "f_id": figlio_id,
+            "regola": REGOLA_LIVELLO_TEMPORALE,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _disattiva_contiene_obsoleti(
+    session: Any,
+    figlio_id: str,
+    padre_id: str | None,
+) -> str:
+    """Marca ``attivo = false`` gli altri ``CONTIENE`` entranti nel figlio.
+
+    Il piano chiede una **foresta** (≤ 1 padre) e insieme "nessuna
+    cancellazione". Una re-ingestione dello stesso documento rigenera lo stesso
+    id per un cluster la cui etichetta non è cambiata, ma può annidarlo sotto un
+    padre diverso — o non annidarlo più: il solo ``MERGE`` lascerebbe due archi
+    entranti, e la vista compound di MT6, che da ``CONTIENE`` ricava un
+    ``data.parent`` singolo, sceglierebbe a caso.
+
+    La soluzione non ha bisogno di un'eccezione al "nessuna cancellazione":
+    l'arco superato resta nel grafo con ``attivo = false`` e
+    ``sostituito_da`` che dice dove è finito il figlio (``null`` se è tornato
+    radice). Chi legge la gerarchia filtra ``attivo``; chi legge la storia delle
+    ingestioni la trova ancora tutta. ``padre_id`` a ``null`` disattiva ogni
+    padre, ed è il caso del cluster che ha perso l'annidamento.
+    """
+    query = (
+        "MATCH (p:ClusterTemporale)-[r:CONTIENE]->(f:ClusterTemporale {id: $f_id}) "
+        "WHERE $p_id IS NULL OR p.id <> $p_id "
+        "SET r.attivo = false, "
+        "r.sostituito_da = $p_id, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "f_id": figlio_id,
+            "p_id": padre_id,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _merge_appartiene_a(
+    session: Any,
+    evento_id: str,
+    cluster_id: str,
+    confidenza: float,
+    stimato: bool,
+) -> str:
+    query = (
+        "MATCH (e:Evento {id: $e_id}) "
+        "MATCH (c:ClusterTemporale {id: $c_id}) "
+        "MERGE (e)-[r:APPARTIENE_A]->(c) "
+        "SET r.attivo = true, "
+        "r.confidenza = $confidenza, "
+        "r.stimato = $stimato, "
+        "r.regola = $regola, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "e_id": evento_id,
+            "c_id": cluster_id,
+            "confidenza": confidenza,
+            "stimato": stimato,
+            "regola": REGOLA_LIVELLO_TEMPORALE,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _disattiva_appartiene_a_obsoleti(
+    session: Any,
+    evento_id: str,
+    cluster_id: str,
+) -> str:
+    """Stessa tombstone di ``_disattiva_contiene_obsoleti``, per la foglia.
+
+    "Solo al cluster foglia" è un invariante per evento, non per run: una
+    re-ingestione che sposta l'evento in un cluster con un'etichetta diversa
+    genera un id diverso e quindi un secondo arco, e ``Evento.data.parent`` in
+    MT6 tornerebbe ambiguo. L'arco vecchio resta, disattivato.
+    """
+    query = (
+        "MATCH (e:Evento {id: $e_id})-[r:APPARTIENE_A]->(c:ClusterTemporale) "
+        "WHERE c.id <> $c_id "
+        "SET r.attivo = false, "
+        "r.sostituito_da = $c_id, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "e_id": evento_id,
+            "c_id": cluster_id,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _merge_precede_livello(session: Any, da_id: str, a_id: str) -> str:
+    query = (
+        "MATCH (da:Evento {id: $da}) "
+        "MATCH (a:Evento {id: $a}) "
+        "MERGE (da)-[r:PRECEDE]->(a) "
+        "SET r.regola = coalesce(r.regola, $regola), "
+        "r.versione_regole = $versione_regole, "
+        "r.base = coalesce(r.base, $base)"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "da": da_id,
+            "a": a_id,
+            "regola": REGOLA_LIVELLO_TEMPORALE,
+            "versione_regole": RULESET_VERSION,
+            "base": "livello_temporale",
+        },
+    )
+    return query
+
+
+async def _merge_contemporaneo(session: Any, da_id: str, a_id: str) -> str:
+    query = (
+        "MATCH (da:Evento {id: $da}) "
+        "MATCH (a:Evento {id: $a}) "
+        "MERGE (da)-[r:CONTEMPORANEO]->(a) "
+        "SET r.regola = $regola, r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "da": da_id,
+            "a": a_id,
+            "regola": REGOLA_LIVELLO_TEMPORALE,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _set_tempo_assoluto(
+    session: Any,
+    evento_id: str,
+    tempo_assoluto: Any,
+    revisioni: Any,
+) -> str:
+    query = (
+        "MATCH (e:Evento {id: $id}) "
+        "SET e.tempo_assoluto = $tempo_assoluto, "
+        "e.tempo_assoluto_revisioni = $revisioni"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "id": evento_id,
+            "tempo_assoluto": _json_prop(tempo_assoluto),
+            "revisioni": _json_prop(revisioni),
+        },
+    )
+    return query
+
+
+def _tempo_from_overlay(event: EventoRisolto) -> tuple[Any, Any] | None:
+    tempo = event.tempo_assoluto
+    revisioni = event.tempo_assoluto_revisioni
+    if tempo is None and not revisioni:
+        return None
+    return tempo, list(revisioni or [])
+
+
+async def persisti_livello_temporale(
+    session: Any,
+    livello_tempo: LivelloTemporaleResult | None,
+    doc_id: str,
+    job_id: str | None,
+    eventi: list[EventoRisolto] | None = None,
+    coppie_precede: set[frozenset[str]] | None = None,
+) -> None:
+    """MERGE ClusterTemporale / CONTIENE / APPARTIENE_A / CONTEMPORANEO.
+
+    Append-only e best-effort: nulla viene cancellato (gli archi superati da una
+    re-ingestione restano con ``attivo = false``) e nessuna eccezione risale al
+    chiamante. La scrittura è divisa in tre passate — prima tutti i nodi, poi
+    tutti i ``CONTIENE``, poi tutti gli ``APPARTIENE_A`` — perché gli archi sono
+    ``MATCH``-based e un nodo mancante li farebbe sparire in silenzio. MT4
+    consegna i cluster in ordine canonico (padri prima dei figli), ma
+    appoggiarsi a quell'ordine legherebbe la persistenza a un invariante deciso
+    due moduli più a monte: un chiamante che passasse una lista non ordinata
+    perderebbe archi senza un errore. Tre passate non costano nulla e non
+    dipendono dall'ordine d'ingresso.
+    """
+    del job_id
+    if livello_tempo is None:
+        return
+
+    overlay = _evento_overlay(eventi)
+    known = _known_evento_ids(overlay)
+
+    clusters = [
+        cluster
+        for cluster in (livello_tempo.cluster or [])
+        if _etichetta_cluster(cluster)
+    ]
+    per_etichetta = _cluster_per_etichetta(clusters)
+    padre_di = _padri_per_etichetta(clusters)
+    posizioni = _posizione_doc_minima(per_etichetta, padre_di, overlay)
+    foglia_di = _foglia_per_evento(per_etichetta, padre_di, known)
+    segnali = _segnale_per_evento(livello_tempo)
+
+    # Un cluster senza eventi propri non è saltato: dopo MT4 i contenitori puri
+    # sono esattamente i nodi che reggono la gerarchia, e saltarli azzererebbe
+    # i CONTIENE.
+    cid_di: dict[str, str] = {}
+    for etichetta, cluster in per_etichetta.items():
+        tipo = str(cluster.tipo)
+        cid = cluster_temporale_id(doc_id, etichetta, tipo)
+        cid_di[etichetta] = cid
+        with suppress(Exception):
+            await _merge_cluster_temporale(
+                session,
+                cid,
+                doc_id,
+                etichetta,
+                tipo,
+                _props_cluster(cluster, posizioni.get(etichetta)),
+            )
+
+    for etichetta, cid in cid_di.items():
+        padre_cid = cid_di.get(padre_di.get(etichetta, ""))
+        # Due blocchi e non uno: la tombstone è una pulizia, e se fallisce
+        # l'arco vero va scritto lo stesso.
+        with suppress(Exception):
+            await _disattiva_contiene_obsoleti(session, cid, padre_cid)
+        if padre_cid is None:
+            continue
+        with suppress(Exception):
+            await _merge_contiene(session, padre_cid, cid)
+
+    for etichetta, cluster in per_etichetta.items():
+        cid = cid_di[etichetta]
+        emessi: set[str] = set()
+        for raw_id in cluster.eventi or []:
+            evento_id = str(raw_id or "").strip()
+            if evento_id in emessi or foglia_di.get(evento_id) != etichetta:
+                continue
+            emessi.add(evento_id)
+            confidenza, stimato = _peso_appartenenza(
+                cluster, segnali.get(evento_id)
+            )
+            with suppress(Exception):
+                await _disattiva_appartiene_a_obsoleti(session, evento_id, cid)
+            with suppress(Exception):
+                await _merge_appartiene_a(
+                    session, evento_id, cid, confidenza, stimato
+                )
+
+    vietate = set(coppie_precede or ())
+    seen_precede: set[tuple[str, str]] = set()
+    for segnale in livello_tempo.segnali or []:
+        evento_id = str(segnale.evento_id or "").strip()
+        for other in segnale.precede or []:
+            other_id = str(other or "").strip()
+            if not evento_id or not other_id or evento_id == other_id:
+                continue
+            if not _evento_id_known(evento_id, known) or not _evento_id_known(
+                other_id, known
+            ):
+                continue
+            pair = (evento_id, other_id)
+            if pair in seen_precede:
+                continue
+            seen_precede.add(pair)
+            vietate.add(frozenset((evento_id, other_id)))
+            with suppress(Exception):
+                await _merge_precede_livello(session, evento_id, other_id)
+
+    seen_pairs: set[tuple[str, str]] = set()
+    for segnale in livello_tempo.segnali or []:
+        evento_id = str(segnale.evento_id or "").strip()
+        for other in segnale.contemporaneo_a or []:
+            other_id = str(other or "").strip()
+            if not evento_id or not other_id or evento_id == other_id:
+                continue
+            if not _evento_id_known(evento_id, known) or not _evento_id_known(
+                other_id, known
+            ):
+                continue
+            da_id, a_id = sorted((evento_id, other_id))
+            pair = (da_id, a_id)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            if frozenset((da_id, a_id)) in vietate:
+                continue
+            await _merge_contemporaneo(session, da_id, a_id)
+
+    written_tempo: set[str] = set()
+    for event_id, event in overlay.items():
+        payload = _tempo_from_overlay(event)
+        if payload is None:
+            continue
+        tempo, revisioni = payload
+        await _set_tempo_assoluto(session, event_id, tempo, revisioni)
+        written_tempo.add(event_id)
+
+    for segnale in livello_tempo.segnali or []:
+        evento_id = str(segnale.evento_id or "").strip()
+        if not evento_id or evento_id in written_tempo:
+            continue
+        if not _evento_id_known(evento_id, known):
+            continue
+        raw_tempo = segnale.tempo_assoluto
+        if raw_tempo is None:
+            continue
+        if isinstance(raw_tempo, str) and not raw_tempo.strip():
+            continue
+        overlay_event = overlay.get(evento_id)
+        if overlay_event is not None:
+            tempo = overlay_event.tempo_assoluto if overlay_event.tempo_assoluto is not None else raw_tempo
+            revisioni = list(overlay_event.tempo_assoluto_revisioni or [])
+            if not revisioni:
+                revisioni = [raw_tempo]
+        else:
+            tempo = raw_tempo
+            revisioni = [raw_tempo]
+        await _set_tempo_assoluto(session, evento_id, tempo, revisioni)
+
+
+async def _merge_relazione_libera(
+    session: Any,
+    da_id: str,
+    a_id: str,
+    tipo: str,
+    spiegazione: str,
+) -> str:
+    query = (
+        f"MATCH (da:Evento {{id: $da_id}}) "
+        f"MATCH (a:Evento {{id: $a_id}}) "
+        f"MERGE (da)-[r:{tipo} {{livello: '3'}}]->(a) "
+        f"SET r.livello = '3', "
+        f"r.regola = $regola, "
+        f"r.versione_regole = $versione_regole, "
+        f"r.spiegazione = $spiegazione"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "da_id": da_id,
+            "a_id": a_id,
+            "regola": REGOLA_LIVELLO_RELAZIONI,
+            "versione_regole": RULESET_VERSION,
+            "spiegazione": spiegazione,
+        },
+    )
+    return query
+
+
+def _quarantena_ciclo_livello3(
+    da_id: str,
+    a_id: str,
+    job_id: str | None,
+    overlay: dict[str, EventoRisolto],
+) -> QuarantenaItem:
+    motivo = MOTIVO_CICLO_CAUSA_LIVELLO3
+    event = overlay.get(da_id) or overlay.get(a_id)
+    doc_id = (event.documento if event is not None else None) or ""
+    chunk_id = event.chunk_id if event is not None else None
+    span = None
+    if event is not None:
+        span = event.span or event.ancora
+    da_event = overlay.get(da_id)
+    a_event = overlay.get(a_id)
+    lemma_da = (da_event.lemma if da_event is not None else None) or da_id
+    lemma_a = (a_event.lemma if a_event is not None else None) or a_id
+    span_for_id = span or f"{da_id}->{a_id}"
+    return QuarantenaItem(
+        id=quarantena_id(doc_id, job_id or "", span_for_id, motivo),
+        frammento=f"{lemma_da}->{lemma_a}",
+        motivo=motivo,
+        ancora_doc=doc_id or None,
+        ancora_chunk=chunk_id,
+        ancora_span=span or None,
+        versione_regole=RULESET_VERSION,
+    )
+
+
+async def persisti_livello_relazioni(
+    session: Any,
+    livello_rel: LivelloRelazioniResult | None,
+    job_id: str | None,
+    eventi: list[EventoRisolto] | None = None,
+) -> None:
+    """MERGE Evento-Evento arcs with ``livello='3'``. Append-only; no Evento MERGE.
+
+    CAUSA triples dropped for acyclicity (``relazioni_causa_ciclo``) become
+    ``:Quarantena`` and are never written as relationships.
+    """
+    if livello_rel is None:
+        return
+
+    overlay = _evento_overlay(eventi)
+    known = _known_evento_ids(overlay)
+    dropped = {(str(da), str(a), str(tipo)) for da, a, tipo in relazioni_causa_ciclo()}
+
+    for rel in livello_rel.relazioni or []:
+        da_id = str(getattr(rel, "da_id", "") or "").strip()
+        a_id = str(getattr(rel, "a_id", "") or "").strip()
+        tipo = getattr(rel, "tipo", None)
+        if tipo not in _TIPI_RELAZIONE_LIBERA:
+            continue
+        tipo_s = str(tipo)
+        if not da_id or not a_id:
+            continue
+        if not _evento_id_known(da_id, known) or not _evento_id_known(a_id, known):
+            continue
+        if (da_id, a_id, tipo_s) in dropped:
+            continue
+        spiegazione = getattr(rel, "spiegazione", None)
+        if spiegazione is None:
+            spiegazione = ""
+        await _merge_relazione_libera(session, da_id, a_id, tipo_s, str(spiegazione))
+
+    for da_id, a_id, _tipo in relazioni_causa_ciclo():
+        item = _quarantena_ciclo_livello3(str(da_id), str(a_id), job_id, overlay)
+        await _merge_quarantena(session, item)
+
+
 async def carica_zona(session: Any, zona_id: str) -> Zona | None:
     rows = await _query_rows(
         session,
@@ -891,6 +1782,8 @@ __all__ = [
     "PersistOutcome",
     "REGOLA",
     "archi_ammissibili",
+    "azzera_grafo",
+    "sopprimi_collegato_ridondanti",
     "carica_archi_macro",
     "carica_documento_testo",
     "carica_zona",
@@ -899,6 +1792,10 @@ __all__ = [
     "persisti_archi_macro",
     "persisti_arco_macro",
     "persisti_documento",
+    "persisti_livello_relazioni",
+    "persisti_livello_temporale",
+    "persisti_transizioni_zona",
     "persisti_zona",
     "persisti_zone",
+    "_merge_successione_zona",
 ]

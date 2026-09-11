@@ -110,11 +110,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function fetchGraph(filters: GraphFilters = {}): Promise<EventGraphResponse> {
+  const vista = filters.vista && filters.vista !== "tutto" ? filters.vista : undefined;
   return request<EventGraphResponse>(
     eventGraphPath("/graph", {
       documento: filters.documento,
       piano: filters.piano,
       lemma: filters.lemma,
+      vista,
     }),
   );
 }
@@ -131,6 +133,13 @@ export function ingestDocument(
 
 export function fetchHealth(): Promise<EventGraphHealthResponse> {
   return request<EventGraphHealthResponse>(eventGraphPath("/health"));
+}
+
+/** Destructive full reset of the event-graph domain. Returns nodes removed. */
+export function resetGraph(): Promise<{ rimossi: number }> {
+  return request<{ rimossi: number }>(eventGraphPath("/documents"), {
+    method: "DELETE",
+  });
 }
 
 function omitEmptyFields(value: unknown): unknown {

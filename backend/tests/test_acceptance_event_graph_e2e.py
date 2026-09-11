@@ -406,6 +406,30 @@ def _install(monkeypatch, doc_id: str, first: str, second: str, sheets: dict[str
         stub,
     )
 
+    async def _no_transizioni(*args, **kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.genera_transizioni_zona",
+        _no_transizioni,
+    )
+
+    async def _no_livello_temporale(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.estrai_livello_temporale",
+        _no_livello_temporale,
+    )
+
+    async def _no_livello_relazioni(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.estrai_livello_relazioni",
+        _no_livello_relazioni,
+    )
+
     async def boom(*args, **kwargs):
         raise AssertionError("live LLM must not run")
 

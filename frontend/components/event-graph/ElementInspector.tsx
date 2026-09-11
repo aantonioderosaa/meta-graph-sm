@@ -8,17 +8,23 @@ import {
   fetchArcoDettaglio,
   fetchNodoDettaglio,
 } from "@/lib/event-graph/api";
+import {
+  dettaglioArcoFromElements,
+  dettaglioNodoFromElements,
+} from "@/lib/event-graph/inspector";
 import type {
   ArcoDettaglio,
   CatenaNodo,
   CatenaOccorrenza,
   ElementSelection,
+  EventGraphElements,
   NodoDettaglio,
 } from "@/lib/event-graph/types";
 import { cn } from "@/lib/utils";
 
 type ElementInspectorProps = {
   selection: ElementSelection | null;
+  elements?: EventGraphElements | null;
   onSelectRelated?: (selection: ElementSelection) => void;
   className?: string;
 };
@@ -186,6 +192,7 @@ function CatenaSection({
 
 export function ElementInspector({
   selection,
+  elements,
   onSelectRelated,
   className,
 }: ElementInspectorProps) {
@@ -212,18 +219,38 @@ export function ElementInspector({
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        const message =
-          err instanceof EventGraphApiError && err.status === 404
-            ? "Elemento non più presente a grafo."
-            : err instanceof Error
+        if (err instanceof EventGraphApiError && err.status === 404) {
+          if (selection.kind === "nodo") {
+            const data = dettaglioNodoFromElements(selection.id, elements);
+            if (data) {
+              setState({ status: "nodo", data });
+              return;
+            }
+          } else {
+            const data = dettaglioArcoFromElements(selection.id, elements);
+            if (data) {
+              setState({ status: "arco", data });
+              return;
+            }
+          }
+          setState({
+            status: "error",
+            message: "Elemento non più presente a grafo.",
+          });
+          return;
+        }
+        setState({
+          status: "error",
+          message:
+            err instanceof Error
               ? err.message
-              : "Impossibile caricare i dettagli.";
-        setState({ status: "error", message });
+              : "Impossibile caricare i dettagli.",
+        });
       });
     return () => {
       cancelled = true;
     };
-  }, [selection]);
+  }, [selection, elements]);
 
   return (
     <Card className={className}>
@@ -271,9 +298,17 @@ export function ElementInspector({
         ) : null}
         {state.status === "arco" ? (
           <div className="space-y-2">
-            <span className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              {state.data.tipo}
-            </span>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                {state.data.tipo}
+              </span>
+              {typeof state.data.proprieta.livello === "string" &&
+              state.data.proprieta.livello !== "" ? (
+                <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  livello {String(state.data.proprieta.livello)}
+                </span>
+              ) : null}
+            </div>
             <div className="flex flex-col gap-1">
               <EndpointChip
                 role="da"

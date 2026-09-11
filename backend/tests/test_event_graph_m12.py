@@ -129,6 +129,30 @@ def _install_espandi(monkeypatch, order: list[str] | None = None, fuse: bool = F
         "app.pipeline.event_graph.pipeline.espandi_zona",
         stub,
     )
+
+    async def _no_transizioni(*args, **kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.genera_transizioni_zona",
+        _no_transizioni,
+    )
+
+    async def _no_livello_temporale(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.estrai_livello_temporale",
+        _no_livello_temporale,
+    )
+
+    async def _no_livello_relazioni(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.estrai_livello_relazioni",
+        _no_livello_relazioni,
+    )
     return called
 
 
