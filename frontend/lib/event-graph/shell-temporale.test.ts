@@ -3,10 +3,24 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+const panelPath = join(
+  __dirname,
+  "../../components/event-graph/EventGraphPanel.tsx",
+);
 const shellPath = join(
   __dirname,
   "../../components/event-graph/EventGraphShell.tsx",
 );
+
+describe("EventGraphPanel relation names on edges", () => {
+  it("draws the tipo on Tutto/Relazioni edges with a colored mid-line label", () => {
+    const source = readFileSync(panelPath, "utf8");
+    expect(source).toContain("ladderEdgeLabel");
+    expect(source).toContain("text-background-color");
+    expect(source).toContain("useNamedEdges");
+    expect(source).not.toMatch(/useCose[\s\S]*label:\s*"data\(spiegazione\)"/);
+  });
+});
 
 describe("EventGraphShell temporale senza ancore", () => {
   it("keeps original Tutto/Relazioni graph layouts", () => {

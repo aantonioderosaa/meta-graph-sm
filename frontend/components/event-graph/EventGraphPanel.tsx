@@ -11,6 +11,7 @@ import {
   positionsOrdine,
   zonaDisplayLabel,
 } from "@/lib/event-graph/layout-ordine";
+import { ladderEdgeLabel } from "@/lib/event-graph/layout-zigzag";
 import {
   isTimelineRankEdgeId,
   timelineRankEdges,
@@ -74,6 +75,7 @@ export function EventGraphPanel({
       const useOrdine = layout === "ordine";
       const useTemporale = layout === "temporale";
       const useCose = layout === "cose";
+      const useNamedEdges = !useOrdine && !useTemporale;
       const presetPositions = useOrdine ? positionsOrdine({ nodes, edges }) : null;
       const displayedIds = new Set(nodes.map((node) => node.data.id));
       const hasSuccessioneAncora = edges.some(
@@ -169,10 +171,24 @@ export function EventGraphPanel({
             : []),
           {
             selector: "edge",
-            style: {
-              "curve-style": "bezier",
-              "target-arrow-shape": "triangle",
-            },
+            style: useNamedEdges
+              ? {
+                  "curve-style": "bezier",
+                  "target-arrow-shape": "triangle",
+                  "font-size": 8,
+                  "text-rotation": "autorotate",
+                  "text-margin-y": 0,
+                  "text-background-color": "#ffffff",
+                  "text-background-opacity": 0.92,
+                  "text-background-padding": 3,
+                  "min-zoomed-font-size": 6,
+                  "text-halign": "center",
+                  "text-valign": "center",
+                }
+              : {
+                  "curve-style": "bezier",
+                  "target-arrow-shape": "triangle",
+                },
           },
           ...(useOrdine
             ? [
@@ -180,22 +196,6 @@ export function EventGraphPanel({
                   selector: 'edge[tipo = "SUCCESSIONE_ZONA"]',
                   style: {
                     label: "data(riassunto_transizione)",
-                    "text-wrap": "ellipsis",
-                    "text-max-width": "140px",
-                    "font-size": 8,
-                    "text-rotation": "autorotate",
-                    "text-margin-y": -6,
-                    color: "#334155",
-                  },
-                },
-              ]
-            : []),
-          ...(useCose
-            ? [
-                {
-                  selector: "edge",
-                  style: {
-                    label: "data(spiegazione)",
                     "text-wrap": "ellipsis",
                     "text-max-width": "140px",
                     "font-size": 8,
@@ -326,6 +326,7 @@ export function EventGraphPanel({
         if (titleBits.length > 0) {
           ele.data("title", titleBits.map(String).join(" · "));
         }
+        const edgeLabel = useNamedEdges ? ladderEdgeLabel(edgeData.tipo) : "";
         ele.style({
           "line-color": style.color,
           "target-arrow-color": style.color,
@@ -336,6 +337,18 @@ export function EventGraphPanel({
           opacity: legendOpacity(style.opacity, { data: edgeData }, legendFilter),
           "line-outline-width": style.borderColor ? 2 : 0,
           "line-outline-color": style.borderColor ?? "transparent",
+          ...(useNamedEdges
+            ? {
+                label: edgeLabel,
+                color: style.color,
+                "font-size": 8,
+                "font-weight": 600,
+                "text-rotation": "autorotate",
+                "text-background-color": "#ffffff",
+                "text-background-opacity": 0.92,
+                "text-background-padding": 3,
+              }
+            : {}),
         });
       });
 
