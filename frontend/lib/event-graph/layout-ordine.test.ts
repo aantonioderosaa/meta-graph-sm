@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { positionsOrdine } from "./layout-ordine";
+import {
+  filterOrdineElements,
+  isZonaNode,
+  positionsOrdine,
+  zonaDisplayLabel,
+} from "./layout-ordine";
 import type { EventGraphElements } from "./types";
 
 function zona(id: string, ordinale: number) {
@@ -72,5 +77,77 @@ describe("positionsOrdine", () => {
     const pos = positionsOrdine(elements);
     expect(pos["z-missing"]).toEqual({ x: 0, y: 0 });
     expect(pos.orphan).toBeUndefined();
+  });
+});
+
+describe("zonaDisplayLabel / isZonaNode", () => {
+  it("labels a zona by ordinale and ignores eventi", () => {
+    expect(zonaDisplayLabel(zona("hub", 2))).toBe("Zona 2");
+    expect(zonaDisplayLabel(zona("z0", 0))).toBe("Zona 0");
+    expect(
+      zonaDisplayLabel({ data: { id: "z", label: "alpha", tipo: "Zona" } }),
+    ).toBe("alpha");
+    expect(isZonaNode(zona("hub", 1))).toBe(true);
+    expect(isZonaNode(evento("e1", "hub"))).toBe(false);
+  });
+});
+
+describe("filterOrdineElements", () => {
+  const elements: EventGraphElements = {
+    nodes: [
+      zona("z0", 0),
+      zona("z1", 1),
+      evento("e0a", "z0"),
+      evento("e0b", "z0"),
+      evento("e1a", "z1"),
+    ],
+    edges: [
+      {
+        data: {
+          id: "sz-0-1",
+          source: "z0",
+          target: "z1",
+          tipo: "SUCCESSIONE_ZONA",
+        },
+      },
+      {
+        data: {
+          id: "seq-0",
+          source: "e0a",
+          target: "e0b",
+          tipo: "SEQUENZA",
+        },
+      },
+      {
+        data: {
+          id: "seq-1",
+          source: "e1a",
+          target: "e0b",
+          tipo: "SEQUENZA",
+        },
+      },
+    ],
+  };
+
+  it("overview keeps only Zona hubs and SUCCESSIONE_ZONA", () => {
+    const filtered = filterOrdineElements(elements, null);
+    expect(filtered.nodes.map((node) => node.data.id)).toEqual(["z0", "z1"]);
+    expect(filtered.edges.map((edge) => edge.data.id)).toEqual(["sz-0-1"]);
+  });
+
+  it("focused zona keeps that hub, its eventi, and intra-zona edges", () => {
+    const filtered = filterOrdineElements(elements, "z0");
+    expect(filtered.nodes.map((node) => node.data.id).sort()).toEqual([
+      "e0a",
+      "e0b",
+      "z0",
+    ]);
+    expect(filtered.edges.map((edge) => edge.data.id)).toEqual(["seq-0"]);
+  });
+
+  it("unknown focus falls back to the overview", () => {
+    const filtered = filterOrdineElements(elements, "missing");
+    expect(filtered.nodes.map((node) => node.data.id)).toEqual(["z0", "z1"]);
+    expect(filtered.edges.map((edge) => edge.data.id)).toEqual(["sz-0-1"]);
   });
 });

@@ -31,6 +31,12 @@ class EventGraphSettings(BaseSettings):
     EVENT_GRAPH_EXTRACTION_MAX_CALLS: int = 3
     EVENT_GRAPH_TEMPORAL_MAX_CANDIDATES: int = 10
     EVENT_GRAPH_FLASH_MODE: bool = False
+    # Livello ancore (`AncoraTemporale`) is the sole temporal owner.
+    # True (default): extract / identity / line / assign, then
+    # persisti_livello_ancore. False: no LLM temporal, no AncoraTemporale
+    # writes, no temporal_placement (the ClusterTemporale path stays dead and
+    # is not re-enabled).
+    EVENT_GRAPH_TEMPORAL_ENABLED: bool = True
     CORS_ORIGINS: str = "http://localhost:3000"
 
 

@@ -55,7 +55,6 @@ const RELAZIONI: TipoRelazione[] = [
   "LUOGO",
   "MODO",
   "CAUSA",
-  "PRECEDE",
   "LIMITE",
   "CONDIZIONE",
   "SCOPO",

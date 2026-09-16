@@ -22,17 +22,26 @@ from app.models.event_graph import (
 )
 from app.pipeline.event_graph import RULESET_VERSION
 from app.pipeline.event_graph import chains as eg_chains
+from app.pipeline.event_graph import pipeline as eg_pipeline
+from app.pipeline.event_graph.ancore_estrazione import EstrazioneAncoreResult
+from app.pipeline.event_graph.ancore_linea import LineaAncore
+from app.pipeline.event_graph.ancore_smistamento import SmistamentoAncore
 from app.pipeline.event_graph.event_coref import candidati, classifica
 from app.pipeline.event_graph.event_edges import (
     COLLEGATO_RELAZIONI,
     RELAZIONE_TO_ARCO,
+    SEGNALI_LIVELLO_TEMPORALE,
     categorizza,
 )
 from app.pipeline.event_graph.factuality import applica as applica_fattualita
 from app.pipeline.event_graph.ids import evento_id, menzione_id
 from app.pipeline.event_graph.narrative_plane import assegna_piano, tempo_base
 from app.pipeline.event_graph.persistence import archi_ammissibili, persisti
-from app.pipeline.event_graph.pipeline import EspansioneZona, run_event_graph_ingestion
+from app.pipeline.event_graph.pipeline import (
+    EspansioneZona,
+    esegui_livello_ancore,
+    run_event_graph_ingestion,
+)
 from app.pipeline.event_graph.temporal_placement import esegui, introdurrebbe_ciclo
 from app.pipeline.event_graph.wellformed import valida
 
@@ -233,7 +242,9 @@ def _assert_no_delete(session: FakeSession) -> None:
         assert "DETACH" not in upper
 
 
-def _tipo_da_relazione(relazione: str) -> str:
+def _tipo_da_relazione(relazione: str) -> str | None:
+    if relazione in SEGNALI_LIVELLO_TEMPORALE:
+        return None
     if relazione in COLLEGATO_RELAZIONI:
         return "COLLEGATO"
     mapped = RELAZIONE_TO_ARCO.get(relazione)  # type: ignore[arg-type]
@@ -315,9 +326,12 @@ def _materialize_sheets(zona, sheets: list[ChunkFactsheet]):
             a_id = local.get(grezzo_arco.a_indice)
             if not da_id or not a_id:
                 continue
+            tipo = _tipo_da_relazione(str(grezzo_arco.relazione_segnale))
+            if tipo is None:
+                continue
             archi.append(
                 ArcoEvento(
-                    tipo=_tipo_da_relazione(str(grezzo_arco.relazione_segnale)),
+                    tipo=tipo,
                     da_id=da_id,
                     a_id=a_id,
                     props={"segnale": grezzo_arco.segnale_testuale},
@@ -395,12 +409,12 @@ def _install_macro_no_llm(monkeypatch) -> None:
         _no_transizioni,
     )
 
-    async def _no_livello_temporale(*args, **kwargs):
+    async def _no_livello_ancore(*args, **kwargs):
         return None
 
     monkeypatch.setattr(
-        "app.pipeline.event_graph.pipeline.estrai_livello_temporale",
-        _no_livello_temporale,
+        "app.pipeline.event_graph.pipeline.esegui_livello_ancore",
+        _no_livello_ancore,
     )
 
     async def _no_livello_relazioni(*args, **kwargs):
@@ -409,6 +423,22 @@ def _install_macro_no_llm(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.pipeline.event_graph.pipeline.estrai_livello_relazioni",
         _no_livello_relazioni,
+    )
+
+    async def _no_buchi(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.riempi_buchi_documento",
+        _no_buchi,
+    )
+
+    async def _no_evinti(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.evinci_eventi_documento",
+        _no_evinti,
     )
 
 
@@ -434,8 +464,16 @@ def _install_espandi_from_sheets(
         return EspansioneZona(zona=zona, sotto=local, unita=[])
 
     monkeypatch.setattr(
-        "app.pipeline.event_graph.pipeline.espandi_zona",
+        "app.pipeline.event_graph.pipeline.estrai_zona",
         stub,
+    )
+
+    async def _no_relazioni_zona(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.collega_relazioni_zona",
+        _no_relazioni_zona,
     )
 
     async def _no_transizioni(*args, **kwargs):
@@ -446,12 +484,12 @@ def _install_espandi_from_sheets(
         _no_transizioni,
     )
 
-    async def _no_livello_temporale(*args, **kwargs):
+    async def _no_livello_ancore(*args, **kwargs):
         return None
 
     monkeypatch.setattr(
-        "app.pipeline.event_graph.pipeline.estrai_livello_temporale",
-        _no_livello_temporale,
+        "app.pipeline.event_graph.pipeline.esegui_livello_ancore",
+        _no_livello_ancore,
     )
 
     async def _no_livello_relazioni(*args, **kwargs):
@@ -460,6 +498,22 @@ def _install_espandi_from_sheets(
     monkeypatch.setattr(
         "app.pipeline.event_graph.pipeline.estrai_livello_relazioni",
         _no_livello_relazioni,
+    )
+
+    async def _no_buchi(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.riempi_buchi_documento",
+        _no_buchi,
+    )
+
+    async def _no_evinti(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.evinci_eventi_documento",
+        _no_evinti,
     )
 
 
@@ -833,6 +887,127 @@ async def test_idempotence_second_run_merge_ids_subset_no_delete(monkeypatch):
     assert ids2 <= ids1
     _assert_no_delete(first)
     _assert_no_delete(second)
+
+
+# --- livello ancore (flag default ON; ClusterTemporale path stays dead) ------
+
+
+@pytest.mark.asyncio
+async def test_livello_temporale_spento_di_default_non_gira(monkeypatch):
+    """Default ON: ancore extract+persist, not ClusterTemporale."""
+    testo = "Mario arrivò alle tre. Poi restò."
+    doc_id = "doc-temporale-on"
+    _install_macro_no_llm(monkeypatch)
+    _install_espandi_from_sheets(monkeypatch, [_idempotence_sheet()])
+    _boom_temporal(monkeypatch)
+    monkeypatch.setattr(eg_pipeline, "esegui_livello_ancore", esegui_livello_ancore)
+    monkeypatch.setattr(eg_pipeline.settings, "EVENT_GRAPH_TEMPORAL_ENABLED", True)
+
+    chiamate_ancore: list[str] = []
+    chiamate_vecchie: list[int] = []
+
+    async def spia_estrazione(*args, **kwargs):
+        chiamate_ancore.append("estrazione")
+        return EstrazioneAncoreResult()
+
+    async def spia_persist_ancore(*args, **kwargs):
+        chiamate_ancore.append("persistenza")
+
+    async def smista_vuoto(linea, eventi, **kwargs):
+        linea_ok = linea if isinstance(linea, LineaAncore) else LineaAncore()
+        return SmistamentoAncore(linea=linea_ok)
+
+    async def spia_vecchia(*args, **kwargs):
+        chiamate_vecchie.append(1)
+        return None
+
+    monkeypatch.setattr(eg_pipeline, "estrai_ancore", spia_estrazione)
+    monkeypatch.setattr(eg_pipeline, "smista_eventi", smista_vuoto)
+    monkeypatch.setattr(
+        eg_pipeline.persistence, "persisti_livello_ancore", spia_persist_ancore
+    )
+    monkeypatch.setattr(
+        eg_pipeline.persistence, "persisti_livello_temporale", spia_vecchia
+    )
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.livello_temporale.estrai_livello_temporale",
+        spia_vecchia,
+    )
+
+    await run_event_graph_ingestion(
+        doc_id, testo, "job-temporale-on", session=FakeSession()
+    )
+
+    assert chiamate_ancore == ["estrazione", "persistenza"]
+    assert chiamate_vecchie == []
+
+
+@pytest.mark.asyncio
+async def test_livello_temporale_gira_se_riattivato_dal_flag(monkeypatch):
+    """Flag true: estrai_ancore then persisti_livello_ancore."""
+    testo = "Mario arrivò alle tre. Poi restò."
+    doc_id = "doc-temporale-on-flag"
+    _install_macro_no_llm(monkeypatch)
+    _install_espandi_from_sheets(monkeypatch, [_idempotence_sheet()])
+    _boom_temporal(monkeypatch)
+    monkeypatch.setattr(eg_pipeline, "esegui_livello_ancore", esegui_livello_ancore)
+    monkeypatch.setattr(eg_pipeline.settings, "EVENT_GRAPH_TEMPORAL_ENABLED", True)
+
+    chiamate: list[str] = []
+
+    async def spia_estrazione(*args, **kwargs):
+        chiamate.append("estrazione")
+        return EstrazioneAncoreResult()
+
+    async def spia_persistenza(*args, **kwargs):
+        chiamate.append("persistenza")
+
+    async def smista_vuoto(linea, eventi, **kwargs):
+        linea_ok = linea if isinstance(linea, LineaAncore) else LineaAncore()
+        return SmistamentoAncore(linea=linea_ok)
+
+    monkeypatch.setattr(eg_pipeline, "estrai_ancore", spia_estrazione)
+    monkeypatch.setattr(eg_pipeline, "smista_eventi", smista_vuoto)
+    monkeypatch.setattr(
+        eg_pipeline.persistence, "persisti_livello_ancore", spia_persistenza
+    )
+
+    await run_event_graph_ingestion(
+        doc_id, testo, "job-temporale-on-flag", session=FakeSession()
+    )
+
+    assert chiamate == ["estrazione", "persistenza"]
+
+
+@pytest.mark.asyncio
+async def test_livello_ancore_spento_dal_flag_non_gira(monkeypatch):
+    """Flag false: no temporal_placement, no ClusterTemporale, no ancore."""
+    testo = "Mario arrivò alle tre. Poi restò."
+    doc_id = "doc-temporale-off"
+    _install_macro_no_llm(monkeypatch)
+    _install_espandi_from_sheets(monkeypatch, [_idempotence_sheet()])
+    _boom_temporal(monkeypatch)
+    monkeypatch.setattr(eg_pipeline, "esegui_livello_ancore", esegui_livello_ancore)
+    monkeypatch.setattr(eg_pipeline.settings, "EVENT_GRAPH_TEMPORAL_ENABLED", False)
+
+    chiamate: list[int] = []
+
+    async def spy(*args, **kwargs):
+        chiamate.append(1)
+        return None
+
+    monkeypatch.setattr("app.pipeline.event_graph.temporal_placement.esegui", spy)
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.livello_temporale.estrai_livello_temporale",
+        spy,
+    )
+    monkeypatch.setattr(eg_pipeline, "estrai_ancore", spy)
+
+    await run_event_graph_ingestion(
+        doc_id, testo, "job-temporale-off", session=FakeSession()
+    )
+
+    assert chiamate == []
 
 
 @pytest.mark.asyncio

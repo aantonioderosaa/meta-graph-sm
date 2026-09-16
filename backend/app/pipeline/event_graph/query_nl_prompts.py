@@ -29,7 +29,7 @@ zero out a correct search:
   at best, and a wrong guess (NON_FATTUALE / IPOTETICO) always returns zero.
   Never set it unless the question explicitly asks for hypothetical/negated
   events, and know it will likely return nothing.
-- tipo_relazione: only SOGG, OGG, COLLEGATO, SEQUENZA, PRECEDE, CONTRASTO
+- tipo_relazione: only SOGG, OGG, COLLEGATO, SEQUENZA, CONTRASTO
   exist right now. CAUSA, LIMITE, CONDIZIONE, SCOPO, CONCESSIONE, CONTENUTO,
   SATELLITE_DI, OBL, TEMPO, MODO, LUOGO are never produced by the current
   extraction — using one of those always returns zero.
@@ -40,7 +40,9 @@ Other fields:
   or a paraphrase here (unlike testo, lemma is an exact match).
 - traversal ∈ {catena_di, spina_dorsale_di, prima_di, dopo_di, vicinato_temporale}
   — only when the text gives a specific event id as traversal_target;
-  otherwise leave both null.
+  otherwise leave both null. prima_di / dopo_di / vicinato_temporale walk
+  the ancora chain (APPARTIENE_A + SUCCESSIONE_ANCORA between ancore), not
+  event-to-event temporal edges. spina_dorsale_di follows SEQUENZA only.
 - finestra_tempo_assoluto: optional {da, a} as ISO YYYY / YYYY-MM / YYYY-MM-DD / datetime.
 - fonte, documento: surface strings only when the question names them.
 

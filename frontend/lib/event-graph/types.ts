@@ -9,6 +9,7 @@ export type EventGraphNodeTipo =
   | "Menzione"
   | "Quarantena"
   | "Zona"
+  | "AncoraTemporale"
   | "ClusterTemporale";
 
 export type PipelineStage =
@@ -32,15 +33,20 @@ export type EventGraphNodeData = {
   iterativita?: boolean | string | null;
   fonte?: string | null;
   parent?: string | null;
+  /** Client-only: zona membership after stripping Cytoscape compound `parent`. */
+  zona_id?: string | null;
   ordinale?: number | null;
   riassunto?: string | null;
   evento_centrale?: string | null;
   etichetta?: string | null;
   tipo_cluster?: string | null;
+  natura?: string | null;
   chiave_ordine?: number | null;
   posizione_doc_min?: number | null;
   ordine_vista?: number | null;
   posizione_doc?: number | null;
+  posizione_chunk?: number | null;
+  offset_inizio?: number | null;
   descrizione?: string | null;
   granularita?: string | null;
   inizio?: string | null;
@@ -113,7 +119,6 @@ export type TipoRelazione =
   | "LUOGO"
   | "MODO"
   | "CAUSA"
-  | "PRECEDE"
   | "LIMITE"
   | "CONDIZIONE"
   | "SCOPO"

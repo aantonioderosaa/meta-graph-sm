@@ -39,15 +39,25 @@ _TRAVERSAL_CLAUSES: dict[str, str] = {
         "WHERE s.catena_id IS NOT NULL AND e.catena_id = s.catena_id"
     ),
     "spina_dorsale_di": (
-        "MATCH path = (start:Evento)-[:SEQUENZA|PRECEDE*0..12]-(e) "
+        "MATCH path = (start:Evento)-[:SEQUENZA*0..12]-(e) "
         "WHERE start.id = $target AND ALL(r IN relationships(path) WHERE "
         "r.superato_da IS NULL)"
     ),
+    # Temporal walk is the ancora chain, not event-to-event edges:
+    # "prima di E" = events whose ancora precedes E's ancora along
+    # SUCCESSIONE_ANCORA. tempo_assoluto stays as an additional clause.
     "prima_di": (
         "MATCH (start:Evento) WHERE start.id = $target "
         "AND ("
         "e.tempo_assoluto < start.tempo_assoluto "
-        "OR EXISTS { MATCH (e)-[r:PRECEDE]->(start) WHERE r.superato_da IS NULL }"
+        "OR EXISTS { "
+        "MATCH (e)-[rae:APPARTIENE_A]->(ancora_e:AncoraTemporale) "
+        "WHERE coalesce(rae.attivo, true) "
+        "MATCH (start)-[ras:APPARTIENE_A]->(ancora_s:AncoraTemporale) "
+        "WHERE coalesce(ras.attivo, true) "
+        "MATCH (ancora_e)-[succ:SUCCESSIONE_ANCORA*1..]->(ancora_s) "
+        "WHERE ALL(rel IN succ WHERE coalesce(rel.attivo, true)) "
+        "}"
         ") "
         "AND NOT EXISTS { MATCH (e)-[c:COLLEGATO]-(start) WHERE c.superato_da IS NOT NULL }"
     ),
@@ -55,13 +65,26 @@ _TRAVERSAL_CLAUSES: dict[str, str] = {
         "MATCH (start:Evento) WHERE start.id = $target "
         "AND ("
         "e.tempo_assoluto > start.tempo_assoluto "
-        "OR EXISTS { MATCH (start)-[r:PRECEDE]->(e) WHERE r.superato_da IS NULL }"
+        "OR EXISTS { "
+        "MATCH (e)-[rae:APPARTIENE_A]->(ancora_e:AncoraTemporale) "
+        "WHERE coalesce(rae.attivo, true) "
+        "MATCH (start)-[ras:APPARTIENE_A]->(ancora_s:AncoraTemporale) "
+        "WHERE coalesce(ras.attivo, true) "
+        "MATCH (ancora_s)-[succ:SUCCESSIONE_ANCORA*1..]->(ancora_e) "
+        "WHERE ALL(rel IN succ WHERE coalesce(rel.attivo, true)) "
+        "}"
         ") "
         "AND NOT EXISTS { MATCH (e)-[c:COLLEGATO]-(start) WHERE c.superato_da IS NOT NULL }"
     ),
     "vicinato_temporale": (
-        "MATCH (start:Evento)-[r:PRECEDE]-(e) "
-        "WHERE start.id = $target AND r.superato_da IS NULL"
+        "MATCH (start:Evento)-[ras:APPARTIENE_A]->(ancora_s:AncoraTemporale) "
+        "WHERE start.id = $target AND coalesce(ras.attivo, true) "
+        "MATCH (e)-[rae:APPARTIENE_A]->(ancora_e:AncoraTemporale) "
+        "WHERE coalesce(rae.attivo, true) "
+        "AND EXISTS { "
+        "MATCH (ancora_e)-[r:SUCCESSIONE_ANCORA]-(ancora_s) "
+        "WHERE coalesce(r.attivo, true) "
+        "}"
     ),
 }
 

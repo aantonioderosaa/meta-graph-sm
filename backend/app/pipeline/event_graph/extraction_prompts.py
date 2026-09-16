@@ -46,8 +46,10 @@ INTRA-SENTENCE ONLY. Do not invent an arc to events outside this sentence.
 - consecuzione: quindi, perciò, dunque, pertanto, così (result), therefore,
   thus, hence, so (result), consequently
 - posteriorita: dopo che, poi, therefore-then sequence "then", after, afterwards,
-  later, subsequently
-- anteriorita: prima che, prima di, before, previously, beforehand
+  later, subsequently. Record the signal only; chronology is the temporal
+  pass, not a micro/macro arc.
+- anteriorita: prima che, prima di, before, previously, beforehand.
+  Same: record the signal, do not treat as a micro typed arc.
 - limite: finché, fino a che, until, till, as long as (limit)
 - condizione: se, qualora, a patto che, unless, if, provided that, in case
 - scopo: affinché, perché (purpose), per + inf, so that, in order to, to + inf

@@ -1,9 +1,0 @@
-{
-  "plan": "PIANO-TRE-LIVELLI-GRAFO.md",
-  "current_mt": "MT16",
-  "status": "completed",
-  "completed": ["MT1", "MT2", "MT3", "MT4", "MT5", "MT6", "MT7", "MT8", "MT9", "MT10", "MT11", "MT12", "MT13", "MT14", "MT15", "MT16"],
-  "failed_attempts": {},
-  "last_success": "MT16 Addendum 5 in PIANO-GRAFO-EVENTI.md",
-  "notes": "Loop finished: MT16 succeeded. Do not re-arm."
-}

@@ -46,3 +46,6 @@ known-first-party = ["app"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "live_llm: real OpenAI-compatible call (set EVENT_GRAPH_LIVE_LLM=1)",
+]

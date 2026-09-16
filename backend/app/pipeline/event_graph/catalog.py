@@ -23,7 +23,6 @@ from app.models.event_graph import (
 _ARGOMENTALI = ("SOGG", "OGG", "OBL", "TEMPO", "LUOGO", "MODO")
 _DIZIONARIO = (
     "CAUSA",
-    "PRECEDE",
     "LIMITE",
     "CONDIZIONE",
     "SCOPO",
@@ -34,14 +33,20 @@ _DIZIONARIO = (
 )
 _CATENA = ("STESSO_EVENTO", "AGGIORNA", "CONTRADDICE")
 _CHAIN_TIPI = frozenset(_CATENA)
-_TEMPORALE = ("PRECEDE", "CONTEMPORANEO")
+_TEMPORALE = ()
 _PLACEHOLDER = ("COLLEGATO",)
-_STRUTTURA = ("SATELLITE_DI", "APPARTIENE_A", "SUCCESSIONE_ZONA", "CONTIENE")
+_STRUTTURA = (
+    "SATELLITE_DI",
+    "APPARTIENE_A",
+    "SUCCESSIONE_ANCORA",
+    "SUCCESSIONE_ZONA",
+    "CONTIENE",
+)
 
 _DIR_EVENTO_MENZIONE = "Evento→Menzione"
 _DIR_EVENTO_EVENTO = "Evento→Evento"
-_DIR_EVENTO_CLUSTER = "Evento→ClusterTemporale"
-_DIR_CLUSTER_CLUSTER = "ClusterTemporale→ClusterTemporale"
+_DIR_EVENTO_ANCORA = "Evento→AncoraTemporale"
+_DIR_ANCORA_ANCORA = "AncoraTemporale→AncoraTemporale"
 _DIR_ZONA_ZONA = "Zona→Zona"
 
 # Unique types ``grafo()`` (vista=tutto) can return: Evento/Menzione/Quarantena
@@ -51,18 +56,22 @@ _TUTTO_NODI = ("Evento", "Menzione", "Quarantena")
 _TUTTO_ARCHI = (
     *_ARGOMENTALI,
     *_DIZIONARIO,
-    "CONTEMPORANEO",
     *_PLACEHOLDER,
     "SATELLITE_DI",
 )
 _ORDINE_NODI = ("Zona", "Evento")
 _ORDINE_ARCHI = ("SUCCESSIONE_ZONA", "SEQUENZA", "COLLEGATO")
-_TEMPORALE_NODI = ("ClusterTemporale", "Evento")
+_TEMPORALE_NODI = ("AncoraTemporale", "Evento")
 # APPARTIENE_A / CONTIENE assign data.parent; grafo_livello2 does not draw
-# them. They still belong in the vista legend (PIANO-LIVELLO-TEMPORALE-V2
-# MT7, lines 121–125).
-_TEMPORALE_ARCHI = ("PRECEDE", "CONTEMPORANEO", "APPARTIENE_A", "CONTIENE")
+# them. They still belong in the vista legend (same as the v2 note).
+# SUCCESSIONE_ANCORA is drawn between sibling ancore.
+_TEMPORALE_ARCHI = (
+    "SUCCESSIONE_ANCORA",
+    "APPARTIENE_A",
+    "CONTIENE",
+)
 _RELAZIONI_NODI = ("Evento",)
+_RELAZIONI_ARCHI = tuple(get_args(TipoRelazioneLibera))
 
 _SIGNIFICATO: dict[tuple[str, str], str] = {
     ("argomentali", "SOGG"): "soggetto dell'evento",
@@ -72,7 +81,6 @@ _SIGNIFICATO: dict[tuple[str, str], str] = {
     ("argomentali", "LUOGO"): "circostanza spaziale",
     ("argomentali", "MODO"): "circostanza di modo",
     ("dizionario", "CAUSA"): "relazione causale fra eventi",
-    ("dizionario", "PRECEDE"): "ordine temporale da dizionario (connettivo)",
     ("dizionario", "LIMITE"): "limite temporale o condizionale",
     ("dizionario", "CONDIZIONE"): "condizione dell'evento dipendente",
     ("dizionario", "SCOPO"): "finalità dell'evento dipendente",
@@ -80,19 +88,17 @@ _SIGNIFICATO: dict[tuple[str, str], str] = {
     ("dizionario", "CONTRASTO"): "contrasto fra due eventi",
     ("dizionario", "SEQUENZA"): "passo della spina dorsale narrativa",
     ("dizionario", "CONTENUTO"): "contenuto di un evento di dire/pensare",
-    ("temporale", "PRECEDE"): (
-        "ordine cronologico (dato_esplicito / riferimento_testuale / "
-        "connettivo / trapassato)"
-    ),
-    ("temporale", "CONTEMPORANEO"): "stesso momento, non direzionale",
     ("placeholder", "COLLEGATO"): (
         "segnale d'ordine debole (ordine_menzione / ordine_ingestione)"
     ),
     ("struttura", "SATELLITE_DI"): "SFONDO agganciato al PRIMO_PIANO",
-    ("struttura", "APPARTIENE_A"): "evento appartenente a un cluster temporale",
+    ("struttura", "APPARTIENE_A"): "evento appartenente a un'ancora temporale",
+    ("struttura", "SUCCESSIONE_ANCORA"): (
+        "successione lineare fra ancore consecutive dello stesso livello"
+    ),
     ("struttura", "SUCCESSIONE_ZONA"): "successione narrativa fra zone espanse",
     ("struttura", "CONTIENE"): (
-        "cluster temporale che ne contiene un altro (foresta)"
+        "ancora temporale che ne contiene un'altra (foresta)"
     ),
 }
 
@@ -108,9 +114,11 @@ def _arco(tipo: str, famiglia: str, direzione: str) -> dict[str, str]:
 
 def _struttura_direzione(tipo: str) -> str:
     if tipo == "APPARTIENE_A":
-        return _DIR_EVENTO_CLUSTER
+        return _DIR_EVENTO_ANCORA
     if tipo == "CONTIENE":
-        return _DIR_CLUSTER_CLUSTER
+        return _DIR_ANCORA_ANCORA
+    if tipo == "SUCCESSIONE_ANCORA":
+        return _DIR_ANCORA_ANCORA
     if tipo == "SUCCESSIONE_ZONA":
         return _DIR_ZONA_ZONA
     return _DIR_EVENTO_EVENTO
@@ -124,8 +132,9 @@ def _viste() -> dict[str, dict[str, Any]]:
             "archi": list(_TUTTO_ARCHI),
             "significato": (
                 "Vista completa: Evento, Menzione e Quarantena con tutti gli "
-                "archi micro (argomentali, dizionario, PRECEDE/CONTEMPORANEO, "
-                "COLLEGATO, SATELLITE_DI). Nessuna Zona né ClusterTemporale; "
+                "archi micro (argomentali, dizionario, COLLEGATO, "
+                "SATELLITE_DI). Nessun arco temporale fra eventi. "
+                "Nessuna Zona né AncoraTemporale; "
                 "SUCCESSIONE_ZONA e APPARTIENE_A restano fuori da questa proiezione."
             ),
         },
@@ -142,23 +151,26 @@ def _viste() -> dict[str, dict[str, Any]]:
             "nodi": list(_TEMPORALE_NODI),
             "archi": list(_TEMPORALE_ARCHI),
             "significato": (
-                "Livello 2: ClusterTemporale + Evento (compound, parent=cluster). "
-                "Archi live PRECEDE (superato_da vuoto) e CONTEMPORANEO "
-                "(stesso momento, non direzionale). APPARTIENE_A "
-                "(evento appartenente a un cluster temporale) e CONTIENE "
-                "(ClusterTemporale→ClusterTemporale, foresta) assegnano il "
-                "parent, non sono archi visibili. "
-                "granularita è la scala del cluster (secondo…secolo); "
+                "Livello 2: AncoraTemporale + Evento (compound, parent=ancora). "
+                "Arco visibile SUCCESSIONE_ANCORA "
+                "(AncoraTemporale→AncoraTemporale, fratelli consecutivi). "
+                "APPARTIENE_A (evento appartenente a un'ancora temporale) e "
+                "CONTIENE (AncoraTemporale→AncoraTemporale, foresta) "
+                "assegnano il parent, non sono archi visibili. "
+                "Gli eventi dentro un'ancora sono sfusi: nessun arco fra loro. "
+                "granularita è la scala dell'ancora (secondo…secolo); "
                 "stimato=true se inizio è inferito e non dichiarato dal testo."
             ),
         },
         "relazioni": {
             "nodi": list(_RELAZIONI_NODI),
-            "archi": list(get_args(TipoRelazioneLibera)),
+            "archi": list(_RELAZIONI_ARCHI),
             "significato": (
-                "Livello 3: solo Evento, senza raggruppamento. Archi "
-                "TipoRelazioneLibera (CAUSA, CONDIZIONE, SCOPO, CONCESSIONE, "
-                "CONTRASTO, LIMITE, CONTENUTO) con livello='3'."
+                "Relazioni: ogni Evento non fuso del documento e le "
+                "TipoRelazioneLibera di significato (CAUSA, CONDIZIONE, "
+                "SCOPO, CONCESSIONE, CONTRASTO, LIMITE, CONTENUTO) da grammatica "
+                "e livello 3. Nessun arco SEQUENZA: il livello 3 legge il testo "
+                "e la lista eventi, non l'ordine di esposizione."
             ),
         },
     }
@@ -173,8 +185,8 @@ def catalogo() -> dict:
             {"id": "Quarantena", "label": "Quarantena", "shape": "tratteggiato"},
             {"id": "Zona", "label": "Zona", "shape": "round-rectangle"},
             {
-                "id": "ClusterTemporale",
-                "label": "ClusterTemporale",
+                "id": "AncoraTemporale",
+                "label": "AncoraTemporale",
                 "shape": "round-rectangle",
             },
         ],
@@ -298,6 +310,19 @@ def _as_int(value: Any) -> int | None:
         return None
 
 
+def _attach_posizione(data: dict[str, Any], mapping: dict[str, Any]) -> None:
+    """Forward exposition ordinals so Relazioni can place the zigzag ladder."""
+    pos_doc = _as_int(mapping.get("posizione_doc"))
+    if pos_doc is not None:
+        data["posizione_doc"] = pos_doc
+    pos_chunk = _as_int(mapping.get("posizione_chunk"))
+    if pos_chunk is not None:
+        data["posizione_chunk"] = pos_chunk
+    offset = _as_int(mapping.get("offset_inizio"))
+    if offset is not None:
+        data["offset_inizio"] = offset
+
+
 def _as_bool(value: Any) -> bool | None:
     """``None`` stays ``None``: "not estimated" and "unknown" differ."""
     if value is None:
@@ -399,19 +424,23 @@ _NODES_CYPHER = (
     "AND ($piano IS NULL OR e.piano = $piano) "
     "AND ($lemma IS NULL OR e.lemma = $lemma) "
     "RETURN e.id AS id, e.lemma AS label, 'Evento' AS tipo, e.piano AS piano, "
-    "e.fattualita AS fattualita, e.documento AS documento, e.fuso_in AS fuso_in "
+    "e.fattualita AS fattualita, e.documento AS documento, e.fuso_in AS fuso_in, "
+    "e.posizione_doc AS posizione_doc, e.posizione_chunk AS posizione_chunk, "
+    "e.offset_inizio AS offset_inizio "
     "UNION ALL "
     "MATCH (m:Menzione) "
     "WHERE ($documento IS NULL OR m.documento = $documento) "
     "RETURN m.id AS id, coalesce(m.forma, m.forma_canonica, m.id) AS label, "
     "'Menzione' AS tipo, null AS piano, null AS fattualita, "
-    "m.documento AS documento, null AS fuso_in "
+    "m.documento AS documento, null AS fuso_in, "
+    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio "
     "UNION ALL "
     "MATCH (q:Quarantena) "
     "WHERE ($documento IS NULL OR q.ancora_doc = $documento) "
     "RETURN q.id AS id, coalesce(q.frammento, q.id) AS label, "
     "'Quarantena' AS tipo, null AS piano, null AS fattualita, "
-    "q.ancora_doc AS documento, null AS fuso_in"
+    "q.ancora_doc AS documento, null AS fuso_in, "
+    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio"
 )
 
 _EDGES_CYPHER = (
@@ -445,16 +474,16 @@ def _node_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
     node_id = mapping.get("id")
     if not node_id:
         return None
-    return {
-        "data": {
-            "id": str(node_id),
-            "label": mapping.get("label") or str(node_id),
-            "tipo": mapping.get("tipo") or "Evento",
-            "piano": mapping.get("piano"),
-            "fattualita": mapping.get("fattualita"),
-            "documento": mapping.get("documento"),
-        }
+    data: dict[str, Any] = {
+        "id": str(node_id),
+        "label": mapping.get("label") or str(node_id),
+        "tipo": mapping.get("tipo") or "Evento",
+        "piano": mapping.get("piano"),
+        "fattualita": mapping.get("fattualita"),
+        "documento": mapping.get("documento"),
     }
+    _attach_posizione(data, mapping)
+    return {"data": data}
 
 
 def _edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
@@ -545,8 +574,9 @@ _L1_EVENTS_CYPHER = (
     "AND ($documento IS NULL OR z.documento = $documento) "
     "RETURN e.id AS id, e.lemma AS label, e.chunk_id AS parent, "
     "e.documento AS documento, 'Evento' AS tipo, e.fuso_in AS fuso_in, "
-    "e.posizione_chunk AS posizione_chunk "
-    "ORDER BY z.ordinale, e.posizione_chunk"
+    "e.posizione_doc AS posizione_doc, e.posizione_chunk AS posizione_chunk, "
+    "e.offset_inizio AS offset_inizio "
+    "ORDER BY z.ordinale, e.posizione_doc, e.posizione_chunk, e.offset_inizio"
 )
 
 _L1_SUCCESSIONE_CYPHER = (
@@ -613,18 +643,15 @@ def _l1_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
     parent = mapping.get("parent") or mapping.get("chunk_id")
     if not parent:
         return None
-    return {
-        "data": {
-            "id": str(node_id),
-            "label": mapping.get("label") or mapping.get("lemma") or str(node_id),
-            "tipo": "Evento",
-            "parent": str(parent),
-            "documento": mapping.get("documento"),
-            # The preset layout stacks a zone's children in array order, so the
-            # vertical order is only meaningful if the query ordered them.
-            "posizione_chunk": mapping.get("posizione_chunk"),
-        }
+    data: dict[str, Any] = {
+        "id": str(node_id),
+        "label": mapping.get("label") or mapping.get("lemma") or str(node_id),
+        "tipo": "Evento",
+        "parent": str(parent),
+        "documento": mapping.get("documento"),
     }
+    _attach_posizione(data, mapping)
+    return {"data": data}
 
 
 def _l1_edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
@@ -652,7 +679,7 @@ async def grafo_livello1(session, documento: str | None = None) -> dict:
     """Livello 1 (ordine): Zona hubs + intra-zone SEQUENZA/COLLEGATO.
 
     Compound Cytoscape nodes: Evento ``data.parent`` = Zona.id. No Menzione,
-    Quarantena, or ClusterTemporale. No CAUSA/CONTRASTO/… edges.
+    Quarantena, or AncoraTemporale. No CAUSA/CONTRASTO/… edges.
     """
     params = {"documento": documento}
     nodes: list[dict[str, dict[str, Any]]] = []
@@ -696,7 +723,7 @@ async def grafo_livello1(session, documento: str | None = None) -> dict:
     return {"elements": {"nodes": nodes, "edges": edges}}
 
 
-_L2_EDGE_TIPI = frozenset({"PRECEDE", "CONTEMPORANEO"})
+_L2_EDGE_TIPI = frozenset({"SUCCESSIONE_ANCORA"})
 
 # Ordering bands for the horizontal axis. ``chiave_ordine`` (sixteenths of a
 # second since year 1) and ``posizione_doc_min`` (an exposition ordinal) are
@@ -718,18 +745,19 @@ _L2_BANDA_IGNOTO = 2
 # function. ``coalesce`` because edges written before MT5 carry no ``attivo``.
 _L2_CLUSTER_CYPHER = (
     "/* grafo_livello2_cluster */ "
-    "MATCH (c:ClusterTemporale) "
-    "WHERE $documento IS NULL OR c.documento = $documento "
-    "OPTIONAL MATCH (p:ClusterTemporale)-[rc:CONTIENE]->(c) "
+    "MATCH (a:AncoraTemporale) "
+    "WHERE $documento IS NULL OR a.documento = $documento "
+    "OPTIONAL MATCH (p:AncoraTemporale)-[rc:CONTIENE]->(a) "
     "WHERE coalesce(rc.attivo, true) "
-    "RETURN c.id AS id, c.etichetta AS label, c.etichetta AS etichetta, "
-    "c.tipo AS tipo_cluster, c.documento AS documento, "
-    "c.descrizione AS descrizione, c.granularita AS granularita, "
-    "c.inizio AS inizio, c.fine AS fine, "
-    "c.chiave_ordine AS chiave_ordine, "
-    "c.posizione_doc_min AS posizione_doc_min, "
-    "c.stimato AS stimato, c.confidenza AS confidenza, "
-    "p.id AS parent, 'ClusterTemporale' AS tipo "
+    "RETURN a.id AS id, a.etichetta AS label, a.etichetta AS etichetta, "
+    "a.tipo AS tipo_cluster, a.documento AS documento, "
+    "a.descrizione AS descrizione, a.granularita AS granularita, "
+    "a.inizio AS inizio, a.fine AS fine, "
+    "a.chiave_ordine AS chiave_ordine, "
+    "a.posizione_doc_min AS posizione_doc_min, "
+    "a.stimato AS stimato, a.confidenza AS confidenza, "
+    "a.natura AS natura, a.ordinale AS ordinale, "
+    "p.id AS parent, 'AncoraTemporale' AS tipo "
     # MT5 guarantees at most one active parent; the sort only makes the
     # first-wins dedupe below deterministic if that guarantee ever breaks.
     "ORDER BY id, parent"
@@ -740,33 +768,23 @@ _L2_EVENTS_CYPHER = (
     "MATCH (e:Evento) "
     "WHERE (e.fuso_in IS NULL OR e.fuso_in = '') "
     "AND ($documento IS NULL OR e.documento = $documento) "
-    "OPTIONAL MATCH (e)-[ra:APPARTIENE_A]->(c:ClusterTemporale) "
+    "OPTIONAL MATCH (e)-[ra:APPARTIENE_A]->(a:AncoraTemporale) "
     "WHERE coalesce(ra.attivo, true) "
-    "RETURN e.id AS id, e.lemma AS label, c.id AS parent, "
+    "RETURN e.id AS id, e.lemma AS label, a.id AS parent, "
     "e.documento AS documento, 'Evento' AS tipo, e.fuso_in AS fuso_in, "
     "e.posizione_doc AS posizione_doc, "
+    "e.posizione_chunk AS posizione_chunk, "
+    "e.offset_inizio AS offset_inizio, "
     "ra.confidenza AS confidenza, ra.stimato AS stimato "
     "ORDER BY id, parent"
 )
 
-_L2_PRECEDE_CYPHER = (
-    "/* grafo_livello2_precede */ "
-    "MATCH (a:Evento)-[r:PRECEDE]->(b:Evento) "
-    "WHERE (r.superato_da IS NULL OR r.superato_da = '') "
-    "AND (a.fuso_in IS NULL OR a.fuso_in = '') "
-    "AND (b.fuso_in IS NULL OR b.fuso_in = '') "
-    "AND ($documento IS NULL OR a.documento = $documento) "
-    "RETURN coalesce(r.id, '') AS id, a.id AS source, b.id AS target, "
-    "type(r) AS tipo, r.superato_da AS superato_da, r.confidenza AS confidenza"
-)
-
-_L2_CONTEMPORANEO_CYPHER = (
-    "/* grafo_livello2_contemporaneo */ "
-    "MATCH (a:Evento)-[r:CONTEMPORANEO]->(b:Evento) "
-    "WHERE (a.fuso_in IS NULL OR a.fuso_in = '') "
-    "AND (b.fuso_in IS NULL OR b.fuso_in = '') "
-    "AND ($documento IS NULL OR a.documento = $documento) "
-    "RETURN coalesce(r.id, '') AS id, a.id AS source, b.id AS target, "
+_L2_SUCCESSIONE_CYPHER = (
+    "/* grafo_livello2_successione_ancora */ "
+    "MATCH (aa:AncoraTemporale)-[r:SUCCESSIONE_ANCORA]->(ab:AncoraTemporale) "
+    "WHERE coalesce(r.attivo, true) "
+    "AND ($documento IS NULL OR aa.documento = $documento) "
+    "RETURN coalesce(r.id, '') AS id, aa.id AS source, ab.id AS target, "
     "type(r) AS tipo, r.confidenza AS confidenza"
 )
 
@@ -775,28 +793,34 @@ def _l2_cluster_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | 
     if _is_edge_row(mapping) or _is_fused(mapping):
         return None
     tipo = mapping.get("tipo")
-    if tipo and tipo != "ClusterTemporale":
+    if tipo and tipo != "AncoraTemporale":
         return None
     node_id = mapping.get("id")
     if not node_id:
         return None
-    if tipo != "ClusterTemporale" and mapping.get("etichetta") is None and mapping.get(
-        "tipo_cluster"
-    ) is None:
+    if (
+        tipo != "AncoraTemporale"
+        and mapping.get("etichetta") is None
+        and mapping.get("tipo_cluster") is None
+        and mapping.get("natura") is None
+    ):
         return None
     etichetta = mapping.get("etichetta") or mapping.get("label")
     data: dict[str, Any] = {
         "id": str(node_id),
         "label": etichetta or str(node_id),
-        "tipo": "ClusterTemporale",
+        "tipo": "AncoraTemporale",
         "etichetta": etichetta,
         "tipo_cluster": mapping.get("tipo_cluster"),
         "descrizione": mapping.get("descrizione"),
         "granularita": mapping.get("granularita"),
         "inizio": mapping.get("inizio"),
         "fine": mapping.get("fine"),
-        # Verbatim: a cluster written before MT5 has neither, and the view
-        # never invents a time for it. Only ``ordine_vista`` is resolved.
+        "natura": mapping.get("natura"),
+        "ordinale": _as_int(mapping.get("ordinale")),
+        # Verbatim: an ancora written without a calendar signal has neither,
+        # and the view never invents a time for it. Only ``ordine_vista``
+        # is resolved.
         "chiave_ordine": _as_int(mapping.get("chiave_ordine")),
         "posizione_doc_min": _as_int(mapping.get("posizione_doc_min")),
         "stimato": _as_bool(mapping.get("stimato")),
@@ -823,6 +847,8 @@ def _l2_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
         "tipo": "Evento",
         "documento": mapping.get("documento"),
         "posizione_doc": _as_int(mapping.get("posizione_doc")),
+        "posizione_chunk": _as_int(mapping.get("posizione_chunk")),
+        "offset_inizio": _as_int(mapping.get("offset_inizio")),
     }
     parent = mapping.get("parent")
     if parent:
@@ -947,23 +973,41 @@ def _l2_ordine_cluster(
     return ordine
 
 
+def _l2_campo_lettura(valore: Any) -> tuple[int, int]:
+    """Known values first; missing sorts after every concrete number."""
+    numero = _as_int(valore)
+    if numero is None:
+        return (1, 0)
+    return (0, numero)
+
+
 def _l2_chiave_evento(
     data: dict[str, Any],
     rango: dict[str, int],
     senza_cluster: int,
-) -> tuple[int, int, int, str]:
+) -> tuple[int, int, int, int, int, int, int, str]:
     """Events follow their box, and inside the box they follow the text.
 
-    A compound layout stacks a parent's children in array order, exactly as
-    ``grafo_livello1`` does with ``posizione_chunk``, so the order of the rows
-    is the only thing that makes the inside of a box readable.
+    A compound layout stacks a parent's children in array order, so the order
+    of the rows is the only thing that makes the inside of a box readable.
+    Primary key is ``offset_inizio`` (global char offset: in ``dedup.py`` it
+    is ``base_offset + start``). Fallbacks: ``posizione_doc``,
+    ``posizione_chunk``, then ``id``. ``posizione_doc`` in practice holds the
+    zona ordinal — not a document-wide index; ``layout-ordine``, Neo4j
+    ``eg_evento_posizione`` and several ``_pos_key`` still use the name.
     """
     parent = data.get("parent")
-    posizione = data.get("posizione_doc")
+    off_manca, off_val = _l2_campo_lettura(data.get("offset_inizio"))
+    pos_manca, pos_val = _l2_campo_lettura(data.get("posizione_doc"))
+    chunk_manca, chunk_val = _l2_campo_lettura(data.get("posizione_chunk"))
     return (
         senza_cluster if parent is None else rango.get(parent, senza_cluster),
-        1 if posizione is None else 0,
-        0 if posizione is None else posizione,
+        off_manca,
+        off_val,
+        pos_manca,
+        pos_val,
+        chunk_manca,
+        chunk_val,
         data["id"],
     )
 
@@ -975,8 +1019,6 @@ def _l2_edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | Non
     target = mapping.get("target")
     tipo = mapping.get("tipo") or mapping.get("t") or mapping.get("type(r)") or ""
     if tipo not in _L2_EDGE_TIPI:
-        return None
-    if tipo == "PRECEDE" and mapping.get("superato_da"):
         return None
     edge_id = mapping.get("id") or f"{tipo}|{source}|{target}"
     data: dict[str, Any] = {
@@ -990,21 +1032,21 @@ def _l2_edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | Non
 
 
 async def grafo_livello2(session, documento: str | None = None) -> dict:
-    """Livello 2 (tempo): ClusterTemporale + Evento + PRECEDE/CONTEMPORANEO.
+    """Livello 2 (tempo): AncoraTemporale + Evento + SUCCESSIONE_ANCORA.
 
-    Compound Cytoscape nodes on two levels: a ClusterTemporale ``data.parent``
+    Compound Cytoscape nodes on two levels: an AncoraTemporale ``data.parent``
     is the active ``CONTIENE`` parent, an Evento ``data.parent`` is its active
-    ``APPARTIENE_A`` leaf cluster. Neither ``CONTIENE`` nor ``APPARTIENE_A`` is
-    a drawn edge: they assign the parent. No Zona, Menzione, or Quarantena, no
-    CAUSA/SEQUENZA/… edges, no superseded PRECEDE (``superato_da`` set).
+    ``APPARTIENE_A`` leaf ancora. Neither ``CONTIENE`` nor ``APPARTIENE_A`` is
+    a drawn edge: they assign the parent. Drawn edges are ``SUCCESSIONE_ANCORA``
+    only (sibling ancore). Events inside a box are unordered: no event-to-event
+    temporal arcs. No Zona, Menzione, or Quarantena, no CAUSA/SEQUENZA/….
 
-    Rows come out ordered on the time axis: clusters depth-first with roots and
-    siblings by ``chiave_ordine``, events after their own box in
-    ``posizione_doc`` order. ``ordine_vista`` carries that resolved rank.
+    Rows come out ordered on the time axis: ancore depth-first with roots and
+    siblings by ``chiave_ordine``, events after their own box by
+    ``offset_inizio`` (then ``posizione_doc``, ``posizione_chunk``, id).
+    ``ordine_vista`` carries that resolved rank.
 
-    A CONTEMPORANEO is dropped when both its events sit in the same box, which
-    already says so, and when the same unordered pair also carries a PRECEDE,
-    which contradicts it.
+    Zero ancore: empty payload. Unplaced events are not drawn as a fake box.
     """
     params = {"documento": documento}
     cluster_elements: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1013,6 +1055,8 @@ async def grafo_livello2(session, documento: str | None = None) -> dict:
         if element is None:
             continue
         cluster_elements.setdefault(element["data"]["id"], element)
+    if not cluster_elements:
+        return {"elements": {"nodes": [], "edges": []}}
     cluster_ids = set(cluster_elements)
 
     evento_elements: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1046,10 +1090,10 @@ async def grafo_livello2(session, documento: str | None = None) -> dict:
         cid: element["data"]["posizione_doc_min"]
         for cid, element in cluster_elements.items()
     }
-    # A cluster written before MT5 has no posizione_doc_min: rather than
-    # parking it at the far right, read the events the view already holds.
-    # On a cluster MT5 did write this can only confirm the stored value,
-    # which is the minimum over the whole subtree and so never larger.
+    # An ancora without posizione_doc_min: rather than parking it at the far
+    # right, read the events the view already holds. On an ancora that did
+    # persist the field this can only confirm the stored value, which is the
+    # minimum over the whole subtree and so never larger.
     for element in evento_elements.values():
         parent = element["data"].get("parent")
         posizione = element["data"].get("posizione_doc")
@@ -1084,8 +1128,7 @@ async def grafo_livello2(session, documento: str | None = None) -> dict:
 
     edges: list[dict[str, dict[str, Any]]] = []
     seen_edges: set[str] = set()
-    coppie_precede: set[frozenset[str]] = set()
-    for row in await _rows(session, _L2_PRECEDE_CYPHER, params):
+    for row in await _rows(session, _L2_SUCCESSIONE_CYPHER, params):
         element = _l2_edge_element(_as_mapping(row))
         if element is None:
             continue
@@ -1096,41 +1139,6 @@ async def grafo_livello2(session, documento: str | None = None) -> dict:
         if edge_id in seen_edges:
             continue
         seen_edges.add(edge_id)
-        coppie_precede.add(frozenset((src, tgt)))
-        edges.append(element)
-
-    candidati: list[dict[str, dict[str, Any]]] = []
-    for row in await _rows(session, _L2_CONTEMPORANEO_CYPHER, params):
-        element = _l2_edge_element(_as_mapping(row))
-        if element is None:
-            continue
-        src, tgt = element["data"]["source"], element["data"]["target"]
-        if src not in seen_nodes or tgt not in seen_nodes:
-            continue
-        candidati.append(element)
-    cluster_di = {
-        eid: element["data"].get("parent")
-        for eid, element in evento_elements.items()
-    }
-    coppie_viste: set[frozenset[str]] = set()
-    # CONTEMPORANEO is symmetric by design (D2), so every comparison here is on
-    # the unordered pair; sorting by id first makes the survivor of a mirrored
-    # pair independent of the order the database hands the rows over.
-    for element in sorted(candidati, key=lambda item: item["data"]["id"]):
-        src, tgt = element["data"]["source"], element["data"]["target"]
-        if src == tgt:
-            continue
-        coppia = frozenset((src, tgt))
-        if coppia in coppie_precede or coppia in coppie_viste:
-            continue
-        box = cluster_di.get(src)
-        if box is not None and box == cluster_di.get(tgt):
-            continue
-        edge_id = element["data"]["id"]
-        if edge_id in seen_edges:
-            continue
-        seen_edges.add(edge_id)
-        coppie_viste.add(coppia)
         edges.append(element)
     return {"elements": {"nodes": nodes, "edges": edges}}
 
@@ -1146,28 +1154,23 @@ _L3_EVENTS_CYPHER = (
     "WHERE (e.fuso_in IS NULL OR e.fuso_in = '') "
     "AND ($documento IS NULL OR e.documento = $documento) "
     "RETURN e.id AS id, e.lemma AS label, e.documento AS documento, "
-    "'Evento' AS tipo, e.fuso_in AS fuso_in"
+    "'Evento' AS tipo, e.fuso_in AS fuso_in, "
+    "e.posizione_doc AS posizione_doc, e.posizione_chunk AS posizione_chunk, "
+    "e.offset_inizio AS offset_inizio"
 )
 
 _L3_EDGES_CYPHER = (
     "/* grafo_livello3_archi */ "
     "MATCH (a:Evento)-[r]->(b:Evento) "
-    "WHERE (r.livello = '3' OR r.livello = \"3\") "
-    f"AND type(r) IN [{_L3_EDGE_TIPI_CYPHER}] "
+    f"WHERE type(r) IN [{_L3_EDGE_TIPI_CYPHER}] "
     "AND (a.fuso_in IS NULL OR a.fuso_in = '') "
     "AND (b.fuso_in IS NULL OR b.fuso_in = '') "
     "AND ($documento IS NULL OR a.documento = $documento) "
     "RETURN coalesce(r.id, '') AS id, a.id AS source, b.id AS target, "
     "type(r) AS tipo, r.livello AS livello, r.spiegazione AS spiegazione, "
+    "r.base AS base, r.regola AS regola, "
     "r.confidenza AS confidenza"
 )
-
-
-def _is_livello3(mapping: dict[str, Any]) -> bool:
-    livello = mapping.get("livello")
-    if livello is None:
-        return False
-    return str(livello) == "3"
 
 
 def _l3_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
@@ -1179,20 +1182,18 @@ def _l3_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
     node_id = mapping.get("id")
     if not node_id:
         return None
-    return {
-        "data": {
-            "id": str(node_id),
-            "label": mapping.get("label") or mapping.get("lemma") or str(node_id),
-            "tipo": "Evento",
-            "documento": mapping.get("documento"),
-        }
+    data: dict[str, Any] = {
+        "id": str(node_id),
+        "label": mapping.get("label") or mapping.get("lemma") or str(node_id),
+        "tipo": "Evento",
+        "documento": mapping.get("documento"),
     }
+    _attach_posizione(data, mapping)
+    return {"data": data}
 
 
 def _l3_edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
     if not _is_edge_row(mapping):
-        return None
-    if not _is_livello3(mapping):
         return None
     source = mapping.get("source")
     target = mapping.get("target")
@@ -1200,38 +1201,37 @@ def _l3_edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | Non
     if tipo not in _L3_EDGE_TIPI:
         return None
     edge_id = mapping.get("id") or f"{tipo}|{source}|{target}"
-    data: dict[str, Any] = {
+    data = {
         "id": str(edge_id),
         "source": str(source),
         "target": str(target),
         "tipo": tipo,
-        "livello": "3",
         "spiegazione": mapping.get("spiegazione"),
     }
+    livello = mapping.get("livello")
+    if livello is not None and livello != "":
+        data["livello"] = str(livello)
     _attach_confidenza(data, mapping)
     return {"data": data}
 
 
 async def grafo_livello3(session, documento: str | None = None) -> dict:
-    """Livello 3 (relazioni): all Evento + only ``livello='3'`` free arcs.
+    """Vista relazioni: every non-fused ``:Evento`` plus TipoRelazioneLibera
+    (grammar and document-level L3). No SEQUENZA: L3 reads document text and
+    the event list, not exposition order.
 
-    No compound ``parent``, no Zona, ClusterTemporale, Menzione, or
-    Quarantena. Only TipoRelazioneLibera edges (CAUSA, CONDIZIONE, …)
-    with ``r.livello = '3'``. ``spiegazione`` is copied onto ``data``.
-    Fused events (``fuso_in`` set) and dangling endpoints are dropped.
+    No compound ``parent``, no Zona, AncoraTemporale, Menzione, or Quarantena.
     """
     params = {"documento": documento}
-    nodes: list[dict[str, dict[str, Any]]] = []
-    seen_nodes: set[str] = set()
+    events_by_id: dict[str, dict[str, dict[str, Any]]] = {}
     for row in await _rows(session, _L3_EVENTS_CYPHER, params):
         element = _l3_evento_element(_as_mapping(row))
         if element is None:
             continue
         node_id = element["data"]["id"]
-        if node_id in seen_nodes:
+        if node_id in events_by_id:
             continue
-        seen_nodes.add(node_id)
-        nodes.append(element)
+        events_by_id[node_id] = element
     edges: list[dict[str, dict[str, Any]]] = []
     seen_edges: set[str] = set()
     for row in await _rows(session, _L3_EDGES_CYPHER, params):
@@ -1239,13 +1239,14 @@ async def grafo_livello3(session, documento: str | None = None) -> dict:
         if element is None:
             continue
         src, tgt = element["data"]["source"], element["data"]["target"]
-        if src not in seen_nodes or tgt not in seen_nodes:
+        if src not in events_by_id or tgt not in events_by_id:
             continue
         edge_id = element["data"]["id"]
         if edge_id in seen_edges:
             continue
         seen_edges.add(edge_id)
         edges.append(element)
+    nodes = list(events_by_id.values())
     return {"elements": {"nodes": nodes, "edges": edges}}
 
 
@@ -1269,7 +1270,7 @@ _ARCO_CYPHER = (
 )
 
 # Rel types persisted without ``r.id`` (SOGG/OGG, SUCCESSIONE_ZONA,
-# CONTEMPORANEO, livello-3, …) appear in the graph payload as
+# livello-3, …) appear in the graph payload as
 # ``{tipo}|{source}|{target}``. Look them up by endpoints.
 _ARCO_ENDPOINTS_CYPHER = (
     "/* dettaglio_arco_endpoints */ "
@@ -1414,7 +1415,7 @@ async def dettaglio_arco(session, arco_id: str) -> dict[str, Any] | None:
     """Every property of one relationship, for the selection dashboard.
 
     First match ``r.id``. If that misses (rels persisted without an id
-    property — argomentali, SUCCESSIONE_ZONA, CONTEMPORANEO, livello 3)
+    property — argomentali, SUCCESSIONE_ZONA, livello 3)
     and ``arco_id`` is the synthetic ``tipo|source|target`` used by
     ``grafo`` / ``grafo_livello*``, look up by endpoints. Prefer the
     relationship that has no ``r.id`` so livello-3 CAUSA is not

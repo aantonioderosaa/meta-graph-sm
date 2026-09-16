@@ -184,7 +184,7 @@ def test_contenuto_dedup_and_props():
     assert contenuti[0].props["versione_regole"] == RULESET_VERSION
 
 
-def test_posteriorita_precede_connettivo_no_causa_implies_precede():
+def test_posteriorita_deferred_no_micro_arc():
     earlier = _evento("arrivare", 0)
     later = _evento("partire", 1)
     result = categorizza(
@@ -195,26 +195,19 @@ def test_posteriorita_precede_connettivo_no_causa_implies_precede():
         [earlier, later],
     )
     tipi = [arco.tipo for arco in result.archi]
-    assert tipi.count("PRECEDE") == 1
+    assert tipi.count("PRECEDE") == 0
+    assert tipi.count("COLLEGATO") == 0
     assert tipi.count("CAUSA") == 1
-    precede = next(arco for arco in result.archi if arco.tipo == "PRECEDE")
-    assert precede.da_id == "arrivare"
-    assert precede.a_id == "partire"
-    assert precede.props["base"] == "connettivo"
-    assert precede.props["regola"] == REGOLA
 
 
-def test_anteriorita_reverses_so_earlier_precedes_later():
+def test_anteriorita_deferred_no_micro_arc():
     later = _evento("partire", 0)
     earlier = _evento("arrivare", 1)
     result = categorizza(
         _fs(_arco(0, 1, "prima", "anteriorita")),
         [later, earlier],
     )
-    assert [(arco.tipo, arco.da_id, arco.a_id) for arco in result.archi] == [
-        ("PRECEDE", "arrivare", "partire")
-    ]
-    assert result.archi[0].props["base"] == "connettivo"
+    assert result.archi == []
 
 
 def test_causa_cycle_second_not_written():

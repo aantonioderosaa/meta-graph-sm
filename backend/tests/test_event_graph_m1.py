@@ -18,6 +18,8 @@ from app.models.event_graph import (
 from app.pipeline.event_graph import RULESET_VERSION
 from app.pipeline.event_graph.config import EventGraphSettings
 from app.pipeline.event_graph.ids import (
+    ancora_temporale_id,
+    cluster_temporale_id,
     content_hash,
     eg_chunk_id,
     evento_id,
@@ -63,6 +65,7 @@ def test_settings_defaults_and_distinct_class():
     assert fields["EVENT_GRAPH_EXTRACTION_MAX_CALLS"].default == 3
     assert fields["EVENT_GRAPH_TEMPORAL_MAX_CANDIDATES"].default == 10
     assert fields["EVENT_GRAPH_FLASH_MODE"].default is False
+    assert fields["EVENT_GRAPH_TEMPORAL_ENABLED"].default is True
     assert fields["CORS_ORIGINS"].default == "http://localhost:3000"
 
 
@@ -159,6 +162,61 @@ def test_id_helpers_deterministic_and_stable():
     assert quarantena == _sha1(f"doc-a|{_sha1(text)}|0:4|ciclo CAUSA")
     assert quarantena != quarantena_id("doc-a", text, "0:4", "altro")
 
+    cluster = cluster_temporale_id("doc-a", "1843", "data_esplicita")
+    assert cluster == _sha1("doc-a|1843|data_esplicita")
+
+
+def test_ancora_temporale_id_stable_document_local_normalized_collocazione():
+    """Pin: same collocazione → same id; etichetta is not hashed; docs don't share."""
+    dated = ancora_temporale_id("doc-a", "esplicita", "data", inizio="1843")
+    again = ancora_temporale_id("doc-a", "esplicita", "data", inizio="1843")
+    assert dated == again == _sha1("ancora|doc-a|esplicita|data|1843|")
+    assert dated != ancora_temporale_id("doc-b", "esplicita", "data", inizio="1843")
+    assert dated != ancora_temporale_id(
+        "doc-a", "esplicita", "data", inizio="1843-12-24"
+    )
+    # Volatile etichetta / display key must not enter the hash when dated.
+    assert dated == ancora_temporale_id(
+        "doc-a",
+        "esplicita",
+        "data",
+        inizio="1843",
+        chiave="l'anno 1843",
+    )
+    # ISO variants of the same collocazione collapse to the same id.
+    iso_a = ancora_temporale_id(
+        "doc-a", "esplicita", "ora", inizio="1843-12-24T18:30"
+    )
+    iso_b = ancora_temporale_id(
+        "doc-a", "esplicita", "ora", inizio="1843-12-24 18:30"
+    )
+    iso_c = ancora_temporale_id(
+        "doc-a", "esplicita", "ora", inizio="1843-12-24T18:30Z"
+    )
+    assert iso_a == iso_b == iso_c == _sha1(
+        "ancora|doc-a|esplicita|ora|1843-12-24T18:30|"
+    )
+    # Natura/tipo are case-folded; RULESET_VERSION stays out.
+    assert dated == ancora_temporale_id("doc-a", "Esplicita", "DATA", inizio="1843")
+    assert RULESET_VERSION not in dated
+    assert dated != _sha1(f"ancora|doc-a|esplicita|data|1843||{RULESET_VERSION}")
+    # Undated: canonical key (not etichetta) distinguishes two relative ancore.
+    relativa = ancora_temporale_id(
+        "doc-a", "esplicita", "relativa", chiave="il giorno dopo"
+    )
+    relativa_norm = ancora_temporale_id(
+        "doc-a", "esplicita", "relativa", chiave="Il  Giorno  Dopo"
+    )
+    assert relativa == relativa_norm == _sha1(
+        "ancora|doc-a|esplicita|relativa|#il giorno dopo"
+    )
+    assert relativa != ancora_temporale_id(
+        "doc-a", "esplicita", "relativa", chiave="la sera dopo"
+    )
+    assert relativa != ancora_temporale_id(
+        "doc-b", "esplicita", "relativa", chiave="il giorno dopo"
+    )
+
 
 def test_schema_cypher_constraints_indexes_and_labels():
     raw = SCHEMA_PATH.read_text(encoding="utf-8")
@@ -171,6 +229,7 @@ def test_schema_cypher_constraints_indexes_and_labels():
         "eg_zona_id",
         "eg_run_id",
         "eg_cluster_temporale_id",
+        "eg_ancora_temporale_id",
     ]
     indexes = [
         "eg_evento_doc",
@@ -185,17 +244,21 @@ def test_schema_cypher_constraints_indexes_and_labels():
         "eg_cluster_temporale_doc",
         # MT5: il frontend ordina l'asse temporale su chiave_ordine.
         "eg_cluster_temporale_ord",
+        "eg_ancora_temporale_doc",
+        "eg_ancora_temporale_ord",
+        "eg_ancora_temporale_ordinale",
     ]
     for name in constraints:
         assert name in raw
     for name in indexes:
         assert name in raw
-    assert raw.count("CREATE CONSTRAINT") == 8
-    assert raw.count("CREATE INDEX") == 11
-    assert raw.count("IF NOT EXISTS") == 20
+    assert raw.count("CREATE CONSTRAINT") == 9
+    assert raw.count("CREATE INDEX") == 14
+    assert raw.count("IF NOT EXISTS") == 24
     assert ":EgChunk" in raw
     assert ":Zona" in raw
     assert ":ClusterTemporale" in raw
+    assert ":AncoraTemporale" in raw
     assert ":Chunk" not in raw.replace(":EgChunk", "")
     assert "VECTOR" not in raw.upper()
     # Addendum 5: one Lucene fulltext index on :Evento is the deliberate,
@@ -283,4 +346,4 @@ def test_call_structured_is_package_local():
 
 def test_load_schema_statements_count():
     statements = load_schema_statements()
-    assert len(statements) == 20
+    assert len(statements) == 24

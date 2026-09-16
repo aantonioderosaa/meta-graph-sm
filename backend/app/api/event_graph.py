@@ -28,7 +28,6 @@ from app.pipeline.event_graph.infra.driver import get_driver
 from app.pipeline.event_graph.infra.llm import LLMValidationError
 from app.pipeline.event_graph.metrics import elenca_run
 from app.pipeline.event_graph.persistence import (
-    azzera_grafo,
     carica_archi_macro,
     carica_documento_testo,
     carica_zona,
@@ -258,25 +257,6 @@ async def event_graph_stats() -> dict:
         driver = get_driver()
         async with driver.session() as session:
             return await stats(session)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-@router.delete("/documents")
-async def event_graph_reset() -> dict:
-    """Full, explicit reset of the event-graph domain.
-
-    Destructive and unscoped by design (unlike everything else this router
-    exposes) — it exists only for a manual "start over" action, never called
-    from the ingestion pipeline itself.
-    """
-    try:
-        driver = get_driver()
-        async with driver.session() as session:
-            rimossi = await azzera_grafo(session)
-            return {"rimossi": rimossi}
     except HTTPException:
         raise
     except Exception as exc:

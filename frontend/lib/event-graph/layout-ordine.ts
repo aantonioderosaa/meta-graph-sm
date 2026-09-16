@@ -1,9 +1,16 @@
 /**
- * Pure preset positions for the Livello 1 "Ordine" trunk layout.
+ * Pure preset positions and overview/drill-in filtering for Livello 1 "Ordine".
  * No cytoscape — unit-testable without a browser.
+ *
+ * Overview: Zona hubs on the trunk (click opens that zona).
+ * Focused: the chosen Zona plus its eventi, stacked as siblings — not a
+ * Cytoscape compound box.
  */
 
-import type { EventGraphElements, EventGraphNodeData } from "./types";
+import type {
+  EventGraphElements,
+  EventGraphNodeData,
+} from "./types";
 
 export const H_GAP = 280;
 export const V_GAP = 70;
@@ -16,13 +23,85 @@ function asOrdinale(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function nodeData(node: { data?: EventGraphNodeData } | EventGraphNodeData): EventGraphNodeData | null {
+function nodeData(
+  node: { data?: EventGraphNodeData } | EventGraphNodeData,
+): EventGraphNodeData | null {
   if (!node || typeof node !== "object") return null;
   if ("data" in node && node.data && typeof node.data === "object" && "id" in node.data) {
     return node.data;
   }
   if ("id" in node) return node as EventGraphNodeData;
   return null;
+}
+
+export function isZonaNode(
+  node: { data?: EventGraphNodeData } | EventGraphNodeData | null | undefined,
+): boolean {
+  const data = node ? nodeData(node) : null;
+  return data != null && String(data.tipo ?? "") === "Zona";
+}
+
+/** Compact hub label — the riassunto stays on the tooltip / inspector. */
+export function zonaDisplayLabel(
+  node: { data?: EventGraphNodeData } | EventGraphNodeData | null | undefined,
+): string {
+  const data = node ? nodeData(node) : null;
+  if (!data) return "";
+  if (data.ordinale != null && String(data.ordinale) !== "") {
+    const n = Number(data.ordinale);
+    if (Number.isFinite(n)) return `Zona ${n}`;
+  }
+  return String(data.label ?? data.id ?? "");
+}
+
+/**
+ * Overview = only Zona hubs + SUCCESSIONE_ZONA.
+ * Focused = that Zona + eventi with ``parent`` = zona id, plus edges among them.
+ */
+export function filterOrdineElements(
+  elements: EventGraphElements | null | undefined,
+  focusedZonaId: string | null,
+): EventGraphElements {
+  const nodes = elements?.nodes ?? [];
+  const edges = elements?.edges ?? [];
+  const zonas = nodes.filter((node) => isZonaNode(node));
+  const zonaIds = new Set(
+    zonas
+      .map((node) => nodeData(node)?.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const focusedExists =
+    focusedZonaId != null && focusedZonaId !== "" && zonaIds.has(focusedZonaId);
+
+  if (!focusedExists) {
+    return {
+      nodes: zonas,
+      edges: edges.filter((edge) => {
+        const tipo = String(edge.data?.tipo ?? "");
+        return (
+          tipo === "SUCCESSIONE_ZONA" &&
+          zonaIds.has(edge.data.source) &&
+          zonaIds.has(edge.data.target)
+        );
+      }),
+    };
+  }
+
+  const keep = new Set<string>([focusedZonaId]);
+  for (const node of nodes) {
+    const data = nodeData(node);
+    if (!data?.id) continue;
+    if (data.parent === focusedZonaId) keep.add(data.id);
+  }
+  return {
+    nodes: nodes.filter((node) => {
+      const data = nodeData(node);
+      return data != null && keep.has(data.id);
+    }),
+    edges: edges.filter(
+      (edge) => keep.has(edge.data.source) && keep.has(edge.data.target),
+    ),
+  };
 }
 
 export function positionsOrdine(

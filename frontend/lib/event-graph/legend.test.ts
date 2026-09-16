@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { CATENA_COLOR, DIZIONARIO_COLORS, PIANO_COLORS, encodeEdge, encodeNode } from "./encoding";
-import { CATENA_COLOR } from "./encoding";
 import {
   ARC_FAMIGLIE,
   EMPTY_STATS,
@@ -17,21 +16,7 @@ import {
   toggleLegendFilter,
   traitEntries,
 } from "./legend";
-import type { CatalogArc, EventGraphCatalog, EventGraphStats } from "./types";
-
-const precedeDizionario: CatalogArc = {
-  tipo: "PRECEDE",
-  famiglia: "dizionario",
-  direzione: "Evento→Evento",
-  significato: "ordine temporale da dizionario (connettivo)",
-};
-
-const precedeTemporale: CatalogArc = {
-  tipo: "PRECEDE",
-  famiglia: "temporale",
-  direzione: "Evento→Evento",
-  significato: "ordine cronologico",
-};
+import type { EventGraphCatalog, EventGraphStats } from "./types";
 
 const catalog: EventGraphCatalog = {
   nodes: [
@@ -68,8 +53,15 @@ const catalog: EventGraphCatalog = {
         significato: "circostanza temporale",
       },
     ],
-    dizionario: [precedeDizionario],
-    temporale: [precedeTemporale],
+    dizionario: [
+      {
+        tipo: "CAUSA",
+        famiglia: "dizionario",
+        direzione: "Evento→Evento",
+        significato: "relazione causale fra eventi",
+      },
+    ],
+    temporale: [],
     placeholder: [
       {
         tipo: "COLLEGATO",
@@ -85,26 +77,37 @@ const catalog: EventGraphCatalog = {
         direzione: "Evento→Evento",
         significato: "SFONDO agganciato",
       },
+      {
+        tipo: "SUCCESSIONE_ANCORA",
+        famiglia: "struttura",
+        direzione: "AncoraTemporale→AncoraTemporale",
+        significato: "successione lineare fra ancore consecutive",
+      },
     ],
   },
 };
 
 const stats: EventGraphStats = {
   nodi: { Evento: 4, Menzione: 7, Quarantena: 1 },
-  archi: { PRECEDE: 5, SOGG: 3, TEMPO: 2 },
+  archi: { CAUSA: 5, SOGG: 3, TEMPO: 2 },
   tratti: { piano: { PRIMO_PIANO: 3, SFONDO: 1 } },
 };
 
 describe("groupedArches", () => {
-  it("keeps PRECEDE in both dizionario and temporale", () => {
+  it("omits empty temporale and does not list PRECEDE or CONTEMPORANEO", () => {
     const groups = groupedArches(catalog);
-    expect(groups.map((g) => g.famiglia)).toEqual([...ARC_FAMIGLIE]);
+    expect(groups.map((g) => g.famiglia)).not.toContain("temporale");
     expect(groups.map((g) => g.famiglia)).not.toContain("catena");
+    const tipi = groups.flatMap((g) => g.arches.map((a) => a.tipo));
+    expect(tipi).not.toContain("PRECEDE");
+    expect(tipi).not.toContain("CONTEMPORANEO");
     const dizionario = groups.find((g) => g.famiglia === "dizionario");
-    const temporale = groups.find((g) => g.famiglia === "temporale");
-    expect(dizionario?.arches.map((a) => a.tipo)).toEqual(["PRECEDE"]);
-    expect(temporale?.arches.map((a) => a.tipo)).toEqual(["PRECEDE"]);
-    expect(dizionario?.arches[0].significato).not.toBe(temporale?.arches[0].significato);
+    const struttura = groups.find((g) => g.famiglia === "struttura");
+    expect(dizionario?.arches.map((a) => a.tipo)).toEqual(["CAUSA"]);
+    expect(struttura?.arches.map((a) => a.tipo)).toEqual([
+      "SATELLITE_DI",
+      "SUCCESSIONE_ANCORA",
+    ]);
   });
 
   it("places catena in Nodi e tratti, not arc families", () => {
@@ -133,13 +136,13 @@ describe("groupedArches", () => {
 
 describe("countFor", () => {
   it("looks up arcs, nodes, and piano traits", () => {
-    expect(countFor(stats, { kind: "arco", key: "tipo", value: "PRECEDE" })).toBe(5);
+    expect(countFor(stats, { kind: "arco", key: "tipo", value: "CAUSA" })).toBe(5);
     expect(countFor(stats, { kind: "nodo", key: "tipo", value: "Evento" })).toBe(4);
     expect(countFor(stats, { kind: "tratto", key: "piano", value: "PRIMO_PIANO" })).toBe(3);
   });
 
   it("returns 0 for missing buckets and empty stats", () => {
-    expect(countFor(EMPTY_STATS, { kind: "arco", key: "tipo", value: "PRECEDE" })).toBe(0);
+    expect(countFor(EMPTY_STATS, { kind: "arco", key: "tipo", value: "CAUSA" })).toBe(0);
     expect(countFor(stats, { kind: "tratto", key: "tempo", value: "passato" })).toBe(0);
     expect(countFor(null, { kind: "nodo", key: "tipo", value: "Evento" })).toBe(0);
     expect(countFor(stats, null)).toBe(0);
@@ -147,8 +150,8 @@ describe("countFor", () => {
 });
 
 describe("elementMatches", () => {
-  const precedeEdge = {
-    data: { id: "p1", source: "e1", target: "e2", tipo: "PRECEDE" },
+  const causaEdge = {
+    data: { id: "c1", source: "e1", target: "e2", tipo: "CAUSA" },
   };
   const tempoEdge = {
     data: { id: "t1", source: "e1", target: "m1", tipo: "TEMPO" },
@@ -158,9 +161,9 @@ describe("elementMatches", () => {
   };
   const menzione = { data: { id: "m1", label: "Mario", tipo: "Menzione" } };
 
-  it("matches PRECEDE edges by tipo regardless of famiglia", () => {
-    const filter = { kind: "arco" as const, key: "tipo", value: "PRECEDE" };
-    expect(elementMatches(precedeEdge, filter)).toBe(true);
+  it("matches CAUSA edges by tipo regardless of famiglia", () => {
+    const filter = { kind: "arco" as const, key: "tipo", value: "CAUSA" };
+    expect(elementMatches(causaEdge, filter)).toBe(true);
     expect(elementMatches(tempoEdge, filter)).toBe(false);
     expect(elementMatches(evento, filter)).toBe(false);
   });
@@ -170,9 +173,9 @@ describe("elementMatches", () => {
     const arcFilter = { kind: "arco" as const, key: "tipo", value: "Evento" };
     expect(elementMatches(evento, nodeFilter)).toBe(true);
     expect(elementMatches(menzione, nodeFilter)).toBe(false);
-    expect(elementMatches(precedeEdge, nodeFilter)).toBe(false);
+    expect(elementMatches(causaEdge, nodeFilter)).toBe(false);
     expect(elementMatches(evento, arcFilter)).toBe(false);
-    expect(elementMatches(precedeEdge, arcFilter)).toBe(false);
+    expect(elementMatches(causaEdge, arcFilter)).toBe(false);
   });
 
   it("matches traits on nodes only; TEMPO arc does not match tempo trait", () => {
@@ -180,7 +183,7 @@ describe("elementMatches", () => {
     const tempoTrait = { kind: "tratto" as const, key: "tempo", value: "passato" };
     expect(elementMatches(evento, pianoFilter)).toBe(true);
     expect(elementMatches(menzione, pianoFilter)).toBe(false);
-    expect(elementMatches(precedeEdge, pianoFilter)).toBe(false);
+    expect(elementMatches(causaEdge, pianoFilter)).toBe(false);
     expect(
       elementMatches(
         { data: { id: "e2", tipo: "Evento", tempo: "passato" } },
@@ -192,26 +195,22 @@ describe("elementMatches", () => {
 
   it("returns true for every element when filter is null", () => {
     expect(elementMatches(evento, null)).toBe(true);
-    expect(elementMatches(precedeEdge, null)).toBe(true);
+    expect(elementMatches(causaEdge, null)).toBe(true);
   });
 });
 
 describe("swatches", () => {
-  it("uses encodeEdge for arc swatches including PRECEDE", () => {
-    expect(swatchForArc("PRECEDE")).toBe(
-      encodeEdge({ id: "PRECEDE", source: "s", target: "t", tipo: "PRECEDE" }).color,
-    );
-    expect(swatchForArc("PRECEDE")).toBe(DIZIONARIO_COLORS.PRECEDE);
+  it("uses encodeEdge for arc swatches including CAUSA and SUCCESSIONE_ANCORA", () => {
     expect(swatchForArc("CAUSA")).toBe(
       encodeEdge({ id: "CAUSA", source: "s", target: "t", tipo: "CAUSA" }).color,
     );
-    expect(swatchForArc("CONTEMPORANEO")).not.toBe(swatchForArc("PRECEDE"));
-    expect(swatchForArc("CONTEMPORANEO")).toBe(
+    expect(swatchForArc("CAUSA")).toBe(DIZIONARIO_COLORS.CAUSA);
+    expect(swatchForArc("SUCCESSIONE_ANCORA")).toBe(
       encodeEdge({
-        id: "CONTEMPORANEO",
+        id: "SUCCESSIONE_ANCORA",
         source: "s",
         target: "t",
-        tipo: "CONTEMPORANEO",
+        tipo: "SUCCESSIONE_ANCORA",
       }).color,
     );
   });
@@ -234,9 +233,9 @@ describe("swatches", () => {
 
 describe("legendOpacity and toggle", () => {
   it("dims non-matching elements and keeps matching opacity", () => {
-    const filter = { kind: "arco" as const, key: "tipo", value: "PRECEDE" };
-    const edge = { data: { id: "p", source: "a", target: "b", tipo: "PRECEDE" } };
-    const other = { data: { id: "c", source: "a", target: "b", tipo: "CAUSA" } };
+    const filter = { kind: "arco" as const, key: "tipo", value: "CAUSA" };
+    const edge = { data: { id: "c", source: "a", target: "b", tipo: "CAUSA" } };
+    const other = { data: { id: "s", source: "a", target: "b", tipo: "SEQUENZA" } };
     expect(legendOpacity(1, edge, filter)).toBe(1);
     expect(legendOpacity(0.35, edge, filter)).toBe(0.35);
     expect(legendOpacity(1, other, filter)).toBe(LEGEND_DIM_OPACITY);

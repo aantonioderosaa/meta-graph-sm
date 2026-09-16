@@ -1,10 +1,11 @@
 """D7 / sez. 11 — temporal placement, agent B, fase 13.
 
-Three order levels: frozen SEQUENZA, chronology PRECEDE, ingestion COLLEGATO.
-Append-only. No DELETE. Cycles → :Quarantena, do not write the PRECEDE.
+Three order levels: frozen SEQUENZA, chronology (ancore), ingestion COLLEGATO.
+Append-only. No DELETE. Cycles → :Quarantena. PRECEDE is not written:
+that type left TipoRelazione.
 
 Stage 5 Allen constraint network lives in ``chiusura_temporale`` / ``allen``
-(M-allen). ``esegui`` keeps the binary PRECEDE path until M-flash wires stage 5.
+(M-allen). ``esegui`` no longer materializes event-to-event PRECEDE.
 """
 
 from __future__ import annotations
@@ -22,8 +23,8 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from app.models.event_graph import (
-    ArgomentoRisolto,
     ArcoEvento,
+    ArgomentoRisolto,
     EventoRisolto,
     QuarantenaItem,
     SottoGrafo,
@@ -33,10 +34,10 @@ from app.pipeline.event_graph.candidati_entita import (
     condividono_entita,
     seleziona_per_entita,
 )
-from app.pipeline.event_graph.config import settings
 from app.pipeline.event_graph.chains import assegna_catena
+from app.pipeline.event_graph.config import settings
 from app.pipeline.event_graph.ids import content_hash, quarantena_id
-from app.pipeline.event_graph.infra.llm import call_structured
+from app.pipeline.event_graph.infra.llm import call_structured  # noqa: F401
 from app.pipeline.event_graph.temporal_prompts import SYSTEM_TEMPORAL, user_pair
 
 REGOLA = "temporal_placement.esegui"
@@ -45,7 +46,6 @@ Ordine = Literal["prima", "dopo", "sovrapposto", "incerto"]
 _EVENT_EVENT_TIPI = frozenset(
     {
         "CAUSA",
-        "PRECEDE",
         "LIMITE",
         "CONDIZIONE",
         "SCOPO",
@@ -119,6 +119,47 @@ class TemporalOutcome:
     archi_superati: list[tuple[ArcoEvento, str]] = field(default_factory=list)
     quarantena: list[QuarantenaItem] = field(default_factory=list)
     llm_calls: int = 0
+
+
+def introdurrebbe_ciclo(
+    archi: Sequence[ArcoEvento],
+    da_id: str,
+    a_id: str,
+) -> list[str] | None:
+    """Path of active PRECEDE if adding da→a would cycle; else None."""
+    if not da_id or not a_id:
+        return None
+    if da_id == a_id:
+        return [da_id, a_id]
+    graph: dict[str, list[str]] = defaultdict(list)
+    for arco in archi:
+        if str(arco.tipo) != "PRECEDE":
+            continue
+        if arco.props.get("superato_da"):
+            continue
+        graph[arco.da_id].append(arco.a_id)
+    path = _path_ids_precede(graph, a_id, da_id)
+    if path is None:
+        return None
+    return [da_id] + path
+
+
+def _path_ids_precede(
+    graph: dict[str, list[str]], start: str, goal: str
+) -> list[str] | None:
+    if start == goal:
+        return [start]
+    seen = {start}
+    stack: list[tuple[str, list[str]]] = [(start, [start])]
+    while stack:
+        cur, path = stack.pop()
+        for nxt in graph.get(cur, ()):
+            if nxt == goal:
+                return path + [nxt]
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append((nxt, path + [nxt]))
+    return None
 
 
 def normalizza_ancora(grezzo: str | None) -> str | dict[str, Any] | None:
@@ -219,33 +260,12 @@ def placeholder_target(
     return max(previous, key=_pos_key)
 
 
-def introdurrebbe_ciclo(
-    archi: Sequence[ArcoEvento],
-    da_id: str,
-    a_id: str,
-) -> list[str] | None:
-    """Path of active PRECEDE if adding da→a would cycle; else None."""
-    if not da_id or not a_id:
-        return None
-    if da_id == a_id:
-        return [da_id, a_id]
-    graph: dict[str, list[str]] = defaultdict(list)
-    for arco in archi:
-        if not _active_precede(arco):
-            continue
-        graph[arco.da_id].append(arco.a_id)
-    path = _path_ids(graph, a_id, da_id)
-    if path is None:
-        return None
-    return [da_id] + path
-
-
 async def esegui(
     session: Any,
     sotto: SottoGrafo,
     job_id: str,
     *,
-    call_structured: Any = None,
+    call_structured: Any = None,  # noqa: F811
 ) -> TemporalOutcome:
     """Phase-13 temporal placement. Mutates sotto.archi / sotto.quarantena."""
     llm_fn = (
@@ -518,7 +538,10 @@ def _nearby_time(left: EventoRisolto, right: EventoRisolto) -> bool:
         return False
     if years_l & years_r:
         return True
-    return bool(years_l & {year - 1 for year in years_r} or years_l & {year + 1 for year in years_r})
+    return bool(
+        years_l & {year - 1 for year in years_r}
+        or years_l & {year + 1 for year in years_r}
+    )
 
 
 def _years_of(value: Any) -> set[int]:
@@ -547,28 +570,6 @@ def _testo_riferimento(evento: EventoRisolto) -> str:
         bits.append(str(evento.tempo_assoluto.get("relativo_a") or ""))
         bits.append(json.dumps(evento.tempo_assoluto, ensure_ascii=False))
     return " ".join(bits)
-
-
-def _active_precede(arco: ArcoEvento) -> bool:
-    if str(arco.tipo) != "PRECEDE":
-        return False
-    return not arco.props.get("superato_da")
-
-
-def _path_ids(graph: dict[str, list[str]], start: str, goal: str) -> list[str] | None:
-    if start == goal:
-        return [start]
-    seen = {start}
-    stack: list[tuple[str, list[str]]] = [(start, [start])]
-    while stack:
-        cur, path = stack.pop()
-        for nxt in graph.get(cur, ()):
-            if nxt == goal:
-                return path + [nxt]
-            if nxt not in seen:
-                seen.add(nxt)
-                stack.append((nxt, path + [nxt]))
-    return None
 
 
 def _collegati(archi: Sequence[ArcoEvento], id_a: str, id_b: str) -> bool:
@@ -786,6 +787,7 @@ def _scrivi_precede(
     base: str,
     outcome: TemporalOutcome,
 ) -> ArcoEvento | None:
+    """Do not materialize PRECEDE: that type left TipoRelazione (MT-A1)."""
     if _identical_arc(sotto.archi, "PRECEDE", earlier.id, later.id, "base", base):
         existing = next(
             arco
@@ -806,24 +808,7 @@ def _scrivi_precede(
         sotto.quarantena.append(item)
         outcome.quarantena.append(item)
         return None
-    rel_id = _arco_id("PRECEDE", earlier.id, later.id, base)
-    arco = ArcoEvento(
-        tipo="PRECEDE",
-        da_id=earlier.id,
-        a_id=later.id,
-        props={
-            "id": rel_id,
-            "base": base,
-            "run_id": job_id,
-            "regola": REGOLA,
-            "versione_regole": RULESET_VERSION,
-        },
-    )
-    sotto.archi.append(arco)
-    outcome.archi_aggiunti.append(arco)
-    _queue_merge(session, "PRECEDE", arco)
-    _supercedi_collegato(sotto, session, arco, outcome)
-    return arco
+    return None
 
 
 def _scrivi_placeholder(

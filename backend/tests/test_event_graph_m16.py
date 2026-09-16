@@ -92,10 +92,10 @@ def test_main_imports_event_graph_driver_schema_and_router():
     assert "from app.pipeline.event_graph.infra.schema_bootstrap import" in source
 
 
-def test_event_graph_health_present_legacy_health_absent():
+def test_root_and_event_graph_health_routes_present():
     paths = _route_paths()
     assert "/event-graph/health" in paths
-    assert "/health" not in paths
+    assert "/health" in paths
 
 
 def test_cors_middleware_still_present():

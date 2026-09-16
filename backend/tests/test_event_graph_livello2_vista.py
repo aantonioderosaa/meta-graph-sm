@@ -1,8 +1,9 @@
-"""MT6: vista `grafo_livello2` — gerarchia, filtri CONTEMPORANEO, ordinamento a bande.
+"""MT6: vista `grafo_livello2` — gerarchia, SUCCESSIONE_ANCORA, ordinamento a bande.
 
 Nessun Neo4j, nessuna ingestione, nessun LLM. La FakeSession è quella di m19
 (chiave = sottostringa della query: i commenti `/* grafo_livello2_* */` non
 si rinominali). Intra-cluster = stesso parent foglia (`APPARTIENE_A`), non LCA.
+Drawn edges are SUCCESSIONE_ANCORA only; no PRECEDE / CONTEMPORANEO.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 from app.pipeline.event_graph.catalog import (
     _L2_CLUSTER_CYPHER,
     _L2_EVENTS_CYPHER,
+    _L2_SUCCESSIONE_CYPHER,
     grafo,
     grafo_livello1,
     grafo_livello2,
@@ -25,7 +27,7 @@ from tests.test_event_graph_m19 import (
     _livello3_session,
 )
 
-_PROPS_CLUSTER = (
+_PROPS_ANCORA = (
     "chiave_ordine",
     "granularita",
     "stimato",
@@ -36,6 +38,8 @@ _PROPS_CLUSTER = (
     "fine",
     "posizione_doc_min",
     "ordine_vista",
+    "natura",
+    "ordinale",
 )
 
 
@@ -43,15 +47,13 @@ def _l2_session(
     *,
     cluster: list[dict] | None = None,
     eventi: list[dict] | None = None,
-    precede: list[dict] | None = None,
-    contemporaneo: list[dict] | None = None,
+    successione: list[dict] | None = None,
 ) -> FakeSession:
     return FakeSession(
         mapping={
             "grafo_livello2_cluster": list(cluster or []),
             "grafo_livello2_eventi": list(eventi or []),
-            "grafo_livello2_precede": list(precede or []),
-            "grafo_livello2_contemporaneo": list(contemporaneo or []),
+            "grafo_livello2_successione_ancora": list(successione or []),
         }
     )
 
@@ -64,7 +66,7 @@ def _cluster_ids_in_order(body: dict) -> list[str]:
     return [
         node["data"]["id"]
         for node in body["elements"]["nodes"]
-        if node["data"].get("tipo") == "ClusterTemporale"
+        if node["data"].get("tipo") == "AncoraTemporale"
     ]
 
 
@@ -73,14 +75,6 @@ def _edge_ids(body: dict, tipo: str | None = None) -> set[str]:
     if tipo is None:
         return {edge["data"]["id"] for edge in edges}
     return {edge["data"]["id"] for edge in edges if edge["data"].get("tipo") == tipo}
-
-
-def _edge_pairs(body: dict, tipo: str) -> set[frozenset[str]]:
-    return {
-        frozenset((edge["data"]["source"], edge["data"]["target"]))
-        for edge in body["elements"]["edges"]
-        if edge["data"].get("tipo") == tipo
-    }
 
 
 def _cluster_row(
@@ -97,6 +91,8 @@ def _cluster_row(
     stimato: bool | None = None,
     confidenza: float | None = None,
     tipo_cluster: str | None = "intervallo",
+    natura: str | None = "esplicita",
+    ordinale: int | None = None,
 ) -> dict:
     label = etichetta if etichetta is not None else cid
     return {
@@ -105,7 +101,7 @@ def _cluster_row(
         "etichetta": etichetta if etichetta is not None else cid,
         "tipo_cluster": tipo_cluster,
         "documento": "doc-1",
-        "tipo": "ClusterTemporale",
+        "tipo": "AncoraTemporale",
         "descrizione": descrizione,
         "granularita": granularita,
         "inizio": inizio,
@@ -114,6 +110,8 @@ def _cluster_row(
         "posizione_doc_min": posizione_doc_min,
         "stimato": stimato,
         "confidenza": confidenza,
+        "natura": natura,
+        "ordinale": ordinale,
         "parent": parent,
     }
 
@@ -123,6 +121,8 @@ def _evento_row(
     *,
     parent: str | None = None,
     posizione_doc: int | None = None,
+    posizione_chunk: int | None = None,
+    offset_inizio: int | None = None,
     stimato: bool | None = None,
     confidenza: float | None = None,
     label: str | None = None,
@@ -134,6 +134,8 @@ def _evento_row(
         "documento": "doc-1",
         "tipo": "Evento",
         "posizione_doc": posizione_doc,
+        "posizione_chunk": posizione_chunk,
+        "offset_inizio": offset_inizio,
         "stimato": stimato,
         "confidenza": confidenza,
     }
@@ -160,14 +162,16 @@ async def test_cluster_espone_proprieta_nuove():
                 posizione_doc_min=3,
                 stimato=True,
                 confidenza=0.81,
-                tipo_cluster="data_esplicita",
+                tipo_cluster="ora",
+                natura="esplicita",
+                ordinale=2,
             )
         ],
         eventi=[_evento_row("ev-1", parent="cl-sera", posizione_doc=3)],
     )
     body = await grafo_livello2(session, documento="doc-1")
     cluster = _by_id(body)["cl-sera"]
-    for key in _PROPS_CLUSTER:
+    for key in _PROPS_ANCORA:
         assert key in cluster, key
     assert cluster["etichetta"] == "24 dic, sera"
     assert cluster["label"] == "24 dic, sera"
@@ -179,8 +183,10 @@ async def test_cluster_espone_proprieta_nuove():
     assert cluster["posizione_doc_min"] == 3
     assert cluster["stimato"] is True
     assert cluster["confidenza"] == 0.81
+    assert cluster["natura"] == "esplicita"
+    assert cluster["ordinale"] == 2
     assert cluster["ordine_vista"] == 0
-    assert cluster["tipo"] == "ClusterTemporale"
+    assert cluster["tipo"] == "AncoraTemporale"
 
 
 async def test_gerarchia_due_livelli_parent_su_figlio_e_foglia():
@@ -252,6 +258,9 @@ async def test_archi_inattivi_ignorati_cypher_e_vista():
     """
     assert "coalesce(rc.attivo, true)" in _L2_CLUSTER_CYPHER
     assert "coalesce(ra.attivo, true)" in _L2_EVENTS_CYPHER
+    assert "e.offset_inizio AS offset_inizio" in _L2_EVENTS_CYPHER
+    assert "e.posizione_chunk AS posizione_chunk" in _L2_EVENTS_CYPHER
+    assert "coalesce(r.attivo, true)" in _L2_SUCCESSIONE_CYPHER
     session = _l2_session(
         cluster=[
             _cluster_row("cl-padre", chiave_ordine=10),
@@ -284,13 +293,8 @@ async def test_archi_inattivi_ignorati_cypher_e_vista():
     assert "coalesce(ra.attivo, true)" in blob
 
 
-async def test_contemporaneo_intra_box_foglia_escluso_cross_tenuto():
-    """Intra-cluster = stesso parent foglia, non LCA.
-
-    Due foglie sotto lo stesso nonno restano box distinti: il CONTEMPORANEO
-    fra i loro eventi è cross-cluster e resta. Quello fra due eventi dello
-    stesso box ripete il contenitore e cade.
-    """
+async def test_l2_disegna_solo_successione_ancora():
+    """Drawn L2 edges are SUCCESSIONE_ANCORA only; events in a box stay sfusi."""
     session = _l2_session(
         cluster=[
             _cluster_row("cl-1843", etichetta="1843", chiave_ordine=10),
@@ -306,9 +310,8 @@ async def test_contemporaneo_intra_box_foglia_escluso_cross_tenuto():
             _evento_row("ev-a2", parent="cl-mattina", posizione_doc=2),
             _evento_row("ev-b", parent="cl-sera", posizione_doc=3),
         ],
-        contemporaneo=[
-            _edge_row("cont-intra", "ev-a", "ev-a2", "CONTEMPORANEO"),
-            _edge_row("cont-cross", "ev-a", "ev-b", "CONTEMPORANEO"),
+        successione=[
+            _edge_row("succ-ms", "cl-mattina", "cl-sera", "SUCCESSIONE_ANCORA"),
         ],
     )
     body = await grafo_livello2(session)
@@ -316,53 +319,21 @@ async def test_contemporaneo_intra_box_foglia_escluso_cross_tenuto():
     assert by_id["ev-a"]["parent"] == "cl-mattina"
     assert by_id["ev-a2"]["parent"] == "cl-mattina"
     assert by_id["ev-b"]["parent"] == "cl-sera"
-    assert by_id["cl-mattina"]["parent"] == "cl-1843"
-    assert by_id["cl-sera"]["parent"] == "cl-1843"
-    ids = _edge_ids(body, "CONTEMPORANEO")
-    assert "cont-intra" not in ids
-    assert "cont-cross" in ids
-    assert _edge_pairs(body, "CONTEMPORANEO") == {frozenset({"ev-a", "ev-b"})}
+    assert _edge_ids(body, "SUCCESSIONE_ANCORA") == {"succ-ms"}
+    assert _edge_ids(body, "PRECEDE") == set()
+    assert _edge_ids(body, "CONTEMPORANEO") == set()
+    tipi = {edge["data"]["tipo"] for edge in body["elements"]["edges"]}
+    assert tipi <= {"SUCCESSIONE_ANCORA"}
 
 
-async def test_m19_fixture_tiene_contemporaneo_cross_cluster():
-    """ev-1 e ev-2 condividono cl-1; cont-1 è ev-1↔ev-3 (ev-3 senza parent).
-
-    Stesso box foglia? No: cl-1 vs None. Il filtro intra-box non lo tocca.
-    Non cambiare il fixture m19 per far passare i test nuovi.
-    """
+async def test_m19_fixture_successione_senza_archi_evento():
+    """ev-1 e ev-2 condividono cl-1; nessun arco fra eventi. SUCCESSIONE_ANCORA resta."""
     session = _livello2_session()
     body = await grafo_livello2(session, documento="doc-1")
     _assert_livello2_shape(body)
-    assert "cont-1" in _edge_ids(body, "CONTEMPORANEO")
-
-
-async def test_nessuna_coppia_con_precede_e_contemporaneo():
-    """Il filtro è sulla coppia non orientata, indipendente dal box.
-
-    PRECEDE ev-x→ev-y e CONTEMPORANEO ev-y→ev-x: cade il CONTEMPORANEO.
-    I due eventi hanno parent foglia diversi, così il drop non è intra-box.
-    """
-    session = _l2_session(
-        cluster=[
-            _cluster_row("cl-a", chiave_ordine=10),
-            _cluster_row("cl-b", chiave_ordine=20),
-        ],
-        eventi=[
-            _evento_row("ev-x", parent="cl-a", posizione_doc=1),
-            _evento_row("ev-y", parent="cl-b", posizione_doc=2),
-        ],
-        precede=[_edge_row("prec-xy", "ev-x", "ev-y", "PRECEDE", superato_da=None)],
-        contemporaneo=[
-            _edge_row("cont-yx", "ev-y", "ev-x", "CONTEMPORANEO"),
-            _edge_row("cont-yx-mirror", "ev-x", "ev-y", "CONTEMPORANEO"),
-        ],
-    )
-    body = await grafo_livello2(session)
-    assert _edge_ids(body, "PRECEDE") == {"prec-xy"}
     assert _edge_ids(body, "CONTEMPORANEO") == set()
-    coppie_p = _edge_pairs(body, "PRECEDE")
-    coppie_c = _edge_pairs(body, "CONTEMPORANEO")
-    assert coppie_p.isdisjoint(coppie_c)
+    assert _edge_ids(body, "PRECEDE") == set()
+    assert "succ-ancora-1" in _edge_ids(body, "SUCCESSIONE_ANCORA")
 
 
 async def test_ordinamento_bande_datato_prima_del_narrativo():
@@ -417,13 +388,73 @@ async def test_ordinamento_bande_datato_prima_del_narrativo():
     ]
 
 
+async def test_eventi_stesso_box_per_offset_inizio_non_id():
+    """Due eventi nella stessa zona: posizione_doc identica, id in ordine
+    inverso rispetto al testo. L'elenco segue offset_inizio, mai l'id.
+    """
+    session = _l2_session(
+        cluster=[_cluster_row("cl-sera", chiave_ordine=10, posizione_doc_min=0)],
+        eventi=[
+            _evento_row(
+                "zzz-late",
+                parent="cl-sera",
+                posizione_doc=0,
+                posizione_chunk=1,
+                offset_inizio=90,
+            ),
+            _evento_row(
+                "aaa-early",
+                parent="cl-sera",
+                posizione_doc=0,
+                posizione_chunk=0,
+                offset_inizio=10,
+            ),
+        ],
+    )
+    body = await grafo_livello2(session)
+    event_ids = [
+        node["data"]["id"]
+        for node in body["elements"]["nodes"]
+        if node["data"].get("tipo") == "Evento"
+    ]
+    assert event_ids == ["aaa-early", "zzz-late"]
+    by_id = _by_id(body)
+    assert by_id["aaa-early"]["offset_inizio"] == 10
+    assert by_id["zzz-late"]["offset_inizio"] == 90
+    assert by_id["aaa-early"]["posizione_doc"] == 0
+    assert by_id["zzz-late"]["posizione_doc"] == 0
+
+
+async def test_successione_ancora_disegnata_contiene_no():
+    """SUCCESSIONE_ANCORA is a drawn edge; CONTIENE only assigns parent."""
+    session = _l2_session(
+        cluster=[
+            _cluster_row("cl-a", chiave_ordine=10, ordinale=0),
+            _cluster_row("cl-b", chiave_ordine=20, ordinale=1),
+        ],
+        eventi=[
+            _evento_row("ev-a", parent="cl-a", posizione_doc=1),
+            _evento_row("ev-b", parent="cl-b", posizione_doc=2),
+        ],
+        successione=[
+            _edge_row("succ-ab", "cl-a", "cl-b", "SUCCESSIONE_ANCORA"),
+            _edge_row("contiene-ab", "cl-a", "cl-b", "CONTIENE"),
+        ],
+    )
+    body = await grafo_livello2(session)
+    assert _edge_ids(body, "SUCCESSIONE_ANCORA") == {"succ-ab"}
+    assert "contiene-ab" not in _edge_ids(body)
+    tipi = {edge["data"]["tipo"] for edge in body["elements"]["edges"]}
+    assert tipi.isdisjoint({"CONTIENE", "APPARTIENE_A"})
+
+
 async def test_cluster_pre_mt5_senza_proprieta_nuove_in_coda():
     session = _l2_session(
         cluster=[
             _cluster_row("cl-datato", chiave_ordine=40, posizione_doc_min=2),
             {
                 "id": "cl-vecchio",
-                "tipo": "ClusterTemporale",
+                "tipo": "AncoraTemporale",
                 "documento": "doc-1",
             },
         ],
@@ -431,7 +462,7 @@ async def test_cluster_pre_mt5_senza_proprieta_nuove_in_coda():
     body = await grafo_livello2(session)
     by_id = _by_id(body)
     vecchio = by_id["cl-vecchio"]
-    for key in _PROPS_CLUSTER:
+    for key in _PROPS_ANCORA:
         assert key in vecchio, key
     assert vecchio["chiave_ordine"] is None
     assert vecchio["granularita"] is None
@@ -441,6 +472,8 @@ async def test_cluster_pre_mt5_senza_proprieta_nuove_in_coda():
     assert vecchio["inizio"] is None
     assert vecchio["fine"] is None
     assert vecchio["posizione_doc_min"] is None
+    assert vecchio["natura"] is None
+    assert vecchio["ordinale"] is None
     assert _cluster_ids_in_order(body) == ["cl-datato", "cl-vecchio"]
     assert vecchio["ordine_vista"] == 1
     assert by_id["cl-datato"]["ordine_vista"] == 0
@@ -494,7 +527,7 @@ async def test_vista_best_effort_su_dati_parziali():
         cluster=[
             {
                 "id": "cl-rotto",
-                "tipo": "ClusterTemporale",
+                "tipo": "AncoraTemporale",
                 "etichetta": "bozza",
                 "chiave_ordine": "non-un-int",
                 "posizione_doc_min": "",
@@ -511,9 +544,6 @@ async def test_vista_best_effort_su_dati_parziali():
                 "posizione_doc": "x",
             }
         ],
-        contemporaneo=[
-            _edge_row("cont-self", "ev-rotto", "ev-rotto", "CONTEMPORANEO"),
-        ],
     )
     body = await grafo_livello2(session)
     by_id = _by_id(body)
@@ -523,4 +553,17 @@ async def test_vista_best_effort_su_dati_parziali():
     assert "parent" not in by_id["cl-rotto"]
     assert by_id["ev-rotto"]["parent"] == "cl-rotto"
     assert by_id["ev-rotto"]["posizione_doc"] is None
+    assert by_id["ev-rotto"]["offset_inizio"] is None
+    assert by_id["ev-rotto"]["posizione_chunk"] is None
     assert _edge_ids(body) == set()
+
+
+async def test_zero_ancore_payload_vuoto_senza_nodo_finto():
+    session = _l2_session(
+        eventi=[
+            _evento_row("ev-orfano", parent=None, posizione_doc=1),
+            _evento_row("ev-altro", parent="cl-fantasma", posizione_doc=2),
+        ],
+    )
+    body = await grafo_livello2(session)
+    assert body == {"elements": {"nodes": [], "edges": []}}

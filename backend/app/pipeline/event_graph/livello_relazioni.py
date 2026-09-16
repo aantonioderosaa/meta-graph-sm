@@ -23,10 +23,20 @@ from app.pipeline.event_graph.livello_temporale import (
     _span_for,
 )
 
-SYSTEM_LIVELLO_RELAZIONI = """Hai l'elenco completo degli eventi di una storia
-(id + frase), in ordine di esposizione. Confrontali fra loro nel contesto
-dell'intera storia — non solo eventi vicini — e assegna le relazioni di
-significato che riconosci, usando ESCLUSIVAMENTE questi tipi:
+INTESTAZIONE_TESTO = "TESTO"
+INTESTAZIONE_EVENTI = "EVENTI (id | frase)"
+INTESTAZIONE_TIPI = "RELAZIONI POSSIBILI"
+INTESTAZIONE_TABELLA = "TABELLA DELLE RELAZIONI"
+
+SYSTEM_LIVELLO_RELAZIONI = """Ricevi il TESTO del documento, la LISTA degli eventi
+(id | frase) e i tipi di relazione ammessi. Non ricevi l'ordine di esposizione.
+Non ricostruirlo e non copiarlo come relazione.
+
+Collega due eventi solo quando la grammatica o il significato del TESTO
+marcano un nesso. Non collegarli solo perché compaiono vicini nella lista
+o uno dopo l'altro nel racconto.
+
+Usa ESCLUSIVAMENTE questi tipi:
 
 - CAUSA: un evento provoca, spiega il motivo di, o è la ragione dell'altro.
 - CONDIZIONE: un evento accade solo se l'altro si verifica (rapporto
@@ -41,10 +51,10 @@ significato che riconosci, usando ESCLUSIVAMENTE questi tipi:
 - CONTENUTO: un evento è ciò che viene detto/pensato/deciso nell'altro
   (l'altro è un atto di dire/pensare/decidere che ha il primo come oggetto).
 
-Non ti do una lista di connettivi da cercare: leggi il significato. Non
-inventare relazioni deboli o di sola co-presenza/successione — quelle sono
-gestite altrove. Ogni relazione richiede una spiegazione breve. Usa solo gli
-id forniti, mai inventarne. Italiano o inglese. Temperatura 0."""
+Non inventare relazioni deboli o di sola co-presenza/successione.
+Ogni relazione richiede una spiegazione breve.
+Usa solo gli id della lista eventi, mai inventarne.
+Italiano o inglese. Temperatura 0."""
 
 _TIPI_LIBERI = frozenset(get_args(TipoRelazioneLibera))
 _dropped_causa_ciclo: list[tuple[str, str, str]] = []
@@ -55,6 +65,14 @@ def relazioni_causa_ciclo() -> list[tuple[str, str, str]]:
     return list(_dropped_causa_ciclo)
 
 
+def _visibili(eventi: list[EventoRisolto] | None) -> list[EventoRisolto]:
+    return [
+        evento
+        for evento in list(eventi or [])
+        if (evento.id or "").strip() and not evento.fuso_in
+    ]
+
+
 def _evento_line(evento: EventoRisolto) -> str | None:
     eid = (evento.id or "").strip()
     if not eid:
@@ -62,14 +80,45 @@ def _evento_line(evento: EventoRisolto) -> str | None:
     return f"{eid} | {_span_for(evento)}"
 
 
-def user_livello_relazioni(eventi: list[EventoRisolto]) -> str:
-    """'id | span' per event in exposition order. NEVER the raw document text.
+def _ordine_esposizione(eventi: list[EventoRisolto] | None) -> list[EventoRisolto]:
+    """Stable window batches only. Never shown to the model as a sequence."""
+    return sorted(_visibili(eventi), key=_evento_pos_key)
 
-    span fallback: span or lemma|ancora (same as livello_temporale._span_for).
+
+def _righe_eventi(eventi: list[EventoRisolto] | None) -> list[str]:
+    """Unnumbered id|span lines, sorted by id so list order is not exposition."""
+    righe: list[str] = []
+    for evento in sorted(_visibili(eventi), key=lambda item: item.id or ""):
+        corpo = _evento_line(evento)
+        if corpo is None:
+            continue
+        righe.append(f"- {corpo}")
+    return righe
+
+
+def user_livello_relazioni(
+    eventi: list[EventoRisolto],
+    *,
+    tutti: list[EventoRisolto] | None = None,
+    testo: str | None = None,
+) -> str:
+    """Document text + unnumbered event list + allowed types. No exposition order.
+
+    ``tutti`` is ignored in the prompt (windowing is only a batch of which
+    events may be linked). Span fallback: span or lemma|ancora.
     """
-    ordered = sorted(list(eventi or []), key=_evento_pos_key)
-    lines = [line for evento in ordered if (line := _evento_line(evento)) is not None]
-    return "\n".join(lines)
+    _ = tutti
+    corpo_testo = (testo or "").strip() or "(nessun testo)"
+    blocco_eventi = "\n".join(_righe_eventi(eventi))
+    tipi = "\n".join(f"- {tipo}" for tipo in get_args(TipoRelazioneLibera))
+    return (
+        f"{INTESTAZIONE_TESTO}\n\n{corpo_testo}\n\n"
+        f"{INTESTAZIONE_EVENTI}\n\n{blocco_eventi}\n\n"
+        f"{INTESTAZIONE_TIPI}\n\n{tipi}\n\n"
+        f"{INTESTAZIONE_TABELLA}\n\n"
+        "Compila la tabella delle relazioni di significato. "
+        "Usa solo gli id elencati. La lista eventi non è un ordine da copiare."
+    )
 
 
 def _as_relazione(parsed: Any) -> RelazioneLibera | dict[str, Any] | None:
@@ -214,11 +263,12 @@ async def _chiama_finestra(
     window: list[EventoRisolto],
     *,
     job_id: str | None,
+    testo: str | None,
 ) -> LivelloRelazioniResult | None:
     try:
         parsed = await call_structured(
             SYSTEM_LIVELLO_RELAZIONI,
-            user_livello_relazioni(window),
+            user_livello_relazioni(window, testo=testo),
             LivelloRelazioniResult,
             temperature=0,
             job_id=job_id,
@@ -232,27 +282,33 @@ async def estrai_livello_relazioni(
     eventi: list[EventoRisolto],
     *,
     job_id: str | None = None,
+    testo: str | None = None,
     archi_causa_esistenti: list[ArcoEvento] | None = None,
 ) -> LivelloRelazioniResult | None:
     """Best-effort, windows of LIVELLO_MAX_EVENTI_PER_CHIAMATA if needed.
 
-    Merge relazioni, dedupe (da_id, a_id, tipo), then sanitize. LLM failure
-    on a window contributes nothing; if every window fails, return None.
-    Never raises.
+    Every LLM call receives the document text, an unnumbered event list, and
+    the allowed relation types — not exposition order. Merge relazioni,
+    dedupe (da_id, a_id, tipo), then sanitize. LLM failure on a window
+    contributes nothing; if every window fails, return None. Never raises.
     """
     try:
-        items = list(eventi or [])
+        items = _visibili(list(eventi or []))
     except Exception:
         return None
     if not items:
         return LivelloRelazioniResult()
     try:
-        ordered = sorted(items, key=_evento_pos_key)
+        ordered = _ordine_esposizione(items)
         cap = LIVELLO_MAX_EVENTI_PER_CHIAMATA
         windows = [ordered[i : i + cap] for i in range(0, len(ordered), cap)]
         parts: list[LivelloRelazioniResult] = []
         for window in windows:
-            part = await _chiama_finestra(window, job_id=job_id)
+            part = await _chiama_finestra(
+                window,
+                job_id=job_id,
+                testo=testo,
+            )
             if part is None:
                 continue
             parts.append(part)
@@ -265,6 +321,10 @@ async def estrai_livello_relazioni(
 
 
 __all__ = [
+    "INTESTAZIONE_EVENTI",
+    "INTESTAZIONE_TABELLA",
+    "INTESTAZIONE_TESTO",
+    "INTESTAZIONE_TIPI",
     "SYSTEM_LIVELLO_RELAZIONI",
     "estrai_livello_relazioni",
     "relazioni_causa_ciclo",

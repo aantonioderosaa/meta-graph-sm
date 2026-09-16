@@ -6,6 +6,8 @@ CREATE CONSTRAINT eg_chunk_id             IF NOT EXISTS FOR (c:EgChunk)         
 CREATE CONSTRAINT eg_zona_id              IF NOT EXISTS FOR (z:Zona)             REQUIRE z.id IS UNIQUE;
 CREATE CONSTRAINT eg_run_id               IF NOT EXISTS FOR (r:EventGraphRun)    REQUIRE r.id IS UNIQUE;
 CREATE CONSTRAINT eg_cluster_temporale_id IF NOT EXISTS FOR (c:ClusterTemporale) REQUIRE c.id IS UNIQUE;
+// AncoraTemporale supersedes ClusterTemporale; Cluster* stays until MT7/MT10.
+CREATE CONSTRAINT eg_ancora_temporale_id  IF NOT EXISTS FOR (a:AncoraTemporale)  REQUIRE a.id IS UNIQUE;
 
 CREATE INDEX eg_evento_doc            IF NOT EXISTS FOR (e:Evento)           ON (e.documento);
 CREATE INDEX eg_evento_lemma          IF NOT EXISTS FOR (e:Evento)           ON (e.lemma);
@@ -18,6 +20,9 @@ CREATE INDEX eg_zona_doc              IF NOT EXISTS FOR (z:Zona)             ON 
 CREATE INDEX eg_zona_offset           IF NOT EXISTS FOR (z:Zona)             ON (z.offset_inizio, z.offset_fine);
 CREATE INDEX eg_cluster_temporale_doc IF NOT EXISTS FOR (c:ClusterTemporale) ON (c.documento);
 CREATE INDEX eg_cluster_temporale_ord IF NOT EXISTS FOR (c:ClusterTemporale) ON (c.chiave_ordine);
+CREATE INDEX eg_ancora_temporale_doc      IF NOT EXISTS FOR (a:AncoraTemporale)  ON (a.documento);
+CREATE INDEX eg_ancora_temporale_ord      IF NOT EXISTS FOR (a:AncoraTemporale)  ON (a.chiave_ordine);
+CREATE INDEX eg_ancora_temporale_ordinale IF NOT EXISTS FOR (a:AncoraTemporale)  ON (a.ordinale);
 
 // Lucene full-text (not embeddings — stays inside the D6 no-ML-search rule).
 // lemma/ancora hold the same event-sentence text; both indexed for resilience.

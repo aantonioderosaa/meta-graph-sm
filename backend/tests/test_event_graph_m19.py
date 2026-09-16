@@ -130,9 +130,14 @@ def _archi_tipi(payload: dict) -> set[str]:
 def test_catalogo_covers_all_tipo_relazione():
     payload = catalogo()
     found = _archi_tipi(payload)
-    expected = set(get_args(TipoRelazione)) | {"SUCCESSIONE_ZONA", "CONTIENE"}
+    expected = set(get_args(TipoRelazione)) | {
+        "SUCCESSIONE_ZONA",
+        "CONTIENE",
+    }
     assert "SATELLITE_DI" in expected
     assert found == expected
+    assert "PRECEDE" not in found
+    assert "CONTEMPORANEO" not in found
     arches = payload["arches"]
     for famiglia in (
         "argomentali",
@@ -142,6 +147,9 @@ def test_catalogo_covers_all_tipo_relazione():
         "struttura",
     ):
         assert famiglia in arches
+        if famiglia == "temporale":
+            assert arches[famiglia] == []
+            continue
         assert arches[famiglia]
         for entry in arches[famiglia]:
             assert entry["famiglia"] == famiglia
@@ -154,11 +162,11 @@ def test_catalogo_covers_all_tipo_relazione():
         "Menzione",
         "Quarantena",
         "Zona",
-        "ClusterTemporale",
+        "AncoraTemporale",
     }
     by_id = {node["id"]: node for node in payload["nodes"]}
     assert by_id["Zona"]["shape"] == "round-rectangle"
-    assert by_id["ClusterTemporale"]["shape"] == "round-rectangle"
+    assert by_id["AncoraTemporale"]["shape"] == "round-rectangle"
     succ = next(
         entry
         for entry in payload["arches"]["struttura"]
@@ -171,8 +179,27 @@ def test_catalogo_covers_all_tipo_relazione():
         for entry in payload["arches"]["struttura"]
         if entry["tipo"] == "CONTIENE"
     )
-    assert contiene["direzione"] == "ClusterTemporale→ClusterTemporale"
+    assert contiene["direzione"] == "AncoraTemporale→AncoraTemporale"
     assert contiene["significato"]
+    appartiene = next(
+        entry
+        for entry in payload["arches"]["struttura"]
+        if entry["tipo"] == "APPARTIENE_A"
+    )
+    assert appartiene["direzione"] == "Evento→AncoraTemporale"
+    succ_ancora = next(
+        entry
+        for entry in payload["arches"]["struttura"]
+        if entry["tipo"] == "SUCCESSIONE_ANCORA"
+    )
+    assert succ_ancora["famiglia"] == "struttura"
+    assert succ_ancora["direzione"] == "AncoraTemporale→AncoraTemporale"
+    assert "ancore consecutive" in succ_ancora["significato"]
+    dizionario_tipi = {entry["tipo"] for entry in payload["arches"]["dizionario"]}
+    temporale_tipi = {entry["tipo"] for entry in payload["arches"]["temporale"]}
+    assert "PRECEDE" not in dizionario_tipi
+    assert "PRECEDE" not in temporale_tipi
+    assert "CONTEMPORANEO" not in temporale_tipi
     traits = payload["traits"]
     assert "catena" in traits
     assert set(traits["catena"]["ruoli"]) == {
@@ -232,7 +259,8 @@ def test_catalogo_viste_covers_levels_and_meanings():
     assert "SUCCESSIONE_ZONA" not in viste["tutto"]["archi"]
     assert "APPARTIENE_A" not in viste["tutto"]["archi"]
     assert "CONTIENE" not in viste["tutto"]["archi"]
-    assert "CONTEMPORANEO" in viste["tutto"]["archi"]
+    assert "CONTEMPORANEO" not in viste["tutto"]["archi"]
+    assert "PRECEDE" not in viste["tutto"]["archi"]
 
     assert set(viste["ordine"]["nodi"]) == {"Zona", "Evento"}
     assert set(viste["ordine"]["archi"]) == {
@@ -243,13 +271,12 @@ def test_catalogo_viste_covers_levels_and_meanings():
     assert "CAUSA" not in viste["ordine"]["archi"]
     assert "CONTIENE" not in viste["ordine"]["archi"]
 
-    assert set(viste["temporale"]["nodi"]) == {"ClusterTemporale", "Evento"}
-    # PIANO-LIVELLO-TEMPORALE-V2.md MT7 (righe 121–125): la vista temporale
-    # deve includere CONTIENE nella legenda, anche se grafo_livello2 lo usa
-    # solo per data.parent e non lo disegna (come APPARTIENE_A).
+    assert set(viste["temporale"]["nodi"]) == {"AncoraTemporale", "Evento"}
+    # CONTIENE e APPARTIENE_A restano in legenda anche se grafo_livello2 li
+    # usa solo per data.parent e non li disegna. SUCCESSIONE_ANCORA è
+    # disegnata fra ancore.
     assert set(viste["temporale"]["archi"]) == {
-        "PRECEDE",
-        "CONTEMPORANEO",
+        "SUCCESSIONE_ANCORA",
         "APPARTIENE_A",
         "CONTIENE",
     }
@@ -265,19 +292,24 @@ def test_catalogo_viste_covers_levels_and_meanings():
         "LIMITE",
         "CONTENUTO",
     }
+    assert "SEQUENZA" not in viste["relazioni"]["archi"]
     assert "CONTIENE" not in viste["relazioni"]["archi"]
-    assert "livello='3'" in viste["relazioni"]["significato"]
+    assert "grammatica" in viste["relazioni"]["significato"]
+    assert "livello 3" in viste["relazioni"]["significato"]
+    assert "SEQUENZA" in viste["relazioni"]["significato"]
 
     blob = _payload_text(payload)
-    assert "stesso momento, non direzionale" in blob
+    assert "stesso momento, non direzionale" not in blob
     assert "successione narrativa fra zone espanse" in blob
-    assert "evento appartenente a un cluster temporale" in blob
-    assert "CONTEMPORANEO" in viste["temporale"]["significato"]
+    assert "evento appartenente a un'ancora temporale" in blob
+    assert "CONTEMPORANEO" not in viste["temporale"]["significato"]
+    assert "PRECEDE" not in viste["temporale"]["significato"]
     assert "APPARTIENE_A" in viste["temporale"]["significato"]
     assert "CONTIENE" in viste["temporale"]["significato"]
+    assert "SUCCESSIONE_ANCORA" in viste["temporale"]["significato"]
     assert "stimato" in viste["temporale"]["significato"]
     assert "granularita" in viste["temporale"]["significato"]
-    assert "cluster temporale che ne contiene un altro" in blob
+    assert "ancora temporale che ne contiene un'altra" in blob
     assert "SUCCESSIONE_ZONA" in viste["ordine"]["significato"]
 
 
@@ -288,14 +320,14 @@ async def test_stats_fakesession_maps_counts():
             "count(e)": [{"count(e)": 4}],
             "count(m)": [{"count(m)": 7}],
             "count(q)": [{"count(q)": 1}],
-            "type(r)": [{"t": "CAUSA", "n": 2}, {"t": "PRECEDE", "n": 3}],
+            "type(r)": [{"t": "CAUSA", "n": 2}, {"t": "SUCCESSIONE_ANCORA", "n": 3}],
             "e.piano": [{"p": "PRIMO_PIANO", "n": 3}, {"p": "SFONDO", "n": 1}],
         }
     )
     result = await stats(session)
     assert result["nodi"] == {"Evento": 4, "Menzione": 7, "Quarantena": 1}
     assert result["archi"]["CAUSA"] == 2
-    assert result["archi"]["PRECEDE"] == 3
+    assert result["archi"]["SUCCESSIONE_ANCORA"] == 3
     assert result["archi"]["SOGG"] == 0
     assert result["tratti"]["piano"]["PRIMO_PIANO"] == 3
     assert result["tratti"]["piano"]["SFONDO"] == 1
@@ -319,6 +351,9 @@ async def test_grafo_fakesession_cytoscape_shape():
                 "piano": "PRIMO_PIANO",
                 "fattualita": "FATTUALE",
                 "documento": "doc-1",
+                "posizione_doc": 2,
+                "posizione_chunk": 1,
+                "offset_inizio": 40,
             },
             {
                 "id": "ev-fused",
@@ -361,6 +396,9 @@ async def test_grafo_fakesession_cytoscape_shape():
     assert node["data"]["piano"] == "PRIMO_PIANO"
     assert node["data"]["fattualita"] == "FATTUALE"
     assert node["data"]["documento"] == "doc-1"
+    assert node["data"]["posizione_doc"] == 2
+    assert node["data"]["posizione_chunk"] == 1
+    assert node["data"]["offset_inizio"] == 40
     assert edges[0]["data"]["id"] == "r-1"
     assert edges[0]["data"]["source"] == "ev-1"
     assert edges[0]["data"]["target"] == "m-1"
@@ -368,6 +406,8 @@ async def test_grafo_fakesession_cytoscape_shape():
     assert edges[0]["data"]["confidenza"] == 0.9
     blob = " ".join(query for query, _ in session.runs)
     assert "fuso_in" in blob
+    assert "e.posizione_doc AS posizione_doc" in blob
+    assert "e.offset_inizio AS offset_inizio" in blob
     assert any(params.get("documento") == "doc-1" for _, params in session.runs)
     assert any(params.get("piano") == "PRIMO_PIANO" for _, params in session.runs)
     assert any(params.get("lemma") == "arrivare" for _, params in session.runs)
@@ -413,6 +453,73 @@ async def test_grafo_drops_edges_whose_endpoint_is_not_a_returned_node():
     assert result["elements"]["edges"] == []
 
 
+def _eventi_coppia() -> list[dict]:
+    return [
+        {
+            "id": "ev-a",
+            "label": "partire",
+            "tipo": "Evento",
+            "piano": "PRIMO_PIANO",
+            "fattualita": "FATTUALE",
+            "documento": "doc-1",
+        },
+        {
+            "id": "ev-b",
+            "label": "arrivare",
+            "tipo": "Evento",
+            "piano": "PRIMO_PIANO",
+            "fattualita": "FATTUALE",
+            "documento": "doc-1",
+        },
+    ]
+
+
+def _arco(eid: str, source: str, target: str, tipo: str) -> dict:
+    return {
+        "id": eid,
+        "source": source,
+        "target": target,
+        "tipo": tipo,
+        "base": None,
+        "segnale": None,
+        "superato_da": None,
+        "conflitto": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_grafo_tutto_keeps_sequenza_even_when_pair_has_another_edge():
+    session = FakeSession(
+        mapping={
+            "MATCH (e:Evento)": _eventi_coppia(),
+            "MATCH (a)-[r]->(b)": [
+                _arco("seq-ab", "ev-a", "ev-b", "SEQUENZA"),
+                _arco("causa-ab", "ev-a", "ev-b", "CAUSA"),
+            ],
+        }
+    )
+    result = await grafo(session)
+    tipi = {(e["data"]["source"], e["data"]["target"], e["data"]["tipo"]) for e in result["elements"]["edges"]}
+    assert ("ev-a", "ev-b", "CAUSA") in tipi
+    assert ("ev-a", "ev-b", "SEQUENZA") in tipi
+
+
+@pytest.mark.asyncio
+async def test_grafo_tutto_mostra_sequenza_se_e_l_unico_arco_sulla_coppia():
+    session = FakeSession(
+        mapping={
+            "MATCH (e:Evento)": _eventi_coppia(),
+            "MATCH (a)-[r]->(b)": [
+                _arco("seq-ab", "ev-a", "ev-b", "SEQUENZA"),
+                _arco("sogg-a", "ev-a", "m-1", "SOGG"),
+            ],
+        }
+    )
+    result = await grafo(session)
+    tipi = {(e["data"]["source"], e["data"]["target"], e["data"]["tipo"]) for e in result["elements"]["edges"]}
+    assert ("ev-a", "ev-b", "SEQUENZA") in tipi
+
+
 @pytest.mark.asyncio
 async def test_dettaglio_nodo_returns_full_property_map():
     session = FakeSession(
@@ -443,8 +550,8 @@ async def test_dettaglio_nodo_returns_full_property_map():
 
 @pytest.mark.asyncio
 async def test_dettaglio_nodo_cluster_temporale_mostra_proprieta_nuove():
-    """MT7: properties(n) already returns the full map; a ClusterTemporale
-    stored with the v2 fields must surface them unprojected.
+    """properties(n) already returns the full map; leftover ClusterTemporale
+    nodes (pre-ancore writer) still surface unprojected.
     """
     proprieta = {
         "id": "cl-sera",
@@ -479,6 +586,36 @@ async def test_dettaglio_nodo_cluster_temporale_mostra_proprieta_nuove():
 
 
 @pytest.mark.asyncio
+async def test_dettaglio_nodo_ancora_temporale_mostra_proprieta():
+    """AncoraTemporale fake row: labels + natura/ordinale/chiave_ordine."""
+    proprieta = {
+        "id": "an-sera",
+        "etichetta": "24 dic, sera",
+        "natura": "esplicita",
+        "ordinale": 2,
+        "chiave_ordine": 930540096007,
+        "tipo": "ora",
+        "granularita": "ora",
+        "inizio": "1843-12-24T18",
+        "fine": "1843-12-24T23",
+        "stimato": False,
+        "documento": "doc-1",
+    }
+    session = FakeSession(
+        rows=[{"props": proprieta, "labels": ["AncoraTemporale"]}]
+    )
+    result = await dettaglio_nodo(session, "an-sera")
+    assert result is not None
+    assert result["id"] == "an-sera"
+    assert result["labels"] == ["AncoraTemporale"]
+    assert result["proprieta"]["natura"] == "esplicita"
+    assert result["proprieta"]["ordinale"] == 2
+    assert result["proprieta"]["chiave_ordine"] == 930540096007
+    assert result["proprieta"]["etichetta"] == "24 dic, sera"
+    assert "catena" not in result
+
+
+@pytest.mark.asyncio
 async def test_dettaglio_nodo_none_when_absent():
     session = FakeSession(rows=[{"props": None, "labels": []}])
     assert await dettaglio_nodo(session, "ghost") is None
@@ -490,7 +627,7 @@ async def test_dettaglio_arco_returns_full_property_map_and_endpoints():
         rows=[
             {
                 "props": {"id": "r-1", "base": "dato_esplicito", "confidenza": 0.82},
-                "tipo": "PRECEDE",
+                "tipo": "CAUSA",
                 "source_id": "ev-1",
                 "source_labels": ["Evento"],
                 "source_label": "arrivare",
@@ -502,7 +639,7 @@ async def test_dettaglio_arco_returns_full_property_map_and_endpoints():
     )
     result = await dettaglio_arco(session, "r-1")
     assert result is not None
-    assert result["tipo"] == "PRECEDE"
+    assert result["tipo"] == "CAUSA"
     assert result["proprieta"]["confidenza"] == 0.82
     assert result["source"] == {"id": "ev-1", "labels": ["Evento"], "label": "arrivare"}
     assert result["target"] == {"id": "ev-2", "labels": ["Evento"], "label": "partire"}
@@ -516,7 +653,7 @@ async def test_dettaglio_arco_none_when_absent():
 
 @pytest.mark.asyncio
 async def test_dettaglio_arco_resolves_synthetic_id_without_rel_id():
-    """SOGG / SUCCESSIONE_ZONA / CONTEMPORANEO / livello-3 have no r.id."""
+    """SOGG / SUCCESSIONE_ZONA / livello-3 have no r.id."""
     row = {
         "props": {
             "regola": "livello_relazioni",
@@ -572,7 +709,7 @@ async def test_get_nodo_and_arco_endpoints_200_and_404(monkeypatch):
             "MATCH (a)-[r {id: $id}]->(b)": [
                 {
                     "props": {"id": "r-1"},
-                    "tipo": "PRECEDE",
+                    "tipo": "CAUSA",
                     "source_id": "ev-1",
                     "source_labels": ["Evento"],
                     "source_label": "arrivare",
@@ -594,7 +731,7 @@ async def test_get_nodo_and_arco_endpoints_200_and_404(monkeypatch):
     assert ok_node.status_code == 200
     assert ok_node.json()["proprieta"]["lemma"] == "arrivare"
     assert ok_arc.status_code == 200
-    assert ok_arc.json()["tipo"] == "PRECEDE"
+    assert ok_arc.json()["tipo"] == "CAUSA"
 
     empty = FakeSession(rows=[])
     monkeypatch.setattr(
@@ -620,12 +757,14 @@ async def test_get_catalog_200_without_driver():
         "SUCCESSIONE_ZONA",
         "CONTIENE",
     }
+    assert "PRECEDE" not in _archi_tipi(body)
+    assert "CONTEMPORANEO" not in _archi_tipi(body)
     assert {node["id"] for node in body["nodes"]} == {
         "Evento",
         "Menzione",
         "Quarantena",
         "Zona",
-        "ClusterTemporale",
+        "AncoraTemporale",
     }
     assert set(body["viste"]) == {"tutto", "ordine", "temporale", "relazioni"}
 
@@ -913,7 +1052,9 @@ async def test_grafo_livello1_fakesession_a_e3_shape():
     assert "grafo_livello1_zone" in blob
     assert "grafo_livello1_eventi" in blob
     assert "e.posizione_chunk AS posizione_chunk" in blob
-    assert "ORDER BY z.ordinale, e.posizione_chunk" in blob
+    assert "e.posizione_doc AS posizione_doc" in blob
+    assert "e.offset_inizio AS offset_inizio" in blob
+    assert "ORDER BY z.ordinale, e.posizione_doc, e.posizione_chunk, e.offset_inizio" in blob
     assert "SUCCESSIONE_ZONA" in blob
     assert "SEQUENZA" in blob
     assert "COLLEGATO" in blob
@@ -941,7 +1082,7 @@ async def test_get_graph_vista_ordine_200(monkeypatch):
     _assert_livello1_shape(response.json())
 
 
-_L2_FORBIDDEN_NODE_TIPI = frozenset({"Zona", "Menzione", "Quarantena"})
+_L2_FORBIDDEN_NODE_TIPI = frozenset({"Zona", "Menzione", "Quarantena", "ClusterTemporale"})
 _L2_FORBIDDEN_EDGE_TIPI = frozenset(
     {
         "CAUSA",
@@ -949,6 +1090,7 @@ _L2_FORBIDDEN_EDGE_TIPI = frozenset(
         "COLLEGATO",
         "SUCCESSIONE_ZONA",
         "APPARTIENE_A",
+        "CONTIENE",
         "SOGG",
         "CONTRASTO",
         "CONDIZIONE",
@@ -956,8 +1098,11 @@ _L2_FORBIDDEN_EDGE_TIPI = frozenset(
         "CONCESSIONE",
         "LIMITE",
         "CONTENUTO",
+        "PRECEDE",
+        "CONTEMPORANEO",
     }
 )
+_L2_DRAWN_EDGE_TIPI = frozenset({"SUCCESSIONE_ANCORA"})
 
 
 def _livello2_session() -> FakeSession:
@@ -968,9 +1113,31 @@ def _livello2_session() -> FakeSession:
                     "id": "cl-1",
                     "label": "1994",
                     "etichetta": "1994",
-                    "tipo_cluster": "data_esplicita",
+                    "tipo_cluster": "data",
                     "documento": "doc-1",
-                    "tipo": "ClusterTemporale",
+                    "tipo": "AncoraTemporale",
+                    "natura": "esplicita",
+                    "ordinale": 0,
+                    "chiave_ordine": 1994,
+                    "stimato": False,
+                    "granularita": "anno",
+                    "inizio": "1994",
+                    "fine": None,
+                },
+                {
+                    "id": "cl-2",
+                    "label": "1995",
+                    "etichetta": "1995",
+                    "tipo_cluster": "data",
+                    "documento": "doc-1",
+                    "tipo": "AncoraTemporale",
+                    "natura": "esplicita",
+                    "ordinale": 1,
+                    "chiave_ordine": 1995,
+                    "stimato": False,
+                    "granularita": "anno",
+                    "inizio": "1995",
+                    "fine": None,
                 },
                 {
                     "id": "zona-1",
@@ -1024,46 +1191,18 @@ def _livello2_session() -> FakeSession:
                     "documento": "doc-1",
                 },
             ],
-            "grafo_livello2_precede": [
+            "grafo_livello2_successione_ancora": [
                 {
-                    "id": "prec-1",
-                    "source": "ev-1",
-                    "target": "ev-2",
-                    "tipo": "PRECEDE",
-                    "superato_da": None,
+                    "id": "succ-ancora-1",
+                    "source": "cl-1",
+                    "target": "cl-2",
+                    "tipo": "SUCCESSIONE_ANCORA",
                 },
                 {
-                    "id": "prec-old",
-                    "source": "ev-1",
-                    "target": "ev-2",
-                    "tipo": "PRECEDE",
-                    "superato_da": "prec-1",
-                },
-                {
-                    "id": "causa-1",
-                    "source": "ev-1",
-                    "target": "ev-2",
-                    "tipo": "CAUSA",
-                },
-                {
-                    "id": "app-1",
-                    "source": "ev-1",
-                    "target": "cl-1",
-                    "tipo": "APPARTIENE_A",
-                },
-                {
-                    "id": "orphan-1",
-                    "source": "ev-ghost",
-                    "target": "ev-1",
-                    "tipo": "PRECEDE",
-                },
-            ],
-            "grafo_livello2_contemporaneo": [
-                {
-                    "id": "cont-1",
-                    "source": "ev-1",
-                    "target": "ev-3",
-                    "tipo": "CONTEMPORANEO",
+                    "id": "contiene-1",
+                    "source": "cl-1",
+                    "target": "cl-2",
+                    "tipo": "CONTIENE",
                 },
             ],
         }
@@ -1075,11 +1214,20 @@ def _assert_livello2_shape(body: dict) -> None:
     edges = body["elements"]["edges"]
     by_id = {node["data"]["id"]: node["data"] for node in nodes}
     assert "cl-1" in by_id
-    assert by_id["cl-1"]["tipo"] == "ClusterTemporale"
+    assert by_id["cl-1"]["tipo"] == "AncoraTemporale"
     assert "parent" not in by_id["cl-1"]
     assert by_id["cl-1"]["etichetta"] == "1994"
     assert by_id["cl-1"]["label"] == "1994"
-    assert by_id["cl-1"]["tipo_cluster"] == "data_esplicita"
+    assert by_id["cl-1"]["tipo_cluster"] == "data"
+    assert by_id["cl-1"]["natura"] == "esplicita"
+    assert by_id["cl-1"]["ordinale"] == 0
+    assert by_id["cl-1"]["chiave_ordine"] == 1994
+    assert by_id["cl-1"]["stimato"] is False
+    assert by_id["cl-1"]["granularita"] == "anno"
+    assert by_id["cl-1"]["inizio"] == "1994"
+    assert "cl-2" in by_id
+    assert by_id["cl-2"]["tipo"] == "AncoraTemporale"
+    assert "parent" not in by_id["cl-2"]
     assert by_id["ev-1"]["tipo"] == "Evento"
     assert by_id["ev-1"]["parent"] == "cl-1"
     assert by_id["ev-2"]["parent"] == "cl-1"
@@ -1092,23 +1240,24 @@ def _assert_livello2_shape(body: dict) -> None:
     node_tipi = {node["data"]["tipo"] for node in nodes}
     assert node_tipi.isdisjoint(_L2_FORBIDDEN_NODE_TIPI)
     tipi = {edge["data"]["tipo"] for edge in edges}
-    assert "PRECEDE" in tipi
-    assert "CONTEMPORANEO" in tipi
-    assert tipi <= {"PRECEDE", "CONTEMPORANEO"}
+    assert "SUCCESSIONE_ANCORA" in tipi
+    assert "PRECEDE" not in tipi
+    assert "CONTEMPORANEO" not in tipi
+    assert tipi <= _L2_DRAWN_EDGE_TIPI
     assert tipi.isdisjoint(_L2_FORBIDDEN_EDGE_TIPI)
     edge_ids = {edge["data"]["id"] for edge in edges}
-    assert "prec-1" in edge_ids
-    assert "cont-1" in edge_ids
+    assert "succ-ancora-1" in edge_ids
+    assert "prec-1" not in edge_ids
+    assert "cont-1" not in edge_ids
     assert "prec-old" not in edge_ids
     assert "causa-1" not in edge_ids
     assert "app-1" not in edge_ids
+    assert "contiene-1" not in edge_ids
     assert "orphan-1" not in edge_ids
-    prec = next(e["data"] for e in edges if e["data"]["id"] == "prec-1")
-    assert prec["source"] == "ev-1"
-    assert prec["target"] == "ev-2"
-    cont = next(e["data"] for e in edges if e["data"]["id"] == "cont-1")
-    assert cont["source"] == "ev-1"
-    assert cont["target"] == "ev-3"
+    succ = next(e["data"] for e in edges if e["data"]["id"] == "succ-ancora-1")
+    assert succ["source"] == "cl-1"
+    assert succ["target"] == "cl-2"
+    assert succ["tipo"] == "SUCCESSIONE_ANCORA"
 
 
 @pytest.mark.asyncio
@@ -1119,10 +1268,15 @@ async def test_grafo_livello2_fakesession_b_e2_shape():
     blob = " ".join(query for query, _ in session.runs)
     assert "grafo_livello2_cluster" in blob
     assert "grafo_livello2_eventi" in blob
-    assert "grafo_livello2_precede" in blob
-    assert "grafo_livello2_contemporaneo" in blob
-    assert "superato_da" in blob
+    assert "grafo_livello2_precede" not in blob
+    assert "grafo_livello2_contemporaneo" not in blob
+    assert "grafo_livello2_successione_ancora" in blob
+    assert "PRECEDE" not in blob
+    assert "CONTEMPORANEO" not in blob
     assert "APPARTIENE_A" in blob
+    assert "SUCCESSIONE_ANCORA" in blob
+    assert ":AncoraTemporale" in blob
+    assert "ClusterTemporale" not in blob
     assert any(params.get("documento") == "doc-1" for _, params in session.runs)
     assert "Menzione" not in blob
     assert "Quarantena" not in blob
@@ -1147,16 +1301,18 @@ async def test_get_graph_vista_temporale_200(monkeypatch):
     _assert_livello2_shape(response.json())
 
 
-_L3_FORBIDDEN_NODE_TIPI = frozenset({"Zona", "ClusterTemporale", "Menzione", "Quarantena"})
+_L3_FORBIDDEN_NODE_TIPI = frozenset(
+    {"Zona", "ClusterTemporale", "AncoraTemporale", "Menzione", "Quarantena"}
+)
 _L3_FORBIDDEN_EDGE_TIPI = frozenset(
     {
-        "SEQUENZA",
         "COLLEGATO",
         "PRECEDE",
         "SUCCESSIONE_ZONA",
         "APPARTIENE_A",
         "SOGG",
         "CONTEMPORANEO",
+        "SEQUENZA",
     }
 )
 _L3_ALLOWED_EDGE_TIPI = frozenset(
@@ -1182,18 +1338,28 @@ def _livello3_session() -> FakeSession:
                     "documento": "doc-1",
                     "tipo": "Evento",
                     "parent": "zona-1",
+                    "posizione_doc": 0,
                 },
                 {
                     "id": "ev-2",
                     "lemma": "partire",
                     "documento": "doc-1",
                     "tipo": "Evento",
+                    "posizione_doc": 1,
                 },
                 {
                     "id": "ev-3",
                     "label": "fermare",
                     "documento": "doc-1",
                     "tipo": "Evento",
+                    "posizione_doc": 2,
+                },
+                {
+                    "id": "ev-isolato",
+                    "label": "solo",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_doc": 3,
                 },
                 {
                     "id": "ev-fused",
@@ -1257,7 +1423,14 @@ def _livello3_session() -> FakeSession:
                     "source": "ev-1",
                     "target": "ev-2",
                     "tipo": "SEQUENZA",
-                    "livello": "3",
+                    "base": "esposizione",
+                },
+                {
+                    "id": "seq-2",
+                    "source": "ev-2",
+                    "target": "ev-3",
+                    "tipo": "SEQUENZA",
+                    "base": "esposizione",
                 },
                 {
                     "id": "col-1",
@@ -1310,6 +1483,7 @@ def _assert_livello3_shape(body: dict) -> None:
     assert "ev-1" in by_id
     assert "ev-2" in by_id
     assert "ev-3" in by_id
+    assert "ev-isolato" in by_id
     assert by_id["ev-1"]["tipo"] == "Evento"
     assert by_id["ev-2"]["tipo"] == "Evento"
     assert "parent" not in by_id["ev-1"]
@@ -1327,23 +1501,21 @@ def _assert_livello3_shape(body: dict) -> None:
     tipi = {edge["data"]["tipo"] for edge in edges}
     assert "CAUSA" in tipi
     assert "CONDIZIONE" in tipi
+    assert "SEQUENZA" not in tipi
     assert tipi <= _L3_ALLOWED_EDGE_TIPI
     assert tipi.isdisjoint(_L3_FORBIDDEN_EDGE_TIPI)
     edge_ids = {edge["data"]["id"] for edge in edges}
     assert "causa-l3" in edge_ids
     assert "cond-l3" in edge_ids
-    assert "causa-no-l3" not in edge_ids
+    assert "causa-no-l3" in edge_ids
     assert "seq-1" not in edge_ids
+    assert "seq-2" not in edge_ids
     assert "col-1" not in edge_ids
     assert "prec-1" not in edge_ids
     assert "sz-1" not in edge_ids
     assert "app-1" not in edge_ids
     assert "sogg-1" not in edge_ids
     assert "orphan-1" not in edge_ids
-    for edge in edges:
-        data = edge["data"]
-        assert str(data["livello"]) == "3"
-        assert data.get("spiegazione")
     causa = next(e["data"] for e in edges if e["data"]["id"] == "causa-l3")
     assert causa["source"] == "ev-1"
     assert causa["target"] == "ev-2"
@@ -1354,6 +1526,94 @@ def _assert_livello3_shape(body: dict) -> None:
     assert cond["target"] == "ev-3"
     assert str(cond["livello"]) == "3"
     assert cond["spiegazione"] == "si ferma solo se parte"
+    no_l3 = next(e["data"] for e in edges if e["data"]["id"] == "causa-no-l3")
+    assert no_l3["tipo"] == "CAUSA"
+    assert "livello" not in no_l3 or no_l3.get("livello") != "3"
+
+
+@pytest.mark.asyncio
+async def test_grafo_livello3_omits_sequenza_even_when_missing():
+    session = FakeSession(
+        mapping={
+            "grafo_livello3_eventi": [
+                {
+                    "id": "ev-a",
+                    "label": "a",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_doc": 0,
+                },
+                {
+                    "id": "ev-b",
+                    "label": "b",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_doc": 1,
+                },
+                {
+                    "id": "ev-c",
+                    "label": "c",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_doc": 2,
+                },
+            ],
+            "grafo_livello3_archi": [],
+        }
+    )
+    result = await grafo_livello3(session, documento="doc-1")
+    nodes = result["elements"]["nodes"]
+    edges = result["elements"]["edges"]
+    assert {n["data"]["id"] for n in nodes} == {"ev-a", "ev-b", "ev-c"}
+    assert edges == []
+    assert all(e["data"]["tipo"] != "SEQUENZA" for e in edges)
+
+
+@pytest.mark.asyncio
+async def test_grafo_livello3_does_not_synthesize_sequenza_across_documents():
+    session = FakeSession(
+        mapping={
+            "grafo_livello3_eventi": [
+                {
+                    "id": "ev-d1a",
+                    "label": "a",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_doc": 0,
+                },
+                {
+                    "id": "ev-d1b",
+                    "label": "b",
+                    "documento": "doc-1",
+                    "tipo": "Evento",
+                    "posizione_doc": 1,
+                },
+                {
+                    "id": "ev-d2a",
+                    "label": "c",
+                    "documento": "doc-2",
+                    "tipo": "Evento",
+                    "posizione_doc": 0,
+                },
+                {
+                    "id": "ev-d2b",
+                    "label": "d",
+                    "documento": "doc-2",
+                    "tipo": "Evento",
+                    "posizione_doc": 1,
+                },
+            ],
+            "grafo_livello3_archi": [],
+        }
+    )
+    result = await grafo_livello3(session)
+    sequenza = [
+        (e["data"]["source"], e["data"]["target"])
+        for e in result["elements"]["edges"]
+        if e["data"]["tipo"] == "SEQUENZA"
+    ]
+    assert sequenza == []
+    assert result["elements"]["edges"] == []
 
 
 @pytest.mark.asyncio
@@ -1364,7 +1624,7 @@ async def test_grafo_livello3_fakesession_c_e2_shape():
     blob = " ".join(query for query, _ in session.runs)
     assert "grafo_livello3_eventi" in blob
     assert "grafo_livello3_archi" in blob
-    assert "r.livello" in blob
+    assert "posizione_doc" in blob
     assert "spiegazione" in blob
     assert any(params.get("documento") == "doc-1" for _, params in session.runs)
     assert "Menzione" not in blob

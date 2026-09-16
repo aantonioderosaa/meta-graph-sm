@@ -143,38 +143,31 @@ def _is_forbidden_import(module: str) -> bool:
 
 
 @pytest.mark.asyncio
-async def test_two_narrativa_causa_esplicita_links_heads(monkeypatch):
+async def test_two_narrativa_links_heads_as_sequenza(monkeypatch):
     u0 = _unita("Mario arrivò.", 0, 0)
     u1 = _unita("Anna partì.", 1, 20)
     e0 = _evento("ev-0", u0.offset_inizio, u0.offset_fine, lemma="arrivare")
     e1 = _evento("ev-1", u1.offset_inizio, u1.offset_fine, lemma="partire")
 
-    async def handler(system_prompt, user_prompt, response_model, temperature, job_id):
-        assert temperature == 0
-        assert response_model is PairEdgeDecision
-        assert "Mario arrivò." in user_prompt
-        assert "Anna partì." in user_prompt
-        assert "arrivare" not in user_prompt
-        assert "partire" not in user_prompt
-        return _decision(relazione_segnale="causa_esplicita", confidenza=0.91)
+    async def handler(*args, **kwargs):
+        raise AssertionError("adjacent micro must not call the pair classifier")
 
     _install_stub(monkeypatch, handler)
     result = await collega_adiacenti(_dedup([u0, u1], [e0, e1]))
     assert len(result.archi) == 1
     arco = result.archi[0]
     assert arco.tipo == "SEQUENZA"
-    assert arco.tipo != "CAUSA"
     assert arco.da_id == "ev-0"
     assert arco.a_id == "ev-1"
-    assert arco.props["confidenza"] == 0.91
+    assert arco.props["livello"] == "micro"
     assert head_of_unit(u0, result) is e0
     assert head_of_unit(u1, result) is e1
 
 
 @pytest.mark.asyncio
-async def test_perche_connective_keeps_causa(monkeypatch):
-    async def handler(system_prompt, user_prompt, response_model, temperature, job_id):
-        return _decision(relazione_segnale="causa_esplicita", confidenza=0.91)
+async def test_perche_connective_is_still_sequenza(monkeypatch):
+    async def handler(*args, **kwargs):
+        raise AssertionError("adjacent micro must not call the pair classifier")
 
     _install_stub(monkeypatch, handler)
     u0 = _unita("Mario arrivò.", 0, 0)
@@ -183,18 +176,14 @@ async def test_perche_connective_keeps_causa(monkeypatch):
     e1 = _evento("ev-1", u1.offset_inizio, u1.offset_fine, lemma="partire")
     result = await collega_adiacenti(_dedup([u0, u1], [e0, e1]))
     assert len(result.archi) == 1
-    assert result.archi[0].tipo == "CAUSA"
-    assert result.archi[0].props.get("segnale")
+    assert result.archi[0].tipo == "SEQUENZA"
+    assert result.archi[0].tipo != "CAUSA"
 
 
 @pytest.mark.asyncio
-async def test_every_boundary_visited_three_units_two_calls(monkeypatch):
-    calls: list[str] = []
-
-    async def handler(system_prompt, user_prompt, response_model, temperature, job_id):
-        calls.append(user_prompt)
-        assert "No explicit connective" in user_prompt or "Assente" in user_prompt
-        return _decision(relazione_segnale="nessuno", confidenza=0.7)
+async def test_every_boundary_visited_three_units_two_sequenza(monkeypatch):
+    async def handler(*args, **kwargs):
+        raise AssertionError("adjacent micro must not call the pair classifier")
 
     _install_stub(monkeypatch, handler)
     units = [
@@ -206,17 +195,19 @@ async def test_every_boundary_visited_three_units_two_calls(monkeypatch):
         _evento(f"ev-{i}", unit.offset_inizio, unit.offset_fine, posizione_doc=i)
         for i, unit in enumerate(units)
     ]
-    await collega_adiacenti(_dedup(units, events))
-    assert len(calls) == 2
+    result = await collega_adiacenti(_dedup(units, events))
+    assert [(a.da_id, a.a_id, a.tipo) for a in result.archi] == [
+        ("ev-0", "ev-1", "SEQUENZA"),
+        ("ev-1", "ev-2", "SEQUENZA"),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_low_confidenza_without_connective_emits_collegato(monkeypatch):
+async def test_low_confidenza_without_classifier_is_still_sequenza(monkeypatch):
     assert 0.2 < SOGLIA_CONFIDENZA
 
-    async def handler(system_prompt, user_prompt, response_model, temperature, job_id):
-        assert "No explicit connective" in user_prompt or "Assente" in user_prompt
-        return _decision(relazione_segnale="causa_esplicita", confidenza=0.2)
+    async def handler(*args, **kwargs):
+        raise AssertionError("adjacent micro must not call the pair classifier")
 
     _install_stub(monkeypatch, handler)
     u0 = _unita("Mario arrivò.", 0, 0)
@@ -226,19 +217,15 @@ async def test_low_confidenza_without_connective_emits_collegato(monkeypatch):
     result = await collega_adiacenti(_dedup([u0, u1], [e0, e1]))
     assert len(result.archi) == 1
     arco = result.archi[0]
-    assert arco.tipo == "COLLEGATO"
+    assert arco.tipo == "SEQUENZA"
+    assert arco.tipo != "COLLEGATO"
     assert arco.tipo != "CAUSA"
-    assert arco.props["confidenza"] == 0.2
-    assert arco.props["segnale"] == "implicito"
 
 
 @pytest.mark.asyncio
-async def test_mentre_connective_is_evidence_not_label(monkeypatch):
-    prompts: list[str] = []
-
-    async def handler(system_prompt, user_prompt, response_model, temperature, job_id):
-        prompts.append(user_prompt)
-        return _decision(relazione_segnale="contrasto", confidenza=0.88)
+async def test_mentre_does_not_emit_micro_contrasto(monkeypatch):
+    async def handler(*args, **kwargs):
+        raise AssertionError("adjacent micro must not call the pair classifier")
 
     _install_stub(monkeypatch, handler)
     u0 = _unita("Mario parlava.", 0, 0)
@@ -251,24 +238,17 @@ async def test_mentre_connective_is_evidence_not_label(monkeypatch):
     e0 = _evento("ev-0", u0.offset_inizio, u0.offset_fine)
     e1 = _evento("ev-1", u1.offset_inizio, u1.offset_fine)
     result = await collega_adiacenti(_dedup([u0, u1], [e0, e1]))
-    assert len(prompts) == 1
-    prompt = prompts[0]
-    assert "mentre" in prompt.lower()
-    assert (
-        "evidence" in prompt.lower()
-        or "evidenza" in prompt.lower()
-        or "Disambiguate" in prompt
-    )
-    assert "No explicit connective" not in prompt
     assert len(result.archi) == 1
-    assert result.archi[0].tipo == "CONTRASTO"
+    assert result.archi[0].tipo == "SEQUENZA"
+    assert result.archi[0].tipo != "CONTRASTO"
     assert result.archi[0].props.get("segnale") == "mentre"
+    assert result.archi[0].props["livello"] == "micro"
 
 
 @pytest.mark.asyncio
 async def test_dialogo_without_testa_walks_left_to_narrativa(monkeypatch):
     async def handler(system_prompt, user_prompt, response_model, temperature, job_id):
-        return _decision(relazione_segnale="posteriorita", confidenza=0.8)
+        return _decision(relazione_segnale="asindeto_sequenziale", confidenza=0.8)
 
     _install_stub(monkeypatch, handler)
     u0 = _unita("Mario arrivò.", 0, 0, tipo="narrativa")
@@ -285,7 +265,7 @@ async def test_dialogo_without_testa_walks_left_to_narrativa(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_llm_failure_skips_pair_without_raising(monkeypatch):
+async def test_llm_failure_does_not_block_sequenza(monkeypatch):
     async def handler(*args, **kwargs):
         raise RuntimeError("llm down")
 
@@ -295,7 +275,8 @@ async def test_llm_failure_skips_pair_without_raising(monkeypatch):
     e0 = _evento("ev-0", u0.offset_inizio, u0.offset_fine)
     e1 = _evento("ev-1", u1.offset_inizio, u1.offset_fine)
     result = await collega_adiacenti(_dedup([u0, u1], [e0, e1]))
-    assert result.archi == []
+    assert len(result.archi) == 1
+    assert result.archi[0].tipo == "SEQUENZA"
 
 
 def test_isolation_ast():

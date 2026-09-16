@@ -15,6 +15,7 @@ from typing import Any, get_args
 
 from app.models.event_graph import (
     GRANULARITA_TEMPORALI,
+    AncoraTemporaleProposta,
     ArcoEvento,
     ClusterTemporaleProposto,
     EventoRisolto,
@@ -27,7 +28,14 @@ from app.models.event_graph import (
     TipoRelazioneLibera,
 )
 from app.pipeline.event_graph import RULESET_VERSION, foresta_temporale, tempo_iso
+from app.pipeline.event_graph.ancore_identita import identita_ancora
+from app.pipeline.event_graph.ancore_linea import etichetta_normalizzata
+from app.pipeline.event_graph.ancore_smistamento import (
+    AppartenenzaAncora,
+    SmistamentoAncore,
+)
 from app.pipeline.event_graph.ids import cluster_temporale_id, content_hash, quarantena_id
+from app.pipeline.event_graph.infra.bus import publish
 from app.pipeline.event_graph.livello_relazioni import relazioni_causa_ciclo
 from app.pipeline.event_graph.zona_edges import SUCCESSIONE_ZONA, ArcoZona
 from app.pipeline.event_graph.zona_segmentation import Zona
@@ -36,6 +44,9 @@ from app.pipeline.event_graph.zona_transizioni import REGOLA as REGOLA_SUCCESSIO
 REGOLA = "persistence.persisti"
 REGOLA_LIVELLO_TEMPORALE = "livello_temporale.estrai"
 REGOLA_LIVELLO_RELAZIONI = "livello_relazioni.estrai"
+REGOLA_LIVELLO_ANCORE = "persistence.persisti_livello_ancore"
+_STAGE_ANCORE = "collocazione_temporale"
+_EVENTO_PERSIST_ANCORE = "ancore_persistenza"
 _TIPI_RELAZIONE_LIBERA = frozenset(get_args(TipoRelazioneLibera))
 MOTIVO_CICLO_CAUSA_LIVELLO3 = "ciclo CAUSA livello 3"
 
@@ -58,21 +69,6 @@ EVENT_EVENT_TIPI = frozenset(
 )
 
 CROSS_DOC_ALLOWED = frozenset({"PRECEDE", "COLLEGATO"})
-
-# Same label set as backend/_wipe_eg.py — kept in sync by hand, both are the
-# full node inventory of the isolated event-graph domain (D6: no label here
-# is shared with the legacy app.core.*/app.pipeline.* graph).
-_LABELS_GRAFO_EVENTI = (
-    "Evento",
-    "Menzione",
-    "Zona",
-    "Quarantena",
-    "EgChunk",
-    "EgUnita",
-    "Documento",
-    "EventGraphRun",
-    "ClusterTemporale",
-)
 
 
 @dataclass
@@ -601,29 +597,6 @@ async def sopprimi_collegato_ridondanti(session: Any, doc_id: str) -> int:
         if isinstance(value, int):
             return value
     return 0
-
-
-async def azzera_grafo(session: Any) -> int:
-    """Full reset of the event-graph domain — explicit user action only.
-
-    Unlike everything else in this module (MERGE-only, append-only, or the
-    scoped ``superato_da`` marking above), this is a real, unscoped
-    ``DETACH DELETE`` across every label the domain writes. It exists for
-    exactly one reason: the user asked for a button to start over, not for
-    anything the ingestion pipeline itself ever calls. Same label list as
-    ``backend/_wipe_eg.py``. Returns the node count removed.
-    """
-    where = " OR ".join(f"n:{label}" for label in _LABELS_GRAFO_EVENTI)
-    count_rows = await _run(session, f"MATCH (n) WHERE {where} RETURN count(n) AS n")
-    totale = 0
-    if count_rows:
-        first = count_rows[0]
-        value = first.get("n") if isinstance(first, dict) else None
-        if isinstance(value, int):
-            totale = value
-    if totale:
-        await _run(session, f"MATCH (n) WHERE {where} DETACH DELETE n")
-    return totale
 
 
 def _as_str_list(value: Any) -> list[str]:
@@ -1446,6 +1419,8 @@ def _tempo_from_overlay(event: EventoRisolto) -> tuple[Any, Any] | None:
     return tempo, list(revisioni or [])
 
 
+# Unused by the live pipeline (MT10). ClusterTemporale writer kept so isolation
+# tests of this function still run. Flag off does not re-enable this path.
 async def persisti_livello_temporale(
     session: Any,
     livello_tempo: LivelloTemporaleResult | None,
@@ -1594,7 +1569,11 @@ async def persisti_livello_temporale(
             continue
         overlay_event = overlay.get(evento_id)
         if overlay_event is not None:
-            tempo = overlay_event.tempo_assoluto if overlay_event.tempo_assoluto is not None else raw_tempo
+            tempo = (
+                overlay_event.tempo_assoluto
+                if overlay_event.tempo_assoluto is not None
+                else raw_tempo
+            )
             revisioni = list(overlay_event.tempo_assoluto_revisioni or [])
             if not revisioni:
                 revisioni = [raw_tempo]
@@ -1602,6 +1581,471 @@ async def persisti_livello_temporale(
             tempo = raw_tempo
             revisioni = [raw_tempo]
         await _set_tempo_assoluto(session, evento_id, tempo, revisioni)
+
+
+def _etichetta_ancora(ancora: AncoraTemporaleProposta) -> str:
+    return (ancora.etichetta or "").strip()
+
+
+def _id_arco_ancore(tipo: str, da_id: str, a_id: str, base: str) -> str:
+    """Stable relationship id: ``tipo|da|a|base``, document-local via ``base``."""
+    return content_hash(f"{tipo}|{da_id}|{a_id}|{base}")
+
+
+def _valore_linea(mappa: dict[str, Any], etichetta: str) -> Any:
+    if etichetta in mappa:
+        return mappa[etichetta]
+    chiave = etichetta_normalizzata(etichetta)
+    if not chiave:
+        return None
+    for nome, valore in mappa.items():
+        if etichetta_normalizzata(nome) == chiave:
+            return valore
+    return None
+
+
+def _indice_ancore_persist(
+    ancore: list[AncoraTemporaleProposta],
+    doc_id: str,
+) -> tuple[
+    dict[str, AncoraTemporaleProposta],
+    dict[str, str],
+    dict[str, str],
+]:
+    """First etichetta wins; ids are ``identita_ancora`` / ``ancora_temporale_id``."""
+    per_etichetta: dict[str, AncoraTemporaleProposta] = {}
+    id_di: dict[str, str] = {}
+    id_chiave: dict[str, str] = {}
+    for ancora in ancore:
+        etichetta = _etichetta_ancora(ancora)
+        if not etichetta or etichetta in per_etichetta:
+            continue
+        nid = identita_ancora(ancora, doc_id)
+        per_etichetta[etichetta] = ancora
+        id_di[etichetta] = nid
+        chiave = etichetta_normalizzata(etichetta)
+        if chiave and chiave not in id_chiave:
+            id_chiave[chiave] = nid
+    return per_etichetta, id_di, id_chiave
+
+
+def _id_per_etichetta(
+    etichetta: str,
+    id_di: dict[str, str],
+    id_chiave: dict[str, str],
+) -> str | None:
+    nome = (etichetta or "").strip()
+    if not nome:
+        return None
+    trovato = id_di.get(nome)
+    if trovato:
+        return trovato
+    return id_chiave.get(etichetta_normalizzata(nome))
+
+
+def _foglie_etichette(
+    per_etichetta: dict[str, AncoraTemporaleProposta],
+) -> set[str]:
+    genitori = {
+        etichetta_normalizzata(ancora.padre)
+        for ancora in per_etichetta.values()
+        if (ancora.padre or "").strip()
+    }
+    return {
+        etichetta
+        for etichetta in per_etichetta
+        if etichetta_normalizzata(etichetta) not in genitori
+    }
+
+
+async def _merge_ancora_temporale(
+    session: Any,
+    nid: str,
+    doc_id: str,
+    ancora: AncoraTemporaleProposta,
+    *,
+    chiave_ordine: int | None,
+    ordinale: int | None,
+) -> str:
+    query = (
+        "MERGE (a:AncoraTemporale {id: $id}) "
+        "SET a.documento = $documento, "
+        "a.etichetta = $etichetta, "
+        "a.descrizione = $descrizione, "
+        "a.natura = $natura, "
+        "a.tipo = $tipo, "
+        "a.granularita = $granularita, "
+        "a.inizio = $inizio, "
+        "a.fine = $fine, "
+        "a.chiave_ordine = $chiave_ordine, "
+        "a.ordinale = $ordinale, "
+        "a.espressione = $espressione, "
+        "a.offset_inizio = $offset_inizio, "
+        "a.offset_fine = $offset_fine, "
+        "a.stimato = $stimato, "
+        "a.confidenza = $confidenza, "
+        "a.posizione_doc_min = $posizione_doc_min, "
+        "a.regola = $regola, "
+        "a.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "id": nid,
+            "documento": doc_id,
+            "etichetta": _etichetta_ancora(ancora),
+            "descrizione": _prop_testo(ancora.descrizione),
+            "natura": str(ancora.natura),
+            "tipo": str(ancora.tipo),
+            "granularita": _prop_testo(ancora.granularita),
+            "inizio": _prop_testo(ancora.inizio),
+            "fine": _prop_testo(ancora.fine),
+            "chiave_ordine": chiave_ordine,
+            "ordinale": ordinale,
+            "espressione": _prop_testo(ancora.espressione),
+            "offset_inizio": ancora.offset_inizio,
+            "offset_fine": ancora.offset_fine,
+            "stimato": bool(ancora.stimato),
+            "confidenza": _prop_confidenza(ancora.confidenza),
+            "posizione_doc_min": ancora.posizione_doc_min,
+            "regola": REGOLA_LIVELLO_ANCORE,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _merge_contiene_ancora(
+    session: Any,
+    padre_id: str,
+    figlio_id: str,
+    *,
+    rel_id: str,
+) -> str:
+    query = (
+        "MATCH (p:AncoraTemporale {id: $p_id}) "
+        "MATCH (f:AncoraTemporale {id: $f_id}) "
+        "MERGE (p)-[r:CONTIENE {id: $rel_id}]->(f) "
+        "SET r.attivo = true, "
+        "r.regola = $regola, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "p_id": padre_id,
+            "f_id": figlio_id,
+            "rel_id": rel_id,
+            "regola": REGOLA_LIVELLO_ANCORE,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _disattiva_contiene_ancora_obsoleti(
+    session: Any,
+    figlio_id: str,
+    padre_id: str | None,
+) -> str:
+    query = (
+        "MATCH (p:AncoraTemporale)-[r:CONTIENE]->(f:AncoraTemporale {id: $f_id}) "
+        "WHERE $p_id IS NULL OR p.id <> $p_id "
+        "SET r.attivo = false, "
+        "r.sostituito_da = $p_id, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "f_id": figlio_id,
+            "p_id": padre_id,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _merge_appartiene_a_ancora(
+    session: Any,
+    evento_id: str,
+    ancora_id: str,
+    *,
+    rel_id: str,
+    confidenza: float,
+    stimato: bool,
+    base: str | None,
+) -> str:
+    query = (
+        "MATCH (e:Evento {id: $e_id}) "
+        "MATCH (a:AncoraTemporale {id: $a_id}) "
+        "MERGE (e)-[r:APPARTIENE_A {id: $rel_id}]->(a) "
+        "SET r.attivo = true, "
+        "r.confidenza = $confidenza, "
+        "r.stimato = $stimato, "
+        "r.base = $base, "
+        "r.regola = $regola, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "e_id": evento_id,
+            "a_id": ancora_id,
+            "rel_id": rel_id,
+            "confidenza": confidenza,
+            "stimato": stimato,
+            "base": base,
+            "regola": REGOLA_LIVELLO_ANCORE,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _disattiva_appartiene_a_ancora_obsoleti(
+    session: Any,
+    evento_id: str,
+    ancora_id: str,
+) -> str:
+    """Tombstone APPARTIENE_A toward another AncoraTemporale; never DELETE."""
+    query = (
+        "MATCH (e:Evento {id: $e_id})-[r:APPARTIENE_A]->(a:AncoraTemporale) "
+        "WHERE a.id <> $a_id "
+        "SET r.attivo = false, "
+        "r.sostituito_da = $a_id, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "e_id": evento_id,
+            "a_id": ancora_id,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _merge_successione_ancora(
+    session: Any,
+    da_id: str,
+    a_id: str,
+    *,
+    rel_id: str,
+) -> str:
+    query = (
+        "MATCH (da:AncoraTemporale {id: $da_id}) "
+        "MATCH (a:AncoraTemporale {id: $a_id}) "
+        "MERGE (da)-[r:SUCCESSIONE_ANCORA {id: $rel_id}]->(a) "
+        "SET r.attivo = true, "
+        "r.regola = $regola, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "da_id": da_id,
+            "a_id": a_id,
+            "rel_id": rel_id,
+            "regola": REGOLA_LIVELLO_ANCORE,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+async def _disattiva_successione_ancora_obsoleti(
+    session: Any,
+    da_id: str,
+    a_id: str,
+) -> str:
+    query = (
+        "MATCH (da:AncoraTemporale {id: $da_id})-[r:SUCCESSIONE_ANCORA]->"
+        "(a:AncoraTemporale) "
+        "WHERE a.id <> $a_id "
+        "SET r.attivo = false, "
+        "r.sostituito_da = $a_id, "
+        "r.versione_regole = $versione_regole"
+    )
+    await _run(
+        session,
+        query,
+        {
+            "da_id": da_id,
+            "a_id": a_id,
+            "versione_regole": RULESET_VERSION,
+        },
+    )
+    return query
+
+
+def _coppie_successione_etichette(linea: Any) -> list[tuple[str, str]]:
+    fuori: list[tuple[str, str]] = []
+    visti: set[tuple[str, str]] = set()
+    for coppia in getattr(linea, "successione", None) or []:
+        if not isinstance(coppia, (list, tuple)) or len(coppia) < 2:
+            continue
+        sinistra = str(coppia[0] or "").strip()
+        destra = str(coppia[1] or "").strip()
+        if not sinistra or not destra or sinistra == destra:
+            continue
+        chiave = (sinistra, destra)
+        if chiave in visti:
+            continue
+        visti.add(chiave)
+        fuori.append(chiave)
+    return fuori
+
+
+async def persisti_livello_ancore(
+    session: Any,
+    smistamento: SmistamentoAncore | None,
+    doc_id: str,
+    job_id: str | None,
+    eventi: list[EventoRisolto] | None = None,
+) -> None:
+    """MERGE AncoraTemporale and structural edges **with id in the pattern**.
+
+    Three passes — nodes, then CONTIENE, then APPARTIENE_A / SUCCESSIONE_ANCORA
+    — because MATCH-based rels vanish if the node is missing. Does not write
+    PRECEDE / CONTEMPORANEO. Append-only: obsolete APPARTIENE_A / CONTIENE are
+    deactivated (``attivo=false``, ``sostituito_da``), never DELETE'd.
+    Empty/None is a no-op.
+    """
+    if smistamento is None:
+        return
+
+    linea = smistamento.linea
+    ancore = [
+        ancora
+        for ancora in (linea.ancore or [])
+        if isinstance(ancora, AncoraTemporaleProposta) and _etichetta_ancora(ancora)
+    ]
+    appartenenze = [
+        item
+        for item in (smistamento.appartenenze or [])
+        if isinstance(item, AppartenenzaAncora)
+    ]
+    if not ancore and not appartenenze and not (linea.successione or []):
+        return
+
+    overlay = _evento_overlay(eventi)
+    known = _known_evento_ids(overlay)
+    per_etichetta, id_di, id_chiave = _indice_ancore_persist(ancore, doc_id)
+    foglie = _foglie_etichette(per_etichetta)
+    chiave_ordine_mappa = getattr(linea, "chiave_ordine", None) or {}
+    ordinale_mappa = getattr(linea, "ordinale", None) or {}
+
+    n_ancore = 0
+    n_contiene = 0
+    n_appartenenza = 0
+    n_successione = 0
+
+    scritti: dict[str, str] = {}
+    for etichetta, ancora in per_etichetta.items():
+        nid = id_di[etichetta]
+        if nid in scritti:
+            continue
+        scritti[nid] = etichetta
+        await _merge_ancora_temporale(
+            session,
+            nid,
+            doc_id,
+            ancora,
+            chiave_ordine=_valore_linea(chiave_ordine_mappa, etichetta),
+            ordinale=_valore_linea(ordinale_mappa, etichetta),
+        )
+        n_ancore += 1
+
+    padre_id_di: dict[str, str | None] = {}
+    for etichetta, ancora in per_etichetta.items():
+        figlio_id = id_di[etichetta]
+        padre_raw = (ancora.padre or "").strip()
+        padre_id = (
+            _id_per_etichetta(padre_raw, id_di, id_chiave) if padre_raw else None
+        )
+        if padre_id == figlio_id:
+            padre_id = None
+        padre_id_di[figlio_id] = padre_id
+
+    for figlio_id, padre_id in padre_id_di.items():
+        await _disattiva_contiene_ancora_obsoleti(session, figlio_id, padre_id)
+        if padre_id is None:
+            continue
+        await _merge_contiene_ancora(
+            session,
+            padre_id,
+            figlio_id,
+            rel_id=_id_arco_ancore("CONTIENE", padre_id, figlio_id, doc_id),
+        )
+        n_contiene += 1
+
+    emessi: set[str] = set()
+    for item in appartenenze:
+        evento_id = (item.evento_id or "").strip()
+        foglia = (item.etichetta_foglia or "").strip()
+        if not evento_id or evento_id in emessi:
+            continue
+        if not _evento_id_known(evento_id, known):
+            continue
+        if foglia not in foglie and etichetta_normalizzata(foglia) not in {
+            etichetta_normalizzata(nome) for nome in foglie
+        }:
+            continue
+        ancora_id = _id_per_etichetta(foglia, id_di, id_chiave)
+        if not ancora_id:
+            continue
+        emessi.add(evento_id)
+        await _disattiva_appartiene_a_ancora_obsoleti(session, evento_id, ancora_id)
+        await _merge_appartiene_a_ancora(
+            session,
+            evento_id,
+            ancora_id,
+            rel_id=_id_arco_ancore("APPARTIENE_A", evento_id, ancora_id, doc_id),
+            confidenza=_prop_confidenza(item.confidenza),
+            stimato=bool(item.stimato),
+            base=item.base,
+        )
+        n_appartenenza += 1
+
+    visti_succ: set[tuple[str, str]] = set()
+    for sinistra, destra in _coppie_successione_etichette(linea):
+        da_id = _id_per_etichetta(sinistra, id_di, id_chiave)
+        a_id = _id_per_etichetta(destra, id_di, id_chiave)
+        if not da_id or not a_id or da_id == a_id:
+            continue
+        coppia = (da_id, a_id)
+        if coppia in visti_succ:
+            continue
+        visti_succ.add(coppia)
+        await _disattiva_successione_ancora_obsoleti(session, da_id, a_id)
+        await _merge_successione_ancora(
+            session,
+            da_id,
+            a_id,
+            rel_id=_id_arco_ancore("SUCCESSIONE_ANCORA", da_id, a_id, doc_id),
+        )
+        n_successione += 1
+
+    if job_id:
+        await publish(
+            job_id,
+            _STAGE_ANCORE,
+            _EVENTO_PERSIST_ANCORE,
+            {
+                "n_ancore": n_ancore,
+                "n_contiene": n_contiene,
+                "n_appartenenza": n_appartenenza,
+                "n_successione": n_successione,
+            },
+        )
 
 
 async def _merge_relazione_libera(
@@ -1782,8 +2226,6 @@ __all__ = [
     "PersistOutcome",
     "REGOLA",
     "archi_ammissibili",
-    "azzera_grafo",
-    "sopprimi_collegato_ridondanti",
     "carica_archi_macro",
     "carica_documento_testo",
     "carica_zona",
@@ -1792,10 +2234,12 @@ __all__ = [
     "persisti_archi_macro",
     "persisti_arco_macro",
     "persisti_documento",
+    "persisti_livello_ancore",
     "persisti_livello_relazioni",
     "persisti_livello_temporale",
     "persisti_transizioni_zona",
     "persisti_zona",
     "persisti_zone",
+    "sopprimi_collegato_ridondanti",
     "_merge_successione_zona",
 ]

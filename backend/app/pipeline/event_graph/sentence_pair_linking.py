@@ -1,12 +1,15 @@
-"""MICRO stages 3–4 — typed arcs between sentence heads (Addendum 2).
+"""MICRO adjacent sentence-head arcs (Addendum 2 stage 3).
 
-Stage 3 iterates EVERY adjacent UnitaTesto boundary (i, i+1), never only
-where a connective is visible. Stage 4 classifies non-adjacent pairs
-(|i-j|>=2) that share an entity. Head→head. Implicit-classifier input is
-the raw text of the two units (not extracted nodes). Consumes DedupResult;
-does not re-extract; does not change Fusione/Successione/Catena.
+Stage 3 iterates EVERY adjacent UnitaTesto boundary (i, i+1) and writes
+SEQUENZA in document order. Grammar (CAUSA, CONTRASTO, SCOPO, …) is
+livello 3, not this stage.
 
-Does not implement Allen algebra or ponte.
+Stage 4 (``collega_non_adiacenti``) still exists as a function but is not
+on the live path: non-adjacent SEQUENZA forks the exposition railway, and
+long-range grammar belongs to livello 3.
+
+Does not implement Allen algebra or ponte. Does not emit PRECEDE
+(not a domain type; chronology is ancore-only).
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from app.pipeline.event_graph.dedup import DedupResult
 from app.pipeline.event_graph.event_edges import (
     COLLEGATO_RELAZIONI,
     RELAZIONE_TO_ARCO,
+    SEGNALI_LIVELLO_TEMPORALE,
     VersoRule,
     categorizza,
     tipo_dopo_anti_causa_inventata,
@@ -44,7 +48,6 @@ REGOLA_NON_ADIACENTI = "sentence_pair_linking.collega_non_adiacenti"
 _EVENT_EVENT_TIPI = frozenset(
     {
         "CAUSA",
-        "PRECEDE",
         "LIMITE",
         "CONDIZIONE",
         "SCOPO",
@@ -74,10 +77,12 @@ a tool loop. No function calling. Structured fields only.
 Fields:
 - relazione_segnale: exactly one value from the closed micro vocabulary
   (no parallel type system):
-  causa_esplicita, consecuzione, posteriorita, anteriorita, limite,
+  causa_esplicita, consecuzione, limite,
   condizione, scopo, concessione, contrasto, asindeto_sequenziale,
   temporale_ambiguo, gerundio, participio_assoluto, apposizione_relativa,
   due_punti_esplicativo, nessuno.
+  Do not use posteriorita or anteriorita: poi / prima / dopo / after / before
+  are chronological and belong to the later temporal pass, not this stage.
 - orientamento: subordinata_principale | principale_subordinata | coordinata.
   The pair is always given in document order (left unit, then right unit).
   coordinata / subordinata_principale keep left→right for causal verso;
@@ -92,7 +97,9 @@ Examples: "mentre" / "while" may be temporale_ambiguo OR contrasto;
 
 Do not invent CAUSA when the link is only sequential or unclear.
 Adjacent sentences with no causal connective are sequential
-(asindeto_sequenziale / posteriorita), never causa_esplicita.
+(asindeto_sequenziale), never causa_esplicita.
+If the only link is before/after (poi, prima, dopo, then, after), use
+nessuno — do not assign posteriorita or anteriorita here.
 Prefer nessuno or temporale_ambiguo when unsure.
 Do not invent / non inventare. English and Italian.
 """
@@ -262,8 +269,6 @@ def _arco(
     }
     if segnale is not None:
         props["segnale"] = segnale
-    if tipo == "PRECEDE" and segnale and not str(segnale).startswith("ordine_"):
-        props["base"] = "connettivo"
     return ArcoEvento(tipo=tipo, da_id=da.id, a_id=a.id, props=props)
 
 
@@ -276,8 +281,19 @@ def _arco_from_decision(
     adjacent: bool = True,
     regola: str = REGOLA,
 ) -> ArcoEvento | None:
+    if decision.relazione_segnale in SEGNALI_LIVELLO_TEMPORALE:
+        return None
     implicit = not connettivo
     if decision.confidenza < SOGLIA_CONFIDENZA:
+        if adjacent:
+            return _arco(
+                "SEQUENZA",
+                left,
+                right,
+                confidenza=decision.confidenza,
+                segnale=connettivo,
+                regola=regola,
+            )
         return _arco(
             "COLLEGATO",
             left,
@@ -292,6 +308,10 @@ def _arco_from_decision(
     )
     if tipo is None:
         return None
+    if adjacent:
+        # Railway only. Typed dizionario (CONTRASTO, CAUSA, …) is livello 3.
+        tipo = "SEQUENZA"
+        da, a = left, right
     if implicit and tipo == "COLLEGATO":
         segnale: str | None = "implicito"
     else:
@@ -393,7 +413,8 @@ async def collega_adiacenti(
     Visits every boundary (i, i+1), including those whose left side is
     dialogo without a testa: the left head walks to the previous narrativa
     testa. Pairs whose right side has no testa (typically dialogo) are
-    skipped after the visit. Mutates and returns ``dedup.sotto``.
+    skipped after the visit. Writes SEQUENZA only (no pair classifier).
+    Mutates and returns ``dedup.sotto``.
     """
     sotto = dedup.sotto
     units = sorted(dedup.unita, key=lambda item: item.indice)
@@ -407,17 +428,13 @@ async def collega_adiacenti(
             if left_head is None or left_head.id == right_head.id:
                 continue
             connettivo = _boundary_connettivo(left_unit, right_unit)
-            arco = await classifica_coppia(
-                left_unit,
-                right_unit,
+            arco = _arco(
+                "SEQUENZA",
                 left_head,
                 right_head,
-                connettivo=connettivo,
-                adjacent=True,
-                job_id=job_id,
+                confidenza=1.0,
+                segnale=connettivo,
             )
-            if arco is None:
-                continue
             if _gia_presente(sotto, arco):
                 continue
             sotto.archi.append(arco)
@@ -488,11 +505,8 @@ async def collega_inter_frase(
     dedup: DedupResult, *, job_id: str | None = None,
     predicati_non_finiti: list[PredicatoNonFinito] | None = None,
 ) -> SottoGrafo:
-    """Stage 3 then stage 4 on the same DedupResult."""
-    await collega_adiacenti(
-        dedup, job_id=job_id, predicati_non_finiti=predicati_non_finiti
-    )
-    return await collega_non_adiacenti(
+    """Stage 3 only. Stage 4 is off: it forked SEQUENZA and duplicated L3."""
+    return await collega_adiacenti(
         dedup, job_id=job_id, predicati_non_finiti=predicati_non_finiti
     )
 

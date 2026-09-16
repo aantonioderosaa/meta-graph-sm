@@ -135,13 +135,6 @@ export function fetchHealth(): Promise<EventGraphHealthResponse> {
   return request<EventGraphHealthResponse>(eventGraphPath("/health"));
 }
 
-/** Destructive full reset of the event-graph domain. Returns nodes removed. */
-export function resetGraph(): Promise<{ rimossi: number }> {
-  return request<{ rimossi: number }>(eventGraphPath("/documents"), {
-    method: "DELETE",
-  });
-}
-
 function omitEmptyFields(value: unknown): unknown {
   if (value == null) return undefined;
   if (typeof value === "string") return value === "" ? undefined : value;

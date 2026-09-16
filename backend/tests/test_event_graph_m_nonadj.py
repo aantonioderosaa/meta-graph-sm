@@ -23,6 +23,7 @@ from app.pipeline.event_graph.chunking_periods import UnitaTesto
 from app.pipeline.event_graph.dedup import DedupResult
 from app.pipeline.event_graph.sentence_pair_linking import (
     SOGLIA_CONFIDENZA,
+    collega_inter_frase,
     collega_non_adiacenti,
 )
 from app.pipeline.event_graph.temporal_placement import seleziona_candidati
@@ -204,12 +205,7 @@ async def test_shared_sogg_nonadjacent_classifies_once(monkeypatch):
     result = await collega_non_adiacenti(_dedup(units, events))
     assert len(calls) == 1
     typed = [arco for arco in result.archi if {arco.da_id, arco.a_id} == {"ev-0", "ev-2"}]
-    assert len(typed) == 1
-    assert typed[0].tipo == "PRECEDE"
-    assert typed[0].da_id == "ev-0"
-    assert typed[0].a_id == "ev-2"
-    assert typed[0].props["confidenza"] == 0.88
-    assert typed[0].props["livello"] == "micro"
+    assert typed == []
 
 
 @pytest.mark.asyncio
@@ -299,6 +295,57 @@ async def test_low_confidenza_emits_no_arc(monkeypatch):
     assert all(arco.tipo != "CAUSA" for arco in result.archi)
 
 
+@pytest.mark.asyncio
+async def test_collega_inter_frase_does_not_run_stage4(monkeypatch):
+    calls: list[str] = []
+
+    async def boom(*args, **kwargs):
+        raise AssertionError("collega_non_adiacenti must stay off the live path")
+
+    async def handler(system_prompt, user_prompt, response_model, temperature, job_id):
+        calls.append(user_prompt)
+        return _decision(relazione_segnale="asindeto_sequenziale", confidenza=0.9)
+
+    _install_stub(monkeypatch, handler)
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.sentence_pair_linking.collega_non_adiacenti",
+        boom,
+    )
+    units = [
+        _unita("Mario arrivò.", 0, 0),
+        _unita("Pioveva.", 1, 20),
+        _unita("Mario partì.", 2, 40),
+    ]
+    events = [
+        _evento("ev-0", units[0].offset_inizio, units[0].offset_fine, lemma="arrivare"),
+        _evento(
+            "ev-1",
+            units[1].offset_inizio,
+            units[1].offset_fine,
+            lemma="piovere",
+            menzione_sogg="m-pioggia",
+            posizione_doc=1,
+        ),
+        _evento(
+            "ev-2",
+            units[2].offset_inizio,
+            units[2].offset_fine,
+            lemma="partire",
+            posizione_doc=2,
+        ),
+    ]
+    result = await collega_inter_frase(_dedup(units, events))
+    assert calls == []  # adjacent micro writes SEQUENZA without the pair LLM
+    assert [(arco.da_id, arco.a_id, arco.tipo) for arco in result.archi] == [
+        ("ev-0", "ev-1", "SEQUENZA"),
+        ("ev-1", "ev-2", "SEQUENZA"),
+    ]
+    assert all(
+        arco.props.get("regola") != "sentence_pair_linking.collega_non_adiacenti"
+        for arco in result.archi
+    )
+
+
 def test_seleziona_candidati_ranks_shared_mention_first():
     nuovo = EventoRisolto(
         id="ev-new",
@@ -377,6 +424,7 @@ def test_isolation_ast():
     )
     assert "def collega_non_adiacenti" in pair_src
     assert "def collega_inter_frase" in pair_src
+    assert "await collega_non_adiacenti(" not in pair_src
 
     models_src = MODELS_PATH.read_text(encoding="utf-8")
     models_tree = ast.parse(models_src, filename=str(MODELS_PATH))

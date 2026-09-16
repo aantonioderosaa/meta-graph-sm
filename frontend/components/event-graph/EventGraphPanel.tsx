@@ -7,7 +7,10 @@ import {
   HIGHLIGHT_COLORS,
   type HighlightKind,
 } from "@/lib/event-graph/highlight";
-import { positionsOrdine } from "@/lib/event-graph/layout-ordine";
+import {
+  positionsOrdine,
+  zonaDisplayLabel,
+} from "@/lib/event-graph/layout-ordine";
 import {
   isTimelineRankEdgeId,
   timelineRankEdges,
@@ -72,24 +75,30 @@ export function EventGraphPanel({
       const useTemporale = layout === "temporale";
       const useCose = layout === "cose";
       const presetPositions = useOrdine ? positionsOrdine({ nodes, edges }) : null;
-      const cyEdges = useTemporale
-        ? [
-            ...edges,
-            ...timelineRankEdges(nodes).filter((dummy) => {
-              const key = `${dummy.data.source}|${dummy.data.target}`;
-              return !edges.some(
-                (edge) => `${edge.data.source}|${edge.data.target}` === key,
-              );
-            }),
-          ]
-        : edges;
+      const displayedIds = new Set(nodes.map((node) => node.data.id));
+      const hasSuccessioneAncora = edges.some(
+        (edge) => String(edge.data?.tipo ?? "").toUpperCase() === "SUCCESSIONE_ANCORA",
+      );
+      const cyEdges =
+        useTemporale && !hasSuccessioneAncora
+          ? [...edges, ...timelineRankEdges(nodes)]
+          : edges;
 
       const instance = cytoscape({
         container: containerRef.current,
         elements: [
           ...nodes.map((node) => {
             const data = { ...node.data };
-            if (useCose || data.parent == null || data.parent === "") {
+            if (useOrdine && data.parent) {
+              data.zona_id = data.parent;
+            }
+            if (
+              useOrdine ||
+              useCose ||
+              data.parent == null ||
+              data.parent === "" ||
+              (useTemporale && !displayedIds.has(String(data.parent)))
+            ) {
               delete data.parent;
             }
             const position = presetPositions?.[data.id];
@@ -126,8 +135,9 @@ export function EventGraphPanel({
             },
           },
           {
-            selector:
-              'node:parent, node[tipo = "Zona"], node[tipo = "ClusterTemporale"]',
+            selector: useOrdine
+              ? 'node:parent, node[tipo = "AncoraTemporale"], node[tipo = "ClusterTemporale"]'
+              : 'node:parent, node[tipo = "Zona"], node[tipo = "AncoraTemporale"], node[tipo = "ClusterTemporale"]',
             style: {
               shape: "round-rectangle",
               "background-opacity": 0.18,
@@ -138,6 +148,25 @@ export function EventGraphPanel({
               "text-halign": "center",
             },
           },
+          ...(useOrdine
+            ? [
+                {
+                  selector: 'node[tipo = "Zona"]',
+                  style: {
+                    shape: "round-rectangle",
+                    "background-opacity": 1,
+                    "font-weight": 600,
+                    "font-size": 11,
+                    "text-max-width": "90px",
+                    "text-valign": "center",
+                    "text-halign": "center",
+                    color: "#f8fafc",
+                    width: 108,
+                    height: 52,
+                  },
+                },
+              ]
+            : []),
           {
             selector: "edge",
             style: {
@@ -203,8 +232,16 @@ export function EventGraphPanel({
         };
         const style = encodeNode(nodeData);
         const highlight = highlights?.[String(ele.id())];
-        const isHub =
-          nodeData.tipo === "Zona" || nodeData.tipo === "ClusterTemporale";
+        const isOrdineZona = useOrdine && nodeData.tipo === "Zona";
+        const isAncora =
+          nodeData.tipo === "AncoraTemporale" ||
+          nodeData.tipo === "ClusterTemporale";
+        const isZonaHub = nodeData.tipo === "Zona" && !useOrdine;
+        const isCompoundParent =
+          typeof (ele as { isParent?: () => boolean }).isParent === "function" &&
+          Boolean((ele as { isParent: () => boolean }).isParent());
+        const washHub = isZonaHub || (isAncora && isCompoundParent);
+        const isHub = isAncora || isZonaHub;
         const etichettaRaw = ele.data("etichetta");
         const descrizioneRaw = ele.data("descrizione");
         const etichetta =
@@ -215,8 +252,18 @@ export function EventGraphPanel({
           descrizioneRaw != null && String(descrizioneRaw) !== ""
             ? String(descrizioneRaw)
             : "";
-        const boxLabel = etichetta || String(ele.data("label") ?? ele.id());
-        if (descrizione) {
+        const lemma = String(ele.data("label") ?? ele.id());
+        const boxLabel = isOrdineZona
+          ? zonaDisplayLabel(nodeData)
+          : etichetta || lemma;
+        const riassuntoRaw = ele.data("riassunto");
+        const riassunto =
+          riassuntoRaw != null && String(riassuntoRaw) !== ""
+            ? String(riassuntoRaw)
+            : "";
+        if (isOrdineZona && (riassunto || nodeData.label)) {
+          ele.data("title", riassunto || String(nodeData.label));
+        } else if (descrizione) {
           ele.data(
             "title",
             etichetta && etichetta !== descrizione
@@ -233,7 +280,7 @@ export function EventGraphPanel({
           "border-width": style.borderWidth,
           "border-style": style.borderStyle,
           shape: style.shape,
-          "background-opacity": isHub ? 0.18 : style.filled ? 1 : 0.15,
+          "background-opacity": washHub ? 0.18 : style.filled ? 1 : 0.15,
           ...(isHub ? { padding: 16 } : {}),
           opacity: legendOpacity(style.opacity, { data: nodeData }, legendFilter),
         });
@@ -312,6 +359,16 @@ export function EventGraphPanel({
           "mouseover",
           "node",
           (evt: { target: { data: (key: string) => unknown } }) => {
+            if (useOrdine && String(evt.target.data("tipo") ?? "") === "Zona") {
+              host.style.cursor = "pointer";
+            }
+            const tipo = String(evt.target.data("tipo") ?? "");
+            if (
+              useTemporale &&
+              (tipo === "AncoraTemporale" || tipo === "ClusterTemporale")
+            ) {
+              host.style.cursor = "pointer";
+            }
             const tip =
               evt.target.data("title") ?? evt.target.data("descrizione");
             if (tip) host.title = String(tip);
@@ -319,6 +376,7 @@ export function EventGraphPanel({
         );
         instance.on("mouseout", "node", () => {
           host.title = "";
+          host.style.cursor = "";
         });
       }
 

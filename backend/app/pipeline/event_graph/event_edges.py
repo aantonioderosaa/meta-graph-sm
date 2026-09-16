@@ -1,7 +1,10 @@
 """§8 — relazione_segnale → typed event edges, COLLEGATO, CONTENUTO, §8.4.
 
-Does not materialize CAUSA⇒PRECEDE. Does not pack document-level SEQUENZA (M7).
+Does not materialize CAUSA⇒PRECEDE. PRECEDE is not a domain type.
+Does not pack document-level SEQUENZA (M7).
 ``asindeto_sequenziale`` may emit a typed SEQUENZA from the dict — that is M5.
+``posteriorita`` / ``anteriorita`` are deferred: no micro/macro arc (not
+COLLEGATO). Chronology is the ancore level's job.
 """
 
 from __future__ import annotations
@@ -30,11 +33,10 @@ REGOLA = "event_edges.categorizza"
 VersoRule = Literal["causa", "keep", "reverse"]
 
 # Fixed dict: relazione_segnale → (tipo_arco, verso_rule). CONTENUTO is not here.
+# posteriorita / anteriorita are not mapped here; PRECEDE is not a domain type.
 RELAZIONE_TO_ARCO: dict[RelazioneSegnale, tuple[TipoRelazione, VersoRule]] = {
     "causa_esplicita": ("CAUSA", "causa"),
     "consecuzione": ("CAUSA", "keep"),
-    "posteriorita": ("PRECEDE", "keep"),
-    "anteriorita": ("PRECEDE", "reverse"),
     "limite": ("LIMITE", "causa"),
     "condizione": ("CONDIZIONE", "causa"),
     "scopo": ("SCOPO", "causa"),
@@ -106,6 +108,11 @@ COLLEGATO_RELAZIONI: frozenset[RelazioneSegnale] = frozenset(
     }
 )
 
+# Chronological before/after: keep the signal, emit no micro/macro arc.
+SEGNALI_LIVELLO_TEMPORALE: frozenset[RelazioneSegnale] = frozenset(
+    {"posteriorita", "anteriorita"}
+)
+
 _SUBORDINATE_SEGS = frozenset(
     {
         "subordinata_finita",
@@ -145,6 +152,8 @@ def categorizza(
         if not _visible_signal(grezzo, da, a):
             continue
         if not _same_nesting(da, a):
+            continue
+        if grezzo.relazione_segnale in SEGNALI_LIVELLO_TEMPORALE:
             continue
 
         tipo, da_ev, a_ev = _tipo_e_estremi(grezzo, da, a)
@@ -269,8 +278,6 @@ def _base_props(grezzo: ArcoEventoGrezzo, tipo: TipoRelazione) -> dict[str, str]
         "regola": REGOLA,
         "versione_regole": RULESET_VERSION,
     }
-    if tipo == "PRECEDE":
-        props["base"] = "connettivo"
     if tipo == "COLLEGATO":
         props["segnale"] = grezzo.segnale_testuale
     return props
@@ -407,6 +414,8 @@ def _emit_predicati_non_finiti(
         other = _related_finite(pred, eventi, governo, mention_list)
         rel = pred.relazione_segnale
         if governo is not None and other is not None and governo.id != other.id:
+            if rel in SEGNALI_LIVELLO_TEMPORALE:
+                continue
             if rel in RELAZIONE_TO_ARCO or rel in COLLEGATO_RELAZIONI:
                 mapped = RELAZIONE_TO_ARCO.get(rel)
                 tipo: TipoRelazione | str = mapped[0] if mapped else "COLLEGATO"
@@ -489,6 +498,7 @@ __all__ = [
     "EventEdgesResult",
     "REGOLA",
     "RELAZIONE_TO_ARCO",
+    "SEGNALI_LIVELLO_TEMPORALE",
     "categorizza",
     "is_causal_connective",
     "tipo_dopo_anti_causa_inventata",

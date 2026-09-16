@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 from typing import NamedTuple
 
+from app.pipeline.event_graph.tempo_iso import analizza
 from app.pipeline.event_graph.text_norm import _normalize_referential
 
 _CONTENT_TIPI = frozenset({"nome_proprio", "sn_comune"})
@@ -60,6 +61,51 @@ def zona_id(doc_id: str, ordinale: int | str, testo: str) -> str:
 
 def cluster_temporale_id(doc_id: str, etichetta: str, tipo: str) -> str:
     return content_hash(f"{doc_id}|{etichetta}|{tipo}")
+
+
+def _token_canonico(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().casefold()
+
+
+def _chiave_undated(value: object) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).strip().casefold().split())
+
+
+def _iso_canonico(value: object) -> str:
+    tempo = analizza(value)
+    return "" if tempo is None else tempo.canonico
+
+
+def ancora_temporale_id(
+    documento: str,
+    natura: str,
+    tipo: str,
+    inizio: str | None = None,
+    fine: str | None = None,
+    chiave: str | None = None,
+) -> str:
+    """Stable, document-local id for an ``:AncoraTemporale``.
+
+    Hashes the normalized collocazione (documento + natura + tipo +
+    canonical ISO inizio/fine), never a volatile etichetta. Two identical
+    ingestions therefore produce the same id. When the ancora is undated,
+    ``chiave`` is the identity key (normalized expression), not the display
+    label. Ancore are document-local: two docs both talking about 1843 get
+    two ids. ``RULESET_VERSION`` is not hashed.
+    """
+    natura_n = _token_canonico(natura)
+    tipo_n = _token_canonico(tipo)
+    inizio_n = _iso_canonico(inizio)
+    fine_n = _iso_canonico(fine)
+    if inizio_n or fine_n:
+        payload = f"ancora|{documento}|{natura_n}|{tipo_n}|{inizio_n}|{fine_n}"
+    else:
+        payload = f"ancora|{documento}|{natura_n}|{tipo_n}|#{_chiave_undated(chiave)}"
+    return content_hash(payload)
 
 
 def quarantena_id(doc_id: str, testo_chunk: str, span: str, motivo: str) -> str:

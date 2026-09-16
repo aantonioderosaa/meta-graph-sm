@@ -52,6 +52,18 @@ di raggruppamento che lo schema porta (quella del segnale riguarda la
 collocazione, non l'appartenenza).
 """
 
+CONFIDENZA_COLLOCAZIONE_INCERTA = 0.2
+"""Confidenza dei sottocluster sintetici per eventi non classificati (§B11).
+
+Deliberatamente sotto ``SOGLIA_CLUSTER``: segnala che il cluster non è una
+lettura del testo ma un'inferenza di prossimità di questo modulo, aggiunta
+*dopo* ``_cluster_sanificati`` — non ci passa mai attraverso, quindi il gate
+di confidenza non la vede e non la scarta.
+"""
+
+ETICHETTA_COLLOCAZIONE_INCERTA = "collocazione incerta"
+"""Prefisso dell'etichetta dei sottocluster di §B11, prima della disambigua."""
+
 LIVELLO_MAX_CHAR_RIASSUNTO = 600
 """Taglio difensivo di un riassunto di zona nel prompt (~150 token)."""
 
@@ -99,7 +111,15 @@ CLUSTER — solo eventi che il testo mette nello stesso momento.
 - inizio e fine: ISO solo se la data è nel testo. Altrimenti null.
 - tipo: data_esplicita solo con una data scritta; altrimenti relativo o
   simbolico. Non inventare ore e minuti.
-- padre: etichetta del cluster che contiene questo, identica, o null.
+- padre: etichetta del cluster che CONTIENE questo — un arco di tempo più
+  ampio e più vago che include davvero questo momento ("quell'estate"
+  contiene "un pomeriggio"). NON è la fase narrativa precedente o successiva:
+  "prima" e "dopo" non sono contenimento e non vanno scritti qui, in nessuna
+  forma. Se l'unico rapporto che vedi fra due cluster è l'ordine in cui li
+  racconta il testo, sono fratelli, non padre e figlio: lascia padre null.
+  Nel dubbio, null. Su un testo senza nessuna data quasi tutti i cluster
+  restano senza padre, ed è corretto così: l'ordine con cui compaiono nel
+  testo viene già preservato altrove, non serve inventare un contenitore.
 - eventi: id nel cluster più specifico. Contenitore puro: eventi vuoto.
 - confidenza 0–1. Sotto 0.6 non raggruppare.
 
@@ -709,11 +729,8 @@ def _escludi_precede_contemporaneo(
         else:
             contemporanee.discard(coppia)
 
-    # Niente riduzione transitiva qui: ogni coppia in precede_dir è
-    # un'asserzione diretta del modello (o il suo tie-break di conflitto
-    # riga sopra), non un confronto di date inventate — cade solo ciò che
-    # sanitize() ha già escluso a monte. Buttare A→C perché A→B→C esiste
-    # cancellerebbe un'affermazione vera solo perché è anche implicita.
+    precede_dir = _togli_precede_transitivi(precede_dir)
+
     nuovi: list[SegnaleTemporaleEvento] = []
     for segnale in segnali:
         eid = segnale.evento_id
@@ -734,6 +751,199 @@ def _escludi_precede_contemporaneo(
     return nuovi
 
 
+def _togli_precede_transitivi(
+    precede_dir: dict[frozenset[str], tuple[str, str]]
+) -> dict[frozenset[str], tuple[str, str]]:
+    """Tiene solo i PRECEDE diretti: A→C cade se esiste A→…→C più lungo."""
+    succ: dict[str, set[str]] = {}
+    for da_id, a_id in precede_dir.values():
+        succ.setdefault(da_id, set()).add(a_id)
+
+    def _raggiunge_altrimenti(src: str, dst: str) -> bool:
+        visti = {src}
+        coda = [nodo for nodo in succ.get(src, ()) if nodo != dst]
+        while coda:
+            nodo = coda.pop()
+            if nodo in visti:
+                continue
+            visti.add(nodo)
+            if nodo == dst:
+                return True
+            coda.extend(succ.get(nodo, ()))
+        return False
+
+    return {
+        coppia: arco
+        for coppia, arco in precede_dir.items()
+        if not _raggiunge_altrimenti(*arco)
+    }
+
+
+def _cluster_per_evento(cluster: list[ClusterTemporaleProposto]) -> dict[str, str]:
+    """Id evento -> etichetta del cluster in cui compare direttamente.
+
+    Un evento compare al più in un cluster (regola del prompt: "id nel cluster
+    più specifico"); qui basta sapere se e dove è già collocato, non arbitrare
+    fra proposte concorrenti — il primo visto vince.
+    """
+    fuori: dict[str, str] = {}
+    for proposto in cluster:
+        etichetta = (proposto.etichetta or "").strip()
+        if not etichetta:
+            continue
+        for eid in proposto.eventi or []:
+            if isinstance(eid, str) and eid and eid not in fuori:
+                fuori[eid] = etichetta
+    return fuori
+
+
+def _ancore_vicine(
+    ordinati: list[EventoRisolto], cluster_di_evento: dict[str, str]
+) -> list[str | None]:
+    """Per ogni posizione, l'etichetta del cluster collocato più vicino.
+
+    Cerca in entrambe le direzioni nell'ordine di esposizione e tiene la più
+    vicina; a parità di distanza vince quella precedente. ``None`` solo se
+    nessun evento del documento appartiene a un cluster — in quel caso non
+    c'è nessun punto ad alta confidenza a cui agganciarsi.
+    """
+    n = len(ordinati)
+    da_sinistra: list[tuple[str, int] | None] = [None] * n
+    corrente: tuple[str, int] | None = None
+    for indice, evento in enumerate(ordinati):
+        eid = (evento.id or "").strip()
+        if eid in cluster_di_evento:
+            corrente = (cluster_di_evento[eid], indice)
+        da_sinistra[indice] = corrente
+    da_destra: list[tuple[str, int] | None] = [None] * n
+    corrente = None
+    for indice in range(n - 1, -1, -1):
+        eid = (ordinati[indice].id or "").strip()
+        if eid in cluster_di_evento:
+            corrente = (cluster_di_evento[eid], indice)
+        da_destra[indice] = corrente
+    fuori: list[str | None] = []
+    for indice in range(n):
+        sinistra = da_sinistra[indice]
+        destra = da_destra[indice]
+        if sinistra is None and destra is None:
+            fuori.append(None)
+        elif sinistra is None:
+            fuori.append(destra[0] if destra else None)
+        elif destra is None:
+            fuori.append(sinistra[0])
+        else:
+            distanza_sx = indice - sinistra[1]
+            distanza_dx = destra[1] - indice
+            fuori.append(sinistra[0] if distanza_sx <= distanza_dx else destra[0])
+    return fuori
+
+
+def _eventi_non_classificati(
+    ordinati: list[EventoRisolto],
+    segnali: list[SegnaleTemporaleEvento],
+    cluster_di_evento: dict[str, str],
+) -> list[str]:
+    """Id non coperti né da un segnale diretto né da un'appartenenza a cluster.
+
+    Diretto: ``tempo_assoluto`` o ``espressione_relativa`` non vuoti sul
+    segnale dell'evento. Indiretto: l'evento compare nella lista ``eventi`` di
+    un cluster qualsiasi, anche relativo o incerto — condividere un momento
+    con altri eventi è già una collocazione, pure quando non è ancorata a un
+    calendario. Nessuna delle due: il livello non ha nessuna lettura per
+    quell'evento, né diretta né indiretta.
+    """
+    diretti = {
+        segnale.evento_id
+        for segnale in segnali
+        if (segnale.tempo_assoluto or "").strip()
+        or (segnale.espressione_relativa or "").strip()
+    }
+    return [
+        evento.id
+        for evento in ordinati
+        if evento.id
+        and evento.id not in diretti
+        and evento.id not in cluster_di_evento
+    ]
+
+
+def _etichetta_libera(base: str, occupate: set[str]) -> str:
+    """La prima variante di ``base`` non ancora usata, marcando quella scelta."""
+    candidato = base
+    contatore = 2
+    while foresta_temporale.etichetta_normalizzata(candidato) in occupate:
+        candidato = f"{base} ({contatore})"
+        contatore += 1
+    occupate.add(foresta_temporale.etichetta_normalizzata(candidato))
+    return candidato
+
+
+def _sottocluster_incerti(
+    eventi: list[EventoRisolto],
+    segnali: list[SegnaleTemporaleEvento],
+    cluster: list[ClusterTemporaleProposto],
+) -> list[ClusterTemporaleProposto]:
+    """Un cluster sintetico, a bassa confidenza, per ogni gruppo di eventi che
+    il livello non è riuscito a collocare né direttamente né indirettamente.
+
+    Non è una lettura del testo: raggruppa gli eventi rimasti per contiguità
+    nell'ordine di esposizione e li aggancia (``padre``) al cluster collocato
+    più vicino — il punto che il sistema può indicare con più confidenza per
+    quel gruppo, non un contenimento asserito dal modello. Un documento senza
+    nessun cluster collocato produce sottocluster senza padre: restano radici,
+    ordinate come ogni altro cluster senza data da ``posizione_doc_min`` a
+    valle (MT8). Vuoto se non resta nessun evento scoperto.
+    """
+    ordinati = sorted((evento for evento in eventi if evento.id), key=_evento_pos_key)
+    cluster_di_evento = _cluster_per_evento(cluster)
+    non_classificati = _eventi_non_classificati(ordinati, segnali, cluster_di_evento)
+    if not non_classificati:
+        return []
+    ancore = _ancore_vicine(ordinati, cluster_di_evento)
+    ancora_di = {
+        evento.id: ancore[indice] for indice, evento in enumerate(ordinati) if evento.id
+    }
+    occupate = {
+        foresta_temporale.etichetta_normalizzata(proposto.etichetta)
+        for proposto in cluster
+    }
+
+    gruppi: list[tuple[str | None, list[str]]] = []
+    for eid in non_classificati:
+        ancora = ancora_di.get(eid)
+        if gruppi and gruppi[-1][0] == ancora:
+            gruppi[-1][1].append(eid)
+        else:
+            gruppi.append((ancora, [eid]))
+
+    fuori: list[ClusterTemporaleProposto] = []
+    for ancora, membri in gruppi:
+        base = (
+            f"{ETICHETTA_COLLOCAZIONE_INCERTA} — {ancora}"
+            if ancora
+            else ETICHETTA_COLLOCAZIONE_INCERTA
+        )
+        etichetta = _etichetta_libera(
+            _tronca(base, foresta_temporale.ETICHETTA_MAX_CHAR), occupate
+        )
+        fuori.append(
+            ClusterTemporaleProposto(
+                etichetta=etichetta,
+                tipo="relativo",
+                eventi=list(membri),
+                padre=ancora,
+                confidenza=CONFIDENZA_COLLOCAZIONE_INCERTA,
+                descrizione=(
+                    "Nessun segnale temporale diretto né appartenenza a un "
+                    "cluster: collocato per prossimità nel testo, confidenza "
+                    "bassa."
+                ),
+            )
+        )
+    return fuori
+
+
 def _sanitize(
     result: LivelloTemporaleResult,
     eventi: list[EventoRisolto],
@@ -742,11 +952,16 @@ def _sanitize(
 ) -> LivelloTemporaleResult:
     """Segnali sugli eventi noti, cluster fusi e ridotti a una foresta valida.
 
-    L'ordine dei tre passaggi sui cluster non è scambiabile: il gate deve
-    vedere i cluster già fusi (la ``confidenza`` di un cluster fuso è il minimo
-    fra le finestre), la foresta deve vedere ``inizio``/``granularita`` già
-    validati da ``_sanitize_cluster``, e la potatura dei contenitori sterili
-    deve vedere gli archi che la foresta ha davvero tenuto.
+    L'ordine dei passaggi sui cluster non è scambiabile: il gate deve vedere
+    i cluster già fusi (la ``confidenza`` di un cluster fuso è il minimo fra
+    le finestre), la foresta deve vedere ``inizio``/``granularita`` già
+    validati da ``_sanitize_cluster``, la potatura dei contenitori sterili
+    deve vedere gli archi che la foresta ha davvero tenuto, e i sottocluster
+    di §B11 devono vedere la foresta già pulita per sapere chi è rimasto
+    davvero scoperto. Quando ce ne sono, la foresta viene ricostruita una
+    seconda volta sull'insieme allargato: ``costruisci_foresta`` è idempotente
+    sui cluster che già conteneva, quindi la seconda passata integra solo i
+    nuovi senza toccare la forma di quelli già validati.
     """
     known = _known_ids(eventi)
     corpus, ancora_al_testo = _corpus_ancoraggio(eventi, zone)
@@ -775,6 +990,11 @@ def _sanitize(
             )
         )
     )
+    incerti = _sottocluster_incerti(eventi, segnali, cluster)
+    if incerti:
+        cluster = foresta_temporale.scarta_contenitori_sterili(
+            foresta_temporale.costruisci_foresta(cluster + incerti)
+        )
     return LivelloTemporaleResult(segnali=segnali, cluster=cluster)
 
 

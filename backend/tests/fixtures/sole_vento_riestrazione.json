@@ -1,0 +1,310 @@
+{
+  "doc_id": "sole-vento",
+  "zone": [
+    {
+      "id": "6c72d7b928ba0b2a7117268cce45b8ec4855bb38",
+      "documento": "sole-vento",
+      "ordinale": 0,
+      "offset_inizio": 0,
+      "offset_fine": 363,
+      "testo": "Un giorno il Sole e il Vento cominciarono a discutere su chi dei due fosse il più forte. Il Vento, sicuro della propria potenza, disse al Sole: «Io sono sicuramente più forte di te. Posso scuotere gli alberi, sollevare la polvere, spingere le nuvole e far tremare le persone dal freddo». Il Sole, invece, rimase tranquillo e rispose: «Non è necessario discutere. ",
+      "riassunto": "Il Sole e il Vento iniziarono a discutere su chi fosse più forte. Il Vento affermò di essere più potente perché poteva scuotere gli alberi, sollevare la polvere, spingere le nuvole e far tremare le persone dal freddo. Il Sole rimase tranquillo e rispose che non era necessario discutere.",
+      "espansa": true
+    },
+    {
+      "id": "3759cee2e81c501a4944cecbb278a48189da441b",
+      "documento": "sole-vento",
+      "ordinale": 1,
+      "offset_inizio": 363,
+      "offset_fine": 654,
+      "testo": "Possiamo fare una prova e vedere chi è davvero il più forte».\n\nIn quel momento videro un viandante che camminava lungo la strada. L’uomo indossava un pesante mantello per proteggersi dal freddo. Il Sole allora propose una sfida: «Vince chi riuscirà a far togliere il mantello al viandante». ",
+      "riassunto": "Il Sole propone una sfida a un viandante che cammina lungo la strada, dicendo che vincerà chi riuscirà a fargli togliere il pesante mantello per proteggersi dal freddo.",
+      "espansa": true
+    },
+    {
+      "id": "e8626718f55399a081f624c12cc0c4ed7f6ae7a7",
+      "documento": "sole-vento",
+      "ordinale": 2,
+      "offset_inizio": 654,
+      "offset_fine": 1123,
+      "testo": "Il Vento accettò immediatamente e disse: «Lascia fare a me. Vedrai quanto sono potente».\n\nIl Vento cominciò a soffiare con grande forza. Soffiò sempre più forte e cercò di strappare il mantello dalle spalle del viandante. Ma l’uomo, sentendo il vento freddo, si strinse ancora di più nel mantello e lo tenne ben stretto. Il Vento aumentò la sua forza, soffiando con violenza, ma più forte soffiava, più il viandante si copriva e stringeva il mantello attorno al corpo. ",
+      "riassunto": "Il Vento tentò di strappare il mantello dal viandante soffiando con grande forza, ma ogni volta che aumentava la potenza del vento, l'uomo si stringeva ancora di più nel mantello e lo teneva ben stretto.",
+      "espansa": true
+    },
+    {
+      "id": "51afbe0cdc00a709ba00ed460c2ccc952cf58d35",
+      "documento": "sole-vento",
+      "ordinale": 3,
+      "offset_inizio": 1123,
+      "offset_fine": 1510,
+      "testo": "Alla fine il Vento dovette arrendersi.\n\nPoi arrivò il turno del Sole. Il Sole cominciò a brillare dolcemente e a scaldare l’aria. Il viandante sentì poco alla volta il calore sulla pelle. Il tempo passò e il Sole continuò a riscaldare la giornata. Il viandante cominciò ad avere caldo e, prima lentamente e poi sempre più facilmente, si tolse il pesante mantello e lo mise sul braccio.\n\n",
+      "riassunto": "Il Sole iniziò a brillare e a scaldare l'aria. Il viandante sentì il calore sulla pelle, poi cominciò ad avere caldo e si tolse il pesante mantello, che portò sul braccio.",
+      "espansa": true
+    },
+    {
+      "id": "b5a24e79b4071863e71625e7f4d4f292494a4ac3",
+      "documento": "sole-vento",
+      "ordinale": 4,
+      "offset_inizio": 1510,
+      "offset_fine": 2167,
+      "testo": "Il Sole allora disse al Vento: «Hai visto? Non sempre la forza e la violenza sono il modo migliore per ottenere ciò che si vuole. A volte la gentilezza, la calma e la pazienza possono essere molto più efficaci».\n\nIl Vento capì la lezione e riconobbe che il Sole aveva vinto la sfida. Da quel giorno imparò che la forza non consiste soltanto nell’essere impetuosi e potenti, ma anche nel sapere quando agire con dolcezza.\n\nLa morale della storia è che la gentilezza e la persuasione spesso sono più efficaci della forza e della violenza. Chi cerca di ottenere qualcosa con la calma e con il rispetto può riuscire là dove la prepotenza e la forza falliscono.\n",
+      "riassunto": "Il Sole insegna al Vento che non sempre la forza e la violenza sono efficaci, ma spesso la gentilezza, la calma e la pazienza ottengono risultati migliori. Il Vento comprende la lezione e impara che la vera forza include anche l'agire con dolcezza. La morale della storia è che la gentilezza e la persuasione sono più efficaci della forza e della violenza.",
+      "espansa": true
+    }
+  ],
+  "eventi": [
+    {
+      "id": "3a09c393331c45a7cc66a8fe1085a05db8f3865c",
+      "lemma": "Il Sole e il Vento cominciarono a discutere su chi dei due fosse il più forte.",
+      "ancora": "Il Sole e il Vento cominciarono a discutere su chi dei due fosse il più forte.",
+      "chunk_id": "6c72d7b928ba0b2a7117268cce45b8ec4855bb38",
+      "offset_inizio": 0,
+      "offset_fine": 78,
+      "posizione_doc": 0,
+      "posizione_chunk": 0,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "3302bf360c86cabd753a82c5bb79ff45683ccaa4",
+      "lemma": "Il Vento, sicuro della propria potenza, disse al Sole: «Io sono sicuramente più forte di te. Posso scuotere gli alberi, sollevare la polvere, spingere le nuvole e far tremare le persone dal freddo».",
+      "ancora": "Il Vento, sicuro della propria potenza, disse al Sole: «Io sono sicuramente più forte di te. Posso scuotere gli alberi, sollevare la polvere, spingere le nuvole e far tremare le persone dal freddo».",
+      "chunk_id": "6c72d7b928ba0b2a7117268cce45b8ec4855bb38",
+      "offset_inizio": 89,
+      "offset_fine": 287,
+      "posizione_doc": 0,
+      "posizione_chunk": 1,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "d6e0522c2f7c2f741f77df591169f7f3907e8c2b",
+      "lemma": "Il Sole, invece, rimase tranquillo e rispose: «Non è necessario discutere.»",
+      "ancora": "Il Sole, invece, rimase tranquillo e rispose: «Non è necessario discutere.»",
+      "chunk_id": "6c72d7b928ba0b2a7117268cce45b8ec4855bb38",
+      "offset_inizio": 287,
+      "offset_fine": 362,
+      "posizione_doc": 0,
+      "posizione_chunk": 2,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "3103642b8b473e6be7dc906af7b6b0dfe797cc21",
+      "lemma": "Possiamo fare una prova e vedere chi è davvero il più forte",
+      "ancora": "Possiamo fare una prova e vedere chi è davvero il più forte",
+      "chunk_id": "3759cee2e81c501a4944cecbb278a48189da441b",
+      "offset_inizio": 363,
+      "offset_fine": 422,
+      "posizione_doc": 1,
+      "posizione_chunk": 0,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "354c9ecb0f2b631ffc109e8bae65695db5215fc6",
+      "lemma": "In quel momento videro un viandante che camminava lungo la strada",
+      "ancora": "In quel momento videro un viandante che camminava lungo la strada",
+      "chunk_id": "3759cee2e81c501a4944cecbb278a48189da441b",
+      "offset_inizio": 426,
+      "offset_fine": 491,
+      "posizione_doc": 1,
+      "posizione_chunk": 1,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "bbc398b98734af0fe90d1b638172604cad7fa8a7",
+      "lemma": "L’uomo indossava un pesante mantello per proteggersi dal freddo",
+      "ancora": "L’uomo indossava un pesante mantello per proteggersi dal freddo",
+      "chunk_id": "3759cee2e81c501a4944cecbb278a48189da441b",
+      "offset_inizio": 493,
+      "offset_fine": 556,
+      "posizione_doc": 1,
+      "posizione_chunk": 2,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "bbe69629a45c6d7d699babb6bf40951beff90614",
+      "lemma": "Il Sole allora propose una sfida: «Vince chi riuscirà a far togliere il mantello al viandante»",
+      "ancora": "Il Sole allora propose una sfida: «Vince chi riuscirà a far togliere il mantello al viandante»",
+      "chunk_id": "3759cee2e81c501a4944cecbb278a48189da441b",
+      "offset_inizio": 558,
+      "offset_fine": 652,
+      "posizione_doc": 1,
+      "posizione_chunk": 3,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "0ff50e2a7d87b3d78df536931fb4b53b156ecba6",
+      "lemma": "Il Vento accettò immediatamente e disse: «Lascia fare a me. Vedrai quanto sono potente».",
+      "ancora": "Il Vento accettò immediatamente e disse: «Lascia fare a me. Vedrai quanto sono potente».",
+      "chunk_id": "e8626718f55399a081f624c12cc0c4ed7f6ae7a7",
+      "offset_inizio": 654,
+      "offset_fine": 742,
+      "posizione_doc": 2,
+      "posizione_chunk": 0,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "a45ad11f09a984e71b0431550fda1c1b88f0e7c9",
+      "lemma": "Il Vento cominciò a soffiare con grande forza.",
+      "ancora": "Il Vento cominciò a soffiare con grande forza.",
+      "chunk_id": "e8626718f55399a081f624c12cc0c4ed7f6ae7a7",
+      "offset_inizio": 744,
+      "offset_fine": 790,
+      "posizione_doc": 2,
+      "posizione_chunk": 1,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "454ac44df7ee4e0acea06d92283a2a46255ae3eb",
+      "lemma": "Soffiò sempre più forte e cercò di strappare il mantello dalle spalle del viandante.",
+      "ancora": "Soffiò sempre più forte e cercò di strappare il mantello dalle spalle del viandante.",
+      "chunk_id": "e8626718f55399a081f624c12cc0c4ed7f6ae7a7",
+      "offset_inizio": 791,
+      "offset_fine": 875,
+      "posizione_doc": 2,
+      "posizione_chunk": 2,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "33ea4bf85440b718fa1b77f785ad43a3f586c90a",
+      "lemma": "Ma l’uomo, sentendo il vento freddo, si strinse ancora di più nel mantello e lo tenne ben stretto.",
+      "ancora": "Ma l’uomo, sentendo il vento freddo, si strinse ancora di più nel mantello e lo tenne ben stretto.",
+      "chunk_id": "e8626718f55399a081f624c12cc0c4ed7f6ae7a7",
+      "offset_inizio": 876,
+      "offset_fine": 974,
+      "posizione_doc": 2,
+      "posizione_chunk": 3,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "05f27055cd60d4d65ae46557d4e541e825cd2b02",
+      "lemma": "Il Vento aumentò la sua forza, soffiando con violenza, ma più forte soffiava, più il viandante si copriva e stringeva il mantello attorno al corpo.",
+      "ancora": "Il Vento aumentò la sua forza, soffiando con violenza, ma più forte soffiava, più il viandante si copriva e stringeva il mantello attorno al corpo.",
+      "chunk_id": "e8626718f55399a081f624c12cc0c4ed7f6ae7a7",
+      "offset_inizio": 975,
+      "offset_fine": 1122,
+      "posizione_doc": 2,
+      "posizione_chunk": 4,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "d4e1adb6651eab7aa6dc3744d63836138ab43daf",
+      "lemma": "Alla fine il Vento dovette arrendersi.",
+      "ancora": "Alla fine il Vento dovette arrendersi.",
+      "chunk_id": "51afbe0cdc00a709ba00ed460c2ccc952cf58d35",
+      "offset_inizio": 1123,
+      "offset_fine": 1161,
+      "posizione_doc": 3,
+      "posizione_chunk": 0,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "4902b87d5c0ad86a6931012d7fcb2d0f3140509f",
+      "lemma": "Poi arrivò il turno del Sole.",
+      "ancora": "Poi arrivò il turno del Sole.",
+      "chunk_id": "51afbe0cdc00a709ba00ed460c2ccc952cf58d35",
+      "offset_inizio": 1163,
+      "offset_fine": 1192,
+      "posizione_doc": 3,
+      "posizione_chunk": 1,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "0487e501c75b5c4a76e843e810551a9fa5fc419f",
+      "lemma": "Il Sole cominciò a brillare dolcemente e a scaldare l’aria.",
+      "ancora": "Il Sole cominciò a brillare dolcemente e a scaldare l’aria.",
+      "chunk_id": "51afbe0cdc00a709ba00ed460c2ccc952cf58d35",
+      "offset_inizio": 1193,
+      "offset_fine": 1252,
+      "posizione_doc": 3,
+      "posizione_chunk": 2,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "01010e3ff246ca68c83811f4616b969e91993409",
+      "lemma": "Il viandante sentì poco alla volta il calore sulla pelle.",
+      "ancora": "Il viandante sentì poco alla volta il calore sulla pelle.",
+      "chunk_id": "51afbe0cdc00a709ba00ed460c2ccc952cf58d35",
+      "offset_inizio": 1253,
+      "offset_fine": 1310,
+      "posizione_doc": 3,
+      "posizione_chunk": 3,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "06947bea0892c84c6670bc977857c894228be0f2",
+      "lemma": "Il tempo passò e il Sole continuò a riscaldare la giornata.",
+      "ancora": "Il tempo passò e il Sole continuò a riscaldare la giornata.",
+      "chunk_id": "51afbe0cdc00a709ba00ed460c2ccc952cf58d35",
+      "offset_inizio": 1311,
+      "offset_fine": 1370,
+      "posizione_doc": 3,
+      "posizione_chunk": 4,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "3068fdcb6b20b05abef4961297b3909ae2e974dc",
+      "lemma": "Il viandante cominciò ad avere caldo e, prima lentamente e poi sempre più facilmente, si tolse il pesante mantello e lo mise sul braccio.",
+      "ancora": "Il viandante cominciò ad avere caldo e, prima lentamente e poi sempre più facilmente, si tolse il pesante mantello e lo mise sul braccio.",
+      "chunk_id": "51afbe0cdc00a709ba00ed460c2ccc952cf58d35",
+      "offset_inizio": 1371,
+      "offset_fine": 1508,
+      "posizione_doc": 3,
+      "posizione_chunk": 5,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "fe3a3957e14b8762d20159af5a537bdcb4915e65",
+      "lemma": "Il Sole allora disse al Vento: «Hai visto? Non sempre la forza e la violenza sono il modo migliore per ottenere ciò che si vuole. A volte la gentilezza, la calma e la pazienza possono essere molto più efficaci».",
+      "ancora": "Il Sole allora disse al Vento: «Hai visto? Non sempre la forza e la violenza sono il modo migliore per ottenere ciò che si vuole. A volte la gentilezza, la calma e la pazienza possono essere molto più efficaci».",
+      "chunk_id": "b5a24e79b4071863e71625e7f4d4f292494a4ac3",
+      "offset_inizio": 1510,
+      "offset_fine": 1721,
+      "posizione_doc": 4,
+      "posizione_chunk": 0,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "65e25bcf925d012054f8cac6bb93316fba8431bf",
+      "lemma": "Il Vento capì la lezione e riconobbe che il Sole aveva vinto la sfida.",
+      "ancora": "Il Vento capì la lezione e riconobbe che il Sole aveva vinto la sfida.",
+      "chunk_id": "b5a24e79b4071863e71625e7f4d4f292494a4ac3",
+      "offset_inizio": 1723,
+      "offset_fine": 1793,
+      "posizione_doc": 4,
+      "posizione_chunk": 1,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "97f9f8f30aa7db600f92d0a4c459d0fb3a3f8473",
+      "lemma": "Da quel giorno imparò che la forza non consiste soltanto nell’essere impetuosi e potenti, ma anche nel sapere quando agire con dolcezza.",
+      "ancora": "Da quel giorno imparò che la forza non consiste soltanto nell’essere impetuosi e potenti, ma anche nel sapere quando agire con dolcezza.",
+      "chunk_id": "b5a24e79b4071863e71625e7f4d4f292494a4ac3",
+      "offset_inizio": 1794,
+      "offset_fine": 1930,
+      "posizione_doc": 4,
+      "posizione_chunk": 2,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "8be7f9f214b2b48d2dd6a6ede55c8bebff661edf",
+      "lemma": "La morale della storia è che la gentilezza e la persuasione spesso sono più efficaci della forza e della violenza.",
+      "ancora": "La morale della storia è che la gentilezza e la persuasione spesso sono più efficaci della forza e della violenza.",
+      "chunk_id": "b5a24e79b4071863e71625e7f4d4f292494a4ac3",
+      "offset_inizio": 1932,
+      "offset_fine": 2046,
+      "posizione_doc": 4,
+      "posizione_chunk": 3,
+      "documento": "sole-vento"
+    },
+    {
+      "id": "bb17fd3b782d6598a0f00346663c842c44ff4e8f",
+      "lemma": "Chi cerca di ottenere qualcosa con la calma e con il rispetto può riuscire là dove la prepotenza e la forza falliscono.",
+      "ancora": "Chi cerca di ottenere qualcosa con la calma e con il rispetto può riuscire là dove la prepotenza e la forza falliscono.",
+      "chunk_id": "b5a24e79b4071863e71625e7f4d4f292494a4ac3",
+      "offset_inizio": 2047,
+      "offset_fine": 2166,
+      "posizione_doc": 4,
+      "posizione_chunk": 4,
+      "documento": "sole-vento"
+    }
+  ]
+}

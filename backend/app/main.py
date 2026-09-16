@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import event_graph as event_graph_api
+from app.api.event_graph import event_graph_health
 from app.pipeline.event_graph.config import settings
 from app.pipeline.event_graph.infra.driver import (
     close_event_graph_driver,
@@ -45,3 +46,9 @@ app.add_middleware(
 )
 
 app.include_router(event_graph_api.router)
+
+
+@app.get("/health")
+async def root_health() -> dict[str, str]:
+    """Neo4j ping for Compose and legacy clients; same behavior as /event-graph/health."""
+    return await event_graph_health()

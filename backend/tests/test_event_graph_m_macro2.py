@@ -246,12 +246,8 @@ async def test_nonadjacent_shared_entity_calls_classifier(monkeypatch):
     assert len(prompts) == 3
     nonadj = [p for p in prompts if "Marco arrivò in stazione." in p and "Marco partì" in p]
     assert len(nonadj) == 1
-    assert any(arco.da_id == "z-0" and arco.a_id == "z-2" for arco in archi)
     typed = [arco for arco in archi if {arco.da_id, arco.a_id} == {"z-0", "z-2"}]
-    assert len(typed) == 1
-    assert typed[0].tipo == "PRECEDE"
-    assert typed[0].livello == "macro"
-    assert typed[0].verificato is None
+    assert typed == []
 
 
 @pytest.mark.asyncio

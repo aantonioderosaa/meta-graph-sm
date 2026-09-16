@@ -1,8 +1,10 @@
 """MICRO stage 5 — temporal closure on an Allen constraint network.
 
-Does not replace ``temporal_placement.esegui`` (binary PRECEDE path).
-M-flash will wire this into ``espandi_zona``. Append-only: no DELETE, no
-SEQUENZA rewrite. Cycle / empty constraint → Q-d (last added, path recorded).
+Does not replace ``temporal_placement.esegui``. Does not write PRECEDE:
+that type left the domain. Allen seeds come from LIMITE / absolute dates
+/ trapassato so inconsistent constraints can still quarantine. Append-only:
+no DELETE, no SEQUENZA rewrite. Cycle / empty constraint → Q-d (last
+added, path recorded).
 """
 
 from __future__ import annotations
@@ -16,21 +18,14 @@ from app.models.event_graph import (
     SottoGrafo,
 )
 from app.pipeline.event_graph import RULESET_VERSION
-from app.pipeline.event_graph.allen import (
-    ALLEN_13,
-    AllenNetwork,
-)
+from app.pipeline.event_graph.allen import AllenNetwork
 from app.pipeline.event_graph.candidati_entita import seleziona_per_entita
 from app.pipeline.event_graph.ids import content_hash, quarantena_id
 from app.pipeline.event_graph.sentence_pair_linking import testa_della_unita
 from app.pipeline.event_graph.temporal_placement import _expand_bounds
 
 REGOLA = "chiusura_temporale"
-_ALLEN_FULL = frozenset(ALLEN_13)
 _BEFORE_FAMILY = frozenset({"before", "meets"})
-_VALID_BASE = frozenset(
-    {"connettivo", "dato_esplicito", "riferimento_testuale", "trapassato"}
-)
 
 
 def chiusura_temporale(
@@ -71,21 +66,15 @@ def _seed_items(
 
     for arco in sotto.archi:
         tipo = str(arco.tipo)
-        if tipo not in {"PRECEDE", "LIMITE"}:
+        if tipo != "LIMITE":
             continue
         if arco.props.get("superato_da"):
             continue
         if arco.da_id not in known or arco.a_id not in known:
             continue
-        if tipo == "LIMITE":
-            rels = {"meets"}
-            base = "dato_esplicito"
-        else:
-            tagged = str(arco.props.get("relazione_allen") or "")
-            rels = {tagged} if tagged in _ALLEN_FULL else {"before"}
-            raw_base = str(arco.props.get("base") or "")
-            base = raw_base if raw_base in _VALID_BASE else "connettivo"
-        items.append((arco.da_id, arco.a_id, rels, base, "arco"))
+        items.append(
+            (arco.da_id, arco.a_id, {"meets"}, "dato_esplicito", "arco")
+        )
 
     dated = [event for event in eventi if _expand_bounds(event.tempo_assoluto)]
     for idx, left in enumerate(dated):
@@ -177,22 +166,8 @@ def _materialize(
     net: AllenNetwork,
     origin: dict[tuple[str, str], str],
 ) -> None:
-    """Write PRECEDE only for directly seeded pairs, not transitive closure."""
-    for (i, j), base in list(origin.items()):
-        rels = net.inferred(i, j)
-        if len(rels) != 1:
-            continue
-        rel = next(iter(rels))
-        if base not in _VALID_BASE:
-            base = "connettivo"
-        if rel == "before":
-            _ensure_precede(sotto, i, j, "before", base)
-        elif rel == "after":
-            _ensure_precede(sotto, j, i, "before", base)
-        elif rel == "meets":
-            _ensure_precede(sotto, i, j, "meets", base)
-        elif rel == "met_by":
-            _ensure_precede(sotto, j, i, "meets", base)
+    """Allen seeds still run for quarantine. PRECEDE is not materialized."""
+    del sotto, net, origin
 
 
 def _has_event_event(
@@ -211,7 +186,7 @@ def _has_event_event(
 def _collegato_ordine_menzione(
     sotto: SottoGrafo, heads: Sequence[EventoRisolto]
 ) -> None:
-    """Mention order is a placeholder, never PRECEDE dato_esplicito."""
+    """Mention order is a placeholder, never a chronology arc."""
     for earlier, later in _consecutive_pairs(heads):
         if earlier.id == later.id:
             continue
@@ -244,36 +219,8 @@ def _ensure_precede(
     relazione: str,
     base: str,
 ) -> None:
-    existing = [
-        arco
-        for arco in sotto.archi
-        if str(arco.tipo) == "PRECEDE"
-        and arco.da_id == da_id
-        and arco.a_id == a_id
-        and not arco.props.get("superato_da")
-    ]
-    if existing:
-        for arco in existing:
-            if not arco.props.get("relazione_allen"):
-                arco.props["relazione_allen"] = relazione
-        return
-    if base not in _VALID_BASE:
-        base = "connettivo"
-    rel_id = content_hash(f"PRECEDE|{da_id}|{a_id}|{base}|{relazione}")
-    sotto.archi.append(
-        ArcoEvento(
-            tipo="PRECEDE",
-            da_id=da_id,
-            a_id=a_id,
-            props={
-                "id": rel_id,
-                "base": base,
-                "relazione_allen": relazione,
-                "regola": REGOLA,
-                "versione_regole": RULESET_VERSION,
-            },
-        )
-    )
+    """No-op: PRECEDE left TipoRelazione. Allen stays in-memory only."""
+    del sotto, da_id, a_id, relazione, base
 
 
 def _allen_from_assoluto(left: EventoRisolto, right: EventoRisolto) -> set[str] | None:

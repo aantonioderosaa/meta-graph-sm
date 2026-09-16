@@ -1,86 +1,22 @@
-# Meta-Graph — Grafo di entità, eventi e concetti
+# Meta-Graph — Grafo degli eventi (Event Graph)
 
-Backend FastAPI + Neo4j/GDS + frontend Next.js per ingestione, dreaming e query su un grafo `:Node` / `:Relation` / `:Concept` (chunk condivisi). Il layer `:Fact` è stato rimosso dal backend (piano `piano-implementativo-solo-entita-eventi.md`).
+Prodotto **live** in questo branch: backend FastAPI che espone solo **`/event-graph/*`**, frontend Next.js con **`EventGraphShell`** sulla home (`/`). Ingestione testo → pipeline MACRO/MICRO → Neo4j → SSE → refresh del grafo in UI.
 
-## Documentazione
+> **Codice Metagraph dormiente:** kernel, giudice, dreaming, `POST /documents`, `POST /graph/query`, `DomainDashboard` / `AppShell` restano nel repository ma **non** sono montati (`app/main.py` include solo `event_graph`). Non usarli come riferimento operativo.
 
-- Kernel a tre assi (vocabolario chiuso in `backend/app/models/kernel.py`; nessun cambiamento di pipeline in Fase 0)
-- Book del dominio / gate genere-vs-filtro e MDL (`backend/app/pipeline/domain_book.py`; `GENRE_NOT_TOPIC_PROMPT` iniettato in estrazione da Fase 3)
-- Schema Neo4j esteso additivamente (Fase 2: TBox su `:Concept`, `:ConnectivityRule`, `:CorpusContext`; tipi Famiglia B / backbone). `AUTO_MIGRATE=true` applica tutti gli statement `IF NOT EXISTS` all'avvio; nessun indice/constraint esistente è rimosso.
-- Ingestione anti-blur (Fase 3): `:CorpusContext` O(1) per documento, estrazione a due passaggi (entità+summary, poi decisione per coppia), testimoni obbligatori, `kernel_parent` R1–R6, nessun arco per sola co-presenza. `pipeline_complete` resta l'evento SSE finale.
-- Backbone/TBox (Fase 4): classificazione `MEMBER_OF` (casa unica) su `:Concept`, match a due livelli (hash/nome esatto → cosine `θ_reuse=0.80` / near-band catch-all), genere nuovo solo se passa il gate genere-vs-filtro e `IS_A` sotto il catch-all kernel. `HAS_CONCEPT` resta il ponte tematico libero. Flag `ENABLE_KERNEL_CLASSIFICATION` (default true).
-- PROMOTE (Fase 5) — **rimossa**: `promote.py`, `ENABLE_PROMOTE` e il task giudice di ri-raffinamento (`_task_reraffine`) sono stati eliminati dalla repo (nessun rollout di produzione li ha mai attivati). La proprietà `:Concept.promoted` resta dichiarata nello schema e letta dalla vista macro (`GET /graph/macro`, `GET /graph/domains`) ma non viene più scritta: gli 8 catch-all kernel bastano da soli. Il backbone (Fase 4) resta l'unico canale di crescita del TBox.
-- Fatti all'LCA (Fase 6): un fatto foglia `:Relation` tra `:Node` si scrive una sola volta; la visibilità da un sottodominio è attraversamento (`facts_visible_in_subdomain`, reverse `IS_A`/`MEMBER_OF`), mai una seconda copia. Co-appartenenza ≠ arco. Situazioni condivise → nodo `Evento` + R5 `participates` (`reify_shared_situation`), non un arco «contesto».
-- Relazioni S0/S1/S2 (Fase 7): ogni fatto asserito porta `kernel_parent` (altrimenti non si scrive). Ogni scrittura asserita deposita una `:ConnectivityRule` (unico canale). `derive_candidate_links` produce ipotesi S2 in memoria con catena e confidenza; **muro S0/S2**: zero `CREATE`/`MERGE` di `:Relation`. `CONNECTIVITY_MAX_GENERALIZATION_HOPS` (default 1) risale `IS_A` fermandosi prima del catch-all kernel.
-- Identità per faccette (Fase 8) — **rimossa**: `identity_resolution.py`, `ENABLE_FACET_IDENTITY` e il task giudice che risolveva `POSSIBLY_SAME_AS` sono stati eliminati dalla repo. La deduplica passa sempre da `merge_nodes` (percorso distruttivo, unico rimasto).
-- Asse temporale (Fase 9): la classificazione entità↔entità produce `SUPERSEDES` / `UPDATED_BY` (guidati da marcatori temporali espliciti nel testo); `extends` resta complementare; `none` quando non c'è segnale. `CONTRADICTS` e `RelationLabel.replaces` sono stati rimossi dall'enum e dal percorso (anni in conflitto senza marcatore d'errore restano due fatti indipendenti). Il percorso legacy non-temporale e il flag `ENABLE_TEMPORAL_TRANSITIONS` sono stati eliminati: il percorso temporale è ora incondizionato. `valid_time` e `system_time` restano proprietà distinte.
-- Giudice (Fase 10): a fine di ogni batch di dreaming (dopo `reconcile`) gira `run_judge` — tre task: anti-blur (`_task_anti_blur`), `EQUIVALENT_TO` tra `:Concept` fratelli (`_task_equivalent_to`), ed event triage (`_task_event_triage`, solo se `ENABLE_EVENT_TRIAGE`). I task di conferma identità, `CONTRADICTS` mancate, smistamento temporale e ri-raffinamento storico sono stati rimossi con le Fasi 8 / CONTRADICTS / PROMOTE. Scrive solo primitive esistenti (INGEST + Famiglia B / `MEMBER_OF`). Ogni passata è loggata in `:JudgeRun`. Flag `ENABLE_JUDGE` (default true); `BACKBONE_COLLAPSE_THRESHOLD=0.90`.
-- Riconciliazione incrementale (Fase 18): su ingestioni successive, `merge_nodes` promuove il `summary` più recente sul nodo canonico (lo storico resta sulla catena `merged_into` via `node_history`); dopo la classificazione entity-relation, coppie stesso-head / tail diversi con marcatore temporale esplicito si risolvono nel batch (`SUPERSEDES`/`UPDATED_BY`, mai `DELETE` di nodo/arco). Nessun flag nuovo.
-- Meccanismo `CONTRADICTS` — **rimosso per intero**: il rilevatore same-chunk in `ingestion.py`, i branch a runtime in `entity_relation_resolution.py`, il task giudice `_task_missed_contradictions`, il task di smistamento temporale, la rotta `GET /graph/contradictions`, `list_contradictions()` e il pannello UI `ContradictionsPanel` sono stati eliminati (i `CONTRADICTS` prodotti erano spuri, 0 con witness reale — vedi audit in `PIANO-FIX-PIPELINE.md`). Restano solo, congelati: `SpecialRelationType.contradicts` nel vocabolario Famiglia B (`kernel.py`), una guardia difensiva `AND NOT (t1)-[:CONTRADICTS]-(t2)` in `entity_relation_resolution.py`, e `write_contradicts()` in `ingestion.py` usato **solo** da `event_slots.py` (percorso event triage, gated).
-- Retrieval con metadati (Fase 19): `backend/app/pipeline/context_retrieval.py` espone sei funzioni di sola lettura (`search_fulltext`, `search_vector` sul summary, `get_metadata`, `get_relations`, `get_domain_dictionary`, `facts_from_source`). Ogni `:Node` scritto da `write_node` porta `summary_embedding`; ogni `:Relation` porta `witness_text` cercabile. Nessun flag nuovo. `event_triage.py` (sotto) le chiama in fase 1/2 del suo loop a tre fasi.
-- Filtro di rilevanza / ipotesi / quantificatori / ritrattazioni / orchestrazione agentica (Fasi 20–22) — **rimosse**: `relevance_gate.py`, `pending_hypothesis.py`, `quantifier_events.py`, `retraction.py`, `context_agent.py` e `ENABLE_CONTEXT_LAYER` sono stati eliminati dalla repo (nessun rollout di produzione li ha mai attivati). `context_retrieval.py` (Fase 19) resta: è condiviso con `event_triage.py`.
-- Query NL coarse-to-fine (Fase 11): `plan_connectivity_scope` interroga `:ConnectivityRule` sulle categorie kernel della domanda **prima** di `hybrid_seed`. `POST /graph/query` aggiunge `citations[]` con `epistemic_status` asserted/derived e `derivation_chain` (passi S0/S1) calcolata in Python, non dall'LLM. I salti S2 restano in memoria e non vengono mai scritti come `:Relation`.
-- Layer Metagraph in UI (Fase 12): tab laterali **Pipeline / Query / Regole / Giudice / Visualizza incompletezze** (liste e albero, nessun canvas NVL extra; i tab Identità e Contraddizioni sono stati rimossi insieme alle Fasi 8 e CONTRADICTS). Citazioni query ASSERITO/DERIVATO. Incompletezze: `GET /graph/event-incompleteness` (sola lettura, elenco `:EventTriageRun` con `verdict=incomplete`; il flag `ENABLE_EVENT_TRIAGE` non è richiesto per listare).
-- Event triage (gated, default **off**): `_task_event_triage` in `run_judge` (ultimo task) gira tre fasi fisse per evento — ricerca (`search_fulltext`/`search_vector` su ogni query proposta), ispezione (`get_relations`/`get_metadata` sui soli id già osservati), decisione (terminale, sempre raggiunta: propone slot o conferma `verified_no_change`). Sostituisce il vecchio loop ReAct aperto (`EventTriageStep`, `EVENT_TRIAGE_MAX_TURNS`) che restava spesso bloccato in "turns exhausted" senza mai arrivare a un verdetto. Turno 0 gratis = `get_relations`/`get_metadata` + testo grezzo `:Chunk` via `DERIVED_FROM` (cap 4000) + prefetch deterministico dei nomi propri nel testo dell'evento. Il giudice non crea mai nuovi `:Node` — assert/retract solo su id già osservati (gate) e già esistenti (MATCH). Scrive solo tramite `validate_slot_proposal` / `apply_validated_slot`. `apply_validated_slot` ritorna False se `head_id`/`tail_id` non esistono come `:Node` o se retract è un no-op. `verified_no_change=True` (lista slot vuota) conferma senza scrittura e senza consumare un check della finestra di attesa; lista vuota senza il flag resta `waiting`/`incomplete`. Audit `:EventTriageRun` keyed per evento. Flag `ENABLE_EVENT_TRIAGE` default **false**. UI: tab **Visualizza incompletezze** legge `GET /graph/event-incompleteness` (nessuna scrittura).
-- Vista generale (Fase 15, storica): `GET /graph/macro` resta disponibile (`:Concept` di primo livello + nodi non classificati, fasci collassati). **Fase 17 sostituisce l'interazione UI**: dashboard scorrevole di tutti i `:Concept` (`GET /graph/domains`, nessun limit implicito), scheda dizionario/regole (`GET /graph/domains/{id}/dictionary`, `GET /graph/domains/{id}/rules`), grafo a scope annidato (`GET /graph/domains-graph` in radice — solo `:Concept` legati da `BUNDLE`; `GET /graph/domains/{id}/children-graph` al drill). `DashboardShell` monta **una sola vista, senza toggle**: `DomainGraphPanel` (riusa `GraphPanel`) in alto, `DomainDashboard` + `DomainDetailCard` sotto; l'explorer legacy a quattro pannelli (entità/eventi/partecipazione/concetti) è ritirato. Freccia Indietro = pop dello stack `drillPath`. Drill-down foglia: `GET /graph/bundle/{a}/{b}` e `GET /graph/metadata/{id}` (`node_type` entity|event).
-- Backfill `kernel_category` (Fase 13): job idempotente [`backend/scripts/backfill_kernel_category.py`](./backend/scripts/backfill_kernel_category.py) (`--dry-run`, `--limit`) su `:Node` già ingeriti senza categoria. Non cancella nodi; non richiede dump/restore. `DERIVED_FROM` verso `:Chunk` è già Famiglia B — nessuna riscrittura archi.
-- Qualità e accettazione e-e (Fase 14): corpus fisso `tests/test_acceptance_metagraph_e2e.py` (FakeSession, no Docker/OpenAI) + sei stress kernel §13 in `tests/test_kernel_stress.py`; schema Fase 2 in CI Docker (`backend-integration-metagraph`); checklist UI estesa in [`frontend/docs/e12-metagraph-ui-checklist.md`](./frontend/docs/e12-metagraph-ui-checklist.md).
-- Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12 / F14.5](./frontend/docs/e12-metagraph-ui-checklist.md).
-
-### Flag Metagraph (default in `Settings`)
-
-Policy di rollout: ogni flag resta spento finché la relativa suite di accettazione non è verde.
-
-| Flag | Default | Perché |
-|---|---|---|
-| `ENABLE_KERNEL_CLASSIFICATION` | True | Fase 4 suite verde |
-| `ENABLE_JUDGE` | True | Fase 10 suite verde |
-| `ENABLE_EVENT_TRIAGE` | **False** | giudice assert/retract su `:Evento`, tre fasi fisse (Macrotask 8–9 verde; spento fino a rollout esplicito) |
-
-Flag rimossi insieme al codice che gestivano — non più validi in `Settings`: `ENABLE_FACET_IDENTITY`, `ENABLE_CONTEXT_LAYER`, `CONTEXT_AGENT_MAX_TURNS` (Fasi 8 e 20–22); `ENABLE_PROMOTE` (Fase 5); `ENABLE_TEMPORAL_TRANSITIONS` (percorso legacy non-temporale); `ENABLE_CONTRADICTS_DETECTION`, `ENABLE_MISSED_CONTRADICTIONS` (meccanismo CONTRADICTS); `ENABLE_DERIVES`, `IDENTITY_BLOCK_THRESHOLD` (config orfana, 0 usi). `EVENT_TRIAGE_MAX_TURNS` era già stato rimosso: il loop per-evento è tre fasi fisse (`EVENT_TRIAGE_MAX_SEARCH_QUERIES` / `EVENT_TRIAGE_MAX_INSPECT_NODES` in `event_triage.py` sono costanti di modulo, non `Settings`).
-
-### Debito noto
-
-`merge_nodes` (percorso distruttivo) e `RelationLabel` (`extends` / `supersedes` / `updated_by` / `none`) restano l'unico percorso di deduplica: la Fase 8 (identità per faccette) è stata rimossa, non solo tenuta spenta. Lo scan periodico sull'intera KB già ingerita resta il residuo #11: la Fase 18 ha solo ristretto la ricerca al batch corrente. Nessun pannello UI di storico (`node_history` è un helper, non un endpoint). Il gate `kernel_category` sul fast-merge protegge solo le fusioni cross-categoria: un nome proprio che si fonde con un descrittore generico della stessa categoria (es. "Fred" → "nephew" / "Scrooge", vedi `PIANO-FIX-PIPELINE.md`) non è ancora coperto. Il rumore semantico sulle relazioni entità↔entità (fan-out pairwise O(k²)) resta il debito di qualità principale.
-
-### Stato Fasi Metagraph
-
-| Fase | Nome | Stato |
-|------|------|--------|
-| 0 | Fondamenta del kernel | completata |
-| 1 | Book del dominio | completata |
-| 2 | Modello dati Neo4j esteso | completata |
-| 3 | Ingestione anti-blur | completata |
-| 4 | Backbone/TBox | completata |
-| 5 | PROMOTE | **rimossa** (`promote.py` eliminato; `:Concept.promoted` non più scritta; backbone unico canale TBox) |
-| 6 | Popolamento fatti / LCA | completata |
-| 7 | Relazioni S0/S1/S2 | completata |
-| 8 | Identità per faccette | **rimossa** (`identity_resolution.py` eliminato; `merge_nodes` unico percorso) |
-| 9 | Asse temporale | completata (`SUPERSEDES`/`UPDATED_BY`/`extends`; `CONTRADICTS` e `replaces` rimossi; percorso legacy e `ENABLE_TEMPORAL_TRANSITIONS` rimossi) |
-| 10 | Il giudice | completata (tre task: anti-blur, `EQUIVALENT_TO`, event triage; identità / CONTRADICTS mancate / smistamento temporale / ri-raffinamento rimossi) |
-| 11 | Query engine coarse-to-fine | completata |
-| 12 | Frontend — layer Metagraph | completata (tab Identità rimosso) |
-| 13 | Migrazione e coesistenza | completata |
-| 14 | Qualità e accettazione e-e | completata |
-| 15 | Vista a grafo generale | completata (interazione sostituita da Fase 17) |
-| 17 | Dashboard sottodomini trasparente | completata |
-| 18 | Riconciliazione incrementale su ingestioni successive | completata |
-| 19 | Retrieval con metadati | completata (condivisa con `event_triage.py`) |
-| 20 | Filtro di rilevanza strutturale / `:PendingHypothesis` | **rimossa** (`relevance_gate.py` / `pending_hypothesis.py` eliminati) |
-| 21 | Quantificatori come evento e ritrattazioni globali | **rimossa** (`quantifier_events.py` / `retraction.py` eliminati) |
-| 22 | Orchestrazione: il flusso agentico di verifica | **rimossa** (`context_agent.py` eliminato) |
+Piani storici Metagraph: file `PIANO-*.md` in root (non aggiornati allo stato del prodotto live).
 
 ## Prerequisiti
 
 - Docker Desktop (stack completo o solo Neo4j)
-- Python **3.12+** / Node.js **22+** (solo se non usi Compose per backend/frontend)
-- Chiave OpenAI in `.env` (estrazione/dreaming/query reali)
+- Python **3.12+** / Node.js **22+** (se non usi Compose per backend/frontend)
+- Chiave OpenAI (o endpoint compatible) per estrazione LLM reale
 
-## Avvio consigliato — tutto lo stack
+## Avvio — Docker Compose
 
 ```bash
 cp .env.example .env
-# Imposta OPENAI_API_KEY e NEO4J_PASSWORD
+# Imposta OPENAI_API_KEY e, se vuoi, NEO4J_PASSWORD
 
 docker compose up --build
 # Neo4j Browser  http://localhost:7474
@@ -88,193 +24,118 @@ docker compose up --build
 # Frontend UI    http://localhost:3000
 ```
 
-Ordine di avvio: Neo4j (healthy) → backend (AUTO_MIGRATE + health) → frontend.
+Ordine: Neo4j (healthy) → backend (`GET /health` o `/event-graph/health`) → frontend.
 
-Ciclo tipico in UI (con `NEXT_PUBLIC_USE_MOCK_EVENTS=false`):
+Il servizio Neo4j monta ancora il plugin GDS da `neo4j-plugins/`; **il percorso event-graph live non usa GDS** (solo driver Neo4j + Cypher).
 
-1. Vai su **Documenti** (`/documents`), ingerisci un documento (doc_id + testo → **Ingest**)
-2. Osserva il **Pipeline Monitor** sulla dashboard principale (`/`) — resta aggiornato anche se hai lanciato l'azione da un'altra pagina (SSE globale)
-3. **Dream** per risoluzione entità/eventi e classificazione relazioni (sempre da `/documents`)
-4. Esplora il grafo (si aggiorna da solo a fine pipeline). Interroga con `POST /graph/query` (cronologia `GET /graph/queries`). Gli endpoint Fact (`POST /query`, `GET /graph`, `GET /facts/{id}`, `POST /reconcile`) non esistono più.
-5. Per azzerare la knowledge base: su `/documents` → **Elimina tutto** → conferma nel dialog (`DELETE /graph`)
-
-## Avvio locale (dev, meno di 15 min)
+## Avvio locale (dev)
 
 ```bash
 cp .env.example .env
 docker compose up -d neo4j
 
-cd backend
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+cd backend && pip install -e ".[dev]"
 uvicorn app.main:app --reload --port 8000
 
 cd ../frontend
 cp .env.local.example .env.local
-# Per SSE reale: NEXT_PUBLIC_USE_MOCK_EVENTS=false
-npm ci --legacy-peer-deps
-npm run dev
+npm ci --legacy-peer-deps && npm run dev
 ```
+
+## Ciclo in UI
+
+Con `NEXT_PUBLIC_USE_MOCK_EVENTS=false` (default in `.env.local.example`):
+
+1. **`EventIngestPanel`**: `doc_id` + testo → **Ingerisci** → `POST /event-graph/documents` → risposta `{ job_id }`.
+2. **`EventPipelineMonitor`**: `EventSource` su `GET /event-graph/stream?job_id=…` (SSE).
+3. A `stage: done` / evento `pipeline_complete`, **`EventGraphShell`** richiama `loadGraph()` → `GET /event-graph/graph` (e catalog/stats).
+4. Scegli la **vista** (Tutto / Ordine / Temporale / Relazioni). **Temporale** è il livello ancore (`AncoraTemporale`, acceso di default con `EVENT_GRAPH_TEMPORAL_ENABLED=true`).
+
+## Percorso ingest (tecnico)
+
+1. Frontend `ingestDocument` → `POST /event-graph/documents` con `{ doc_id, text }`.
+2. API crea `job_id`, avvia `asyncio.create_task(run_tracked_job(job_id, run_event_graph_ingestion(...)))`.
+3. `run_event_graph_ingestion`: schema Neo4j event-graph se necessario.
+4. **MACRO:** `segmenta_zone` → `riassumi_zone` (LLM) → `collega_zone` → `calcola_vie` / `annota_vie` → persist documento/zone/archi macro → SSE `macro_done`.
+5. **MICRO** (per zona, tutte o solo vie principali se `EVENT_GRAPH_FLASH_MODE`): `espandi_zona` → `espandi_zona_fino_dedup` / `extract_event_entities` → coref menzioni → `collega_inter_frase` → `chiusura_temporale` (Allen) → persist zona + sotto-grafo.
+6. **Dorsale:** `collega_dorsale_eventi` (SEQUENZA intra-zona) + `collega_dorsale_zone` (ponti inter-zona).
+7. **`genera_transizioni_zona`** → persist `SUCCESSIONE_ZONA` (se LLM ok).
+8. **Livello ancore (documento):** `esegui_livello_ancore` (estrazione → identità → linea → smistamento → relazioni → persist). Con `EVENT_GRAPH_TEMPORAL_ENABLED=false` il passo non gira.
+9. **Livello relazioni (documento):** `estrai_livello_relazioni` + persist.
+10. **Fase B:** coref eventi, persist, SSE `reconcile_done`. `temporal_placement.esegui` non è più sul percorso live.
+11. SSE finale `pipeline_complete` con statistiche; il client chiude lo stream e refresha il grafo.
+
+## API principali
+
+| Metodo | Path | Uso |
+|--------|------|-----|
+| POST | `/event-graph/documents` | Avvia ingest (async) |
+| GET | `/event-graph/stream?job_id=` | SSE pipeline |
+| GET | `/event-graph/graph?vista=tutto\|ordine\|temporale\|relazioni` | Payload Cytoscape |
+| GET | `/event-graph/health` | Ping Neo4j |
+| GET | `/health` | Stesso ping (Compose / client legacy) |
+
+Query strutturata/NL: `/event-graph/query/*` (sul grafo eventi, non sul Metagraph).
+
+## Variabili d'ambiente (backend live)
+
+Lette da `EventGraphSettings` (`backend/app/pipeline/event_graph/config.py`):
+
+| Variabile | Default | Nota |
+|-----------|---------|------|
+| `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | `bolt://localhost:7687`, … | Driver isolato event-graph |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | —, vuoto, `gpt-4o-mini` | LLM strutturato |
+| `CORS_ORIGINS` | `http://localhost:3000` | |
+| `EVENT_GRAPH_FLASH_MODE` | `false` | Solo zone sulle vie principali |
+| `EVENT_GRAPH_TEMPORAL_ENABLED` | **`true`** | Livello ancore (`AncoraTemporale`); `false` spegne LLM temporale e scritture |
+| `EVENT_GRAPH_LLM_*`, `EVENT_GRAPH_*_CHUNK_WORDS` | vedi `.env.example` | Timeout, concorrenza, chunking |
+
+Frontend: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_USE_MOCK_EVENTS`.
+
+## Esempio: sole-e-vento
+
+Corpus di riferimento: favola «Il Sole e il Vento» (~340 parole). Payload di esempio in `backend/_ingest_sole_vento.json` (usare **`doc_id`: `sole-e-vento`** come negli script E2E, non `sole-vento`).
+
+Asserzioni codificate (senza dipendere da una corsa Neo4j locale):
+
+| Fonte | Cosa verifica |
+|-------|----------------|
+| `PIANO-TRE-LIVELLI-GRAFO.md` (A-e1) | **5** nodi `:Zona`, **4** archi `SUCCESSIONE_ZONA` (uno per confine tra zone) |
+| `backend/_e2e_assert.py` (E1–E16) | 28–42 `:Evento` attivi (`fuso_in` nullo); 0 eventi `non_finito`; coref menzioni (1 sole, 1 vento, 1 mantello); 0 archi catena `STESSO_EVENTO`/`AGGIORNA`/`CONTRADDICE`; grafo HTTP senza archi catena; catena intrinseca su soffiare+vento |
+| `backend/_mt10_measure.json` | Snapshot live storico (ClusterTemporale): 5 zone, 4 `SUCCESSIONE_ZONA`, 6 `ClusterTemporale` — **non** rappresenta il default attuale con ancore |
+
+Script utili (Neo4j + backend in ascolto): `_e2e_assert.py`, `_dump_sole_vento.py`, `tests/test_acceptance_event_graph_e2e.py` (unit, LLM stub, no Docker).
+
+## Limiti
+
+- **Formati:** solo testo/Markdown incollato nel form; niente PDF/DOCX/HTML.
+- **Cronologia cross-documento:** rinunciata (ancore locali al documento). `temporal_placement` resta in tree, non chiamato.
+- **Metagraph:** non ingeribile dall'UI live; resta codice legacy.
 
 ## Test
 
 ```bash
-# Backend — unit (veloci, no Docker)
-cd backend && pytest -q --ignore=tests/test_schema.py --ignore=tests/test_health.py \
-  --ignore=tests/test_ingestion_integration.py \
-  --ignore=tests/test_embeddings.py --ignore=tests/test_nodes_integration.py \
-  --ignore=tests/test_ppr_projection_integration.py \
-  --ignore=tests/test_node_query_engine_integration.py \
-  --ignore=tests/test_documents_list.py --ignore=tests/test_graph_reset.py
+# Backend — suite event-graph (no Docker)
+cd backend && pytest -q tests/test_event_graph_*.py tests/test_acceptance_event_graph_e2e.py \
+  --ignore=tests/test_event_graph_integration.py
 
-# Rimozione layer Fact — accettazione e-e (no Docker)
-cd backend && pytest -q tests/test_acceptance_solo_entita_eventi.py --tb=short
-
-# Layer entità/eventi — accettazione M8 unit (no Docker) e integrazione (Docker)
-cd backend && pytest -q tests/test_acceptance_nodes.py --tb=short
-cd backend && pytest -q tests/test_nodes_integration.py --tb=short
-
-# Query NL Node/Concept — accettazione Q7 unit (no Docker) e integrazione (Docker)
-cd backend && pytest -q tests/test_acceptance_node_query.py --tb=short
-cd backend && pytest -q tests/test_node_query_engine_integration.py --tb=short
+# Integrazione Docker (opt-in)
+cd backend && pytest -q tests/test_event_graph_integration.py
 
 # Frontend
 cd frontend && npm test && npm run lint && npm run build
 ```
 
-## Convenzione commit
-
-[Conventional Commits](https://www.conventionalcommits.org/): `feat:` / `fix:` / `chore:` / `test:` / `docs:`
-
 ## CI
 
-Su ogni `push` / `pull_request` verso `main`:
+Su `push` / `pull_request` verso `main` (`.github/workflows/ci.yml`):
 
-- **backend** — ruff + unit pytest (i test unitari Metagraph Fasi 0–13 girano su questo job)
-- **backend-integration** — suite Neo4j/GDS via Testcontainers (include accettazione §14)
+- **backend** — ruff + `pytest tests/test_event_graph_*.py` (+ accettazione event-graph, escluso `test_event_graph_integration.py`)
+- **backend-integration** / **backend-integration-metagraph** — `if: false` (Metagraph/Docker legacy, solo manuale)
 - **frontend** — lint + vitest + build
 
-Workflow: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
+## Storico — Metagraph (non montato)
 
-## Note operative
+Il README precedente descriveva il kernel a tre assi, dreaming, giudice, `POST /graph/query`, dashboard domini e le Fasi 0–22. Quel percorso resta nel codice sotto `app/api/documents.py`, `app/pipeline/ingestion.py`, componenti `DomainDashboard` / `GraphPanel`, ecc., ma **non** è il prodotto avviato da `docker compose up` oggi.
 
-- **OpenAI costi/rate-limit**: tutte le chiamate passano da `app/core/llm_client.py` (retry con backoff differenziato, circuit breaker su "modello non disponibile", read timeout `LLM_CALL_TIMEOUT_SECONDS` = 180s di default, semaforo `LLM_MAX_CONCURRENCY` scoped alla sola chiamata di rete) — tech-spec §18. Il modello di default è `OPENAI_MODEL` (`gpt-4o-mini`); `OPENAI_BASE_URL` vuoto = endpoint OpenAI ufficiale, valorizzato = server OpenAI-compatibile locale.
-- **Cambio modello embedding**: gli indici vettoriali sono fissati a 768 dim (`EMBEDDING_MODEL` = `BAAI/bge-base-en-v1.5`); un cambio modello richiede ricreare indici e ricalcolare embedding — tech-spec §15.
-- **CORS**: `CORS_ORIGINS` (default `http://localhost:3000`) elenca le origini browser autorizzate a chiamare l'API — va estesa (valori separati da virgola) se il frontend gira su un host/porta diversa.
-- **Schema Neo4j**: `AUTO_MIGRATE=true` (default) applica constraint/indici all'avvio del backend; in test/CI di solito è `false` e lo schema è applicato esplicitamente.
-- **Backfill `kernel_category`**: su una KB già popolata, da `backend/`: `python scripts/backfill_kernel_category.py --dry-run` poi senza `--dry-run`. Idempotente; `--limit` opzionale. Non cancella nulla.
-- **GDS 2.12.0 pinnato**: il jar è in `neo4j-plugins/` e montato su `/plugins` (Compose e Testcontainers). Non si usa `NEO4J_PLUGINS` per GDS — quella env var scarica sempre l'ultima versione compatibile da `graphdatascience.ninja`, non un pin. `CALL gds.version()` deve restituire `2.12.0`. Checksum: `neo4j-plugins/SHA256SUMS`.
-- **Mock FE**: `NEXT_PUBLIC_USE_MOCK_EVENTS=true` per Pipeline offline. `NEXT_PUBLIC_API_URL` punta al backend (default Compose: `http://localhost:8000`).
-- **Layer Fact rimosso**: niente più `:Fact`, `POST /query`, `GET /facts/{id}` né indici `fact_*`. Dreaming pubblica `reconciliation` poi `done`. Ingestione estrae solo nodi (`process_chunk_node_extraction`).
-
-## Limiti della knowledge base
-
-### Formati ingeribili
-
-Solo **testo semplice** o **Markdown**, passati come stringa (`doc_id` + `text` a `POST /documents` o dal form in `/documents`). Non c'è parsing di PDF, DOCX, HTML, immagini o altri formati strutturati: va convertito in testo prima dell'ingest. Il Markdown è trattato come testo piano nel chunking (intestazioni e liste non diventano struttura del grafo).
-
-### Cosa il sistema coglie (e cosa no) a livello temporale
-
-Nella classificazione temporale (`supersedes` / `updated_by`), il segnale primario sono i **marcatori temporali espliciti nel contenuto** (date, espressioni come «ora», «da allora», «fino al», «il mese scorso»). Senza un segnale del genere, il sistema è istruito a **non** trattare l'ordine di presentazione dei fatti come priorità cronologica (l'esito è `extends` o `none`, mai una sovrascrittura).
-
-**Non** è un segnale temporale valido:
-
-- la posizione o l'ordine di lettura nel documento;
-- la struttura di una conversazione multi-turno (chi ha detto cosa e in quale ordine) — un transcript viene letto come prosa continua, non come sequenza di turni datati.
-
-Se stai ingerendo un chat log o un diario senza date/espressioni temporali nel testo, aspetati che fatti sequenziali restino affiancati (`extends`) piuttosto che sovrascriversi a vicenda.
-
-## Progresso Milestone 1
-
-| Epic | Stato |
-|------|--------|
-| E0 Fondamenta progetto | completata |
-| E1 Schema dati Neo4j | completata |
-| E2 Backend skeleton + contratti | completata |
-| E3 Ingestione | completata |
-| E4 Dreaming | completata |
-| E5 Query engine | completata |
-| E6 Frontend scaffold | completata |
-| E7 Graph Explorer | completata |
-| E8 Pipeline Monitor | completata |
-| E9 Query Panel | completata |
-| E10 Qualità e accettazione | completata |
-
-### Fix post-E10 (piano `milestone1-fixes-plan.md`)
-
-Stato verificato contro il codice (non solo le checkbox del piano).
-
-| Epic | Contenuto | Stato |
-|------|-----------|--------|
-| F1 Citazioni strutturate | `cited_fact_ids` in `query_engine` / `QueryResponse` + UI citazioni | completata |
-| F2 Stabilità Graph Explorer | pulse batched in `store.ts` (`PULSE_DURATION_MS`) | completata |
-| F3 Pagina Documenti + refresh | `/documents`, SSE globale, auto-refresh grafo a fine pipeline | completata |
-| F4 Cronologia query | `QueryLog` + tendina in Query Panel | completata |
-
-### Relation-detection / reset KB (piano `milestone1-relation-detection-plan.md`)
-
-| Epic | Contenuto | Stato |
-|------|-----------|--------|
-| R1 Candidati chunk/doc | `find_candidates` con fonti embedding/chunk/doc + dedup coppie | completata |
-| R2 Classificazione `extends` | segnale località nel prompt + system prompt allargato | completata |
-| R3 Reset knowledge base | `DELETE /graph` + UI «Elimina tutto» con conferma e clear client | completata |
-| R4 Igiene README / gitignore | link piani, ciclo UI, env vars, tabelle progresso; `.loop-progress.md` ignorato | completata |
-
-### Ragionamento temporale in `replaces` (piano `milestone1-temporal-reasoning-plan.md`)
-
-| Epic | Contenuto | Stato |
-|------|-----------|--------|
-| T1 Marcatori temporali + limiti KB | prompt `replaces` guidato da marker nel testo + prudenza senza segnale; sezione README limiti | completata |
-
-### Rimozione layer Fact (piano `piano-implementativo-solo-entita-eventi.md`)
-
-| Macrotask | Contenuto | Stato |
-|-----------|-----------|--------|
-| M1 Backend: rimozione pipeline Fact | file/API/schema Fact eliminati; `DELETE /graph` in `node_graph`; dreaming solo Node | completata |
-| M2 Backend: riferimenti condivisi | `DocumentSummary.node_count`; ingestione solo `node_extraction` | completata |
-| M3 Frontend: rimozione Fact-only | GraphExplorer / QueryPanel / GraphSlice | completata |
-| M4 Grafo unico + fix WebGL | un solo mount, `onInitializationError` | completata |
-| M5 Toggle ponte concetti | `include_concepts` su entità/eventi | completata |
-| M6 Naming eventi/Fact | stage pipeline, colonna Nodi, mock SSE | completata |
-| M7 Test suite | rimuovi/aggiorna test Fact | completata |
-| M8 Accettazione e-e | scenari ingest/dream/dashboard/reset | completata |
-
-### Layer Entità / Eventi / Concetti
-
-Schema `:Node` / `:Concept` / `:Relation` (piano `piano-implementativo-entita-eventi-concetti.md`). Il layer `Fact` non è più nel backend.
-
-| Macrotask | Contenuto | Stato |
-|-----------|-----------|--------|
-| M1 Schema Neo4j | constraint/indici `:Node`/`:Concept`/`:Relation` (tutti `IF NOT EXISTS`) | completata |
-| M2 Estrazione | entità/eventi/concetti da chunk (porting prompt autoschema) | completata |
-| M3 Risoluzione entità | dedup incrementale `Node{type:'entity'}` (pattern graphiti) | completata |
-| M4 Risoluzione archi | normalizzazione `:Relation` + merge eventi | completata |
-| M5 Dreaming esteso | nuovi stage nella pipeline di dreaming esistente | completata |
-| M6 API quattro viste | endpoint grafo entità / concetti / eventi / partecipazione | completata |
-| M7 Frontend | quattro pannelli sullo stesso piano (dashboard: tab Fatti vs Entità/Eventi) | completata |
-| M8 Test e-e / acceptance | criteri complessivi end-to-end | completata |
-
-Gli endpoint delle quattro viste (`GET /graph/entities` / `/events` / `/participation` / `/concepts`) restano disponibili, ma l'explorer UI a quattro pannelli è stato ritirato (vedi Fase 15/17 sopra): la dashboard monta solo `DomainGraphPanel`. Non esiste più il tab Fatti. Accettazione M8 storica: `pytest tests/test_acceptance_nodes.py` (unit, no Docker) e `pytest tests/test_nodes_integration.py` (Neo4j via testcontainers).
-
-### Query NL sul layer Node / Concept
-
-Endpoint: `POST /graph/query` interroga `:Node` / `:Relation` / `:Concept` con seeding ibrido, Personalized PageRank (GDS) e reranking. `POST /query` (Fact) è stato rimosso.
-
-| Macrotask | Contenuto | Stato |
-|-----------|-----------|--------|
-| Q1 Schema + pin GDS | embedding/indici su Concept e Relation; fulltext; GDS 2.12.0 jar locale | completata |
-| Q2 Proiezione GDS | `nodeQueryGraph` refresh a fine dreaming + lazy ensure | completata |
-| Q3 Query engine | seeding ibrido → PPR → cross-encoder → contesto | completata |
-| Q4 NodeQueryLog | cronologia `:NodeQueryLog` distinta da `:QueryLog` | completata |
-| Q5 API | `POST /graph/query`, `GET /graph/queries[/{id}]` | completata |
-| Q6 Frontend | `NodeQueryPanel` sul tab Entità/Eventi | completata |
-| Q7 Accettazione e-e | scenari PPR / relazione / isolamento Fact | completata |
-
-`NodeQueryPanel` è l'unico pannello query (`POST /graph/query`).
-
-Accettazione Q7: `pytest tests/test_acceptance_node_query.py` (unit, no Docker) + scenari integrazione in `tests/test_node_query_engine_integration.py`.
-
-## Note Epic 10
-
-`docker compose up` avvia neo4j+backend+frontend con healthcheck. Checklist UI: [encoding visivo E7](./frontend/docs/e7-visual-encoding-checklist.md), [layer Metagraph E12 / F14.5](./frontend/docs/e12-metagraph-ui-checklist.md). CI: `backend` (unit, no Docker), `backend-integration`, `backend-integration-metagraph` (schema Fase 2 + `test_schema.py`).
+Per dettaglio architetturico storico: tabelle e flag nel commit history / `PIANO-*.md`, checklist UI in `frontend/docs/e7-visual-encoding-checklist.md` e `e12-metagraph-ui-checklist.md`.

@@ -22,6 +22,7 @@ from app.pipeline.event_graph import RULESET_VERSION
 from app.pipeline.event_graph.event_edges import (
     COLLEGATO_RELAZIONI,
     RELAZIONE_TO_ARCO,
+    SEGNALI_LIVELLO_TEMPORALE,
 )
 from app.pipeline.event_graph.ids import evento_id, menzione_id
 from app.pipeline.event_graph.pipeline import EspansioneZona, run_event_graph_ingestion
@@ -228,7 +229,9 @@ def _en_cause_sheet() -> ChunkFactsheet:
     )
 
 
-def _tipo_da_relazione(relazione: str) -> str:
+def _tipo_da_relazione(relazione: str) -> str | None:
+    if relazione in SEGNALI_LIVELLO_TEMPORALE:
+        return None
     if relazione in COLLEGATO_RELAZIONI:
         return "COLLEGATO"
     mapped = RELAZIONE_TO_ARCO.get(relazione)  # type: ignore[arg-type]
@@ -310,9 +313,12 @@ def _materialize_sheets(zona, sheets: list[ChunkFactsheet]):
             a_id = local.get(grezzo_arco.a_indice)
             if not da_id or not a_id:
                 continue
+            tipo = _tipo_da_relazione(str(grezzo_arco.relazione_segnale))
+            if tipo is None:
+                continue
             archi.append(
                 ArcoEvento(
-                    tipo=_tipo_da_relazione(str(grezzo_arco.relazione_segnale)),
+                    tipo=tipo,
                     da_id=da_id,
                     a_id=a_id,
                     props={"segnale": grezzo_arco.segnale_testuale},
@@ -402,8 +408,16 @@ def _install(monkeypatch, doc_id: str, first: str, second: str, sheets: dict[str
         collega,
     )
     monkeypatch.setattr(
-        "app.pipeline.event_graph.pipeline.espandi_zona",
+        "app.pipeline.event_graph.pipeline.estrai_zona",
         stub,
+    )
+
+    async def _no_relazioni_zona(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.collega_relazioni_zona",
+        _no_relazioni_zona,
     )
 
     async def _no_transizioni(*args, **kwargs):
@@ -414,12 +428,12 @@ def _install(monkeypatch, doc_id: str, first: str, second: str, sheets: dict[str
         _no_transizioni,
     )
 
-    async def _no_livello_temporale(*args, **kwargs):
+    async def _no_livello_ancore(*args, **kwargs):
         return None
 
     monkeypatch.setattr(
-        "app.pipeline.event_graph.pipeline.estrai_livello_temporale",
-        _no_livello_temporale,
+        "app.pipeline.event_graph.pipeline.esegui_livello_ancore",
+        _no_livello_ancore,
     )
 
     async def _no_livello_relazioni(*args, **kwargs):
@@ -428,6 +442,22 @@ def _install(monkeypatch, doc_id: str, first: str, second: str, sheets: dict[str
     monkeypatch.setattr(
         "app.pipeline.event_graph.pipeline.estrai_livello_relazioni",
         _no_livello_relazioni,
+    )
+
+    async def _no_buchi(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.riempi_buchi_documento",
+        _no_buchi,
+    )
+
+    async def _no_evinti(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.evinci_eventi_documento",
+        _no_evinti,
     )
 
     async def boom(*args, **kwargs):

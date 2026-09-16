@@ -72,7 +72,6 @@ TipoRelazione = Literal[
     "LUOGO",
     "MODO",
     "CAUSA",
-    "PRECEDE",
     "LIMITE",
     "CONDIZIONE",
     "SCOPO",
@@ -82,8 +81,8 @@ TipoRelazione = Literal[
     "CONTENUTO",
     "COLLEGATO",
     "SATELLITE_DI",
-    "CONTEMPORANEO",
     "APPARTIENE_A",
+    "SUCCESSIONE_ANCORA",
 ]
 CatenaTipo = Literal["STESSO_EVENTO", "AGGIORNA", "CONTRADDICE"]
 TraversalKind = Literal[
@@ -435,7 +434,7 @@ _TESTO_NULLO = frozenset({"null", "none", "nil", "n/a", "na", "-", "sconosciuto"
 
 
 class _PayloadTemporale(BaseModel):
-    """Lenient coercions shared by the two livello-temporale payloads.
+    """Lenient coercions shared by the livello-temporale and livello-ancore payloads.
 
     These models are the structured-output schema of a local LLM
     (``infra.llm.call_structured``): one dirty field must never reject the
@@ -482,7 +481,13 @@ class _PayloadTemporale(BaseModel):
         return min(1.0, max(0.0, numero))
 
     @field_validator(
-        "descrizione", "inizio", "fine", "padre", "base",
+        "descrizione",
+        "inizio",
+        "fine",
+        "padre",
+        "base",
+        "espressione",
+        "ancora",
         mode="before",
         check_fields=False,
     )
@@ -554,12 +559,23 @@ class SegnaleTemporaleEvento(_PayloadTemporale):
 class ClusterTemporaleProposto(_PayloadTemporale):
     """One temporal cluster proposed by the LLM, possibly nested.
 
+    Superseded by ``AncoraTemporaleProposta``; kept while livello_temporale
+    is still in tree (retired in MT7/MT10).
+
     ``padre`` is a textual reference to the ``etichetta`` of the parent
     cluster in the same proposal: the label is already the key clusters are
     identified by across windows, and asking a local model for a plain string
     it has just written is far more reliable than an index or a synthetic id.
     MT4 turns those references into the CONTIENE forest (at most one parent,
     no cycles, coarser granularity going up).
+
+    ``padre`` means containment, not sequence: the parent must be a broader,
+    vaguer span that truly encloses this moment ("quell'estate" encloses "un
+    pomeriggio"), never "the phase that came before". Two clusters that are
+    simply narrated one after the other are siblings, not parent/child — CHI
+    orders them is ``chiave_ordine``/``posizione_doc_min`` downstream, not
+    CONTIENE. A model with no calendar signal at all is expected to leave
+    ``padre`` null far more often than it finds a real container.
 
     ``chiave_ordine`` is deliberately not here: it is derived by the backend
     from ``inizio`` and ``granularita``, so letting the LLM emit it would only
@@ -616,15 +632,321 @@ class ClusterTemporaleProposto(_PayloadTemporale):
     padre: str | None = Field(
         default=None,
         description=(
-            "Etichetta of the cluster containing this one, or null when this "
-            "cluster is a root."
+            "Etichetta of a cluster that TRULY, TEMPORALLY ENCLOSES this one "
+            "(a broader, vaguer span holding a narrower one — 'quell'estate' "
+            "holds 'un pomeriggio'). Never the previous or next narrative "
+            "phase: coming before/after is not containment, and belongs in "
+            "no field here. Null whenever the only relation you can name is "
+            "sequence, or when unsure."
         ),
     )
 
 
 class LivelloTemporaleResult(BaseModel):
+    # Superseded by LivelloAncoreResult; kept while livello_temporale is in tree.
     segnali: list[SegnaleTemporaleEvento] = Field(default_factory=list)
     cluster: list[ClusterTemporaleProposto] = Field(default_factory=list)
+
+
+NaturaAncora = Literal["esplicita", "intervallo", "aperta"]
+NATURA_ANCORE: tuple[NaturaAncora, ...] = get_args(NaturaAncora)
+
+TipoAncora = Literal["data", "ora", "scadenza", "epoca", "relativa", "simbolica"]
+TIPI_ANCORA: tuple[TipoAncora, ...] = get_args(TipoAncora)
+
+PosizioneRispettoAncora = Literal["prima", "durante", "dopo"]
+
+_ETICHETTA_ANCORA_MAX = 40
+
+_NATURA_ANCORA_SINONIMI: dict[str, NaturaAncora] = {
+    "esplicito": "esplicita",
+    "explicit": "esplicita",
+    "interval": "intervallo",
+    "open": "aperta",
+    "aperto": "aperta",
+}
+
+_TIPO_ANCORA_SINONIMI: dict[str, TipoAncora] = {
+    "data_esplicita": "data",
+    "date": "data",
+    "hour": "ora",
+    "time": "ora",
+    "hours": "ora",
+    "deadline": "scadenza",
+    "epoch": "epoca",
+    "relativo": "relativa",
+    "relative": "relativa",
+    "simbolico": "simbolica",
+    "symbolic": "simbolica",
+}
+
+_POSIZIONE_ANCORA_SINONIMI: dict[str, PosizioneRispettoAncora] = {
+    "before": "prima",
+    "during": "durante",
+    "after": "dopo",
+    "in": "durante",
+    "dentro": "durante",
+    "dopo_di": "dopo",
+    "prima_di": "prima",
+}
+
+
+def _etichetta_ancora(value: Any) -> str:
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, (int, float)):
+        testo = str(value)
+    elif isinstance(value, str):
+        testo = value.strip()
+    else:
+        return ""
+    if len(testo) > _ETICHETTA_ANCORA_MAX:
+        return testo[:_ETICHETTA_ANCORA_MAX]
+    return testo
+
+
+class AncoraTemporaleProposta(_PayloadTemporale):
+    """One temporal anchor proposed by the LLM, possibly nested.
+
+    ``padre`` is a textual reference to the ``etichetta`` of the containing
+    ancora in the same proposal — the same semantics as
+    ``ClusterTemporaleProposto.padre``. MT4 turns those references into the
+    CONTIENE forest.
+
+    ``chiave_ordine`` is deliberately not here: it is derived by the backend
+    from ``inizio`` and ``granularita``, so letting the LLM emit it would only
+    add a hallucinable integer that the backend would overwrite anyway.
+    """
+
+    etichetta: str = Field(
+        description=(
+            "Short readable placement, at most 40 characters: '24 dic, sera'. "
+            "The prose goes in descrizione. Longer values are truncated, "
+            "never rejected."
+        ),
+    )
+    natura: NaturaAncora = Field(
+        default="esplicita",
+        description=(
+            "How the anchor sits on the timeline: named by the text "
+            "(esplicita), an implicit gap between two named anchors "
+            "(intervallo), or an open before/after bucket (aperta)."
+        ),
+    )
+    tipo: TipoAncora = Field(
+        default="simbolica",
+        description=(
+            "Kind of placement: calendar date, clock time, deadline, epoch, "
+            "relative expression, or a symbolic/narrative moment."
+        ),
+    )
+    eventi: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Ids of the events placed directly in this ancora. Empty for an "
+            "ancora that only contains other ancore."
+        ),
+    )
+    descrizione: str | None = Field(
+        default=None,
+        description="Longer prose about the moment, or null.",
+    )
+    granularita: GranularitaTemporale | None = Field(
+        default=None,
+        description=(
+            "Granularity of the ancora, from secondo to secolo. A parent is "
+            "always coarser than its children."
+        ),
+    )
+    inizio: str | None = Field(
+        default=None,
+        description=(
+            "ISO 8601 at variable precision: 1843, 1843-12, 1843-12-24, "
+            "1843-12-24T18, 1843-12-24T18:30, 1843-12-24T18:30:15."
+        ),
+    )
+    fine: str | None = Field(
+        default=None,
+        description="Same format as inizio, for intervals. Null otherwise.",
+    )
+    espressione: str | None = Field(
+        default=None,
+        description="Literal span in the text that names this ancora, or null.",
+    )
+    offset_inizio: int | None = Field(
+        default=None,
+        description="Character offset of espressione in the document, or null.",
+    )
+    offset_fine: int | None = Field(
+        default=None,
+        description="End character offset of espressione, exclusive, or null.",
+    )
+    stimato: bool = Field(
+        default=False,
+        description="True when inizio is inferred and not stated by the text.",
+    )
+    confidenza: float = Field(
+        default=1.0,
+        description=(
+            "Confidence in the grouping, between 0 and 1. Out-of-range or "
+            "unreadable values are clamped, never rejected."
+        ),
+    )
+    posizione_doc_min: int | None = Field(
+        default=None,
+        description=(
+            "Smallest document position of events in this ancora. Backend "
+            "may overwrite; a dirty LLM integer is coerced, never rejected."
+        ),
+    )
+    padre: str | None = Field(
+        default=None,
+        description=(
+            "Etichetta of an ancora that TRULY, TEMPORALLY ENCLOSES this one "
+            "(a broader, vaguer span holding a narrower one — '1843' holds "
+            "'24 dic'). Never the previous or next narrative phase: coming "
+            "before/after is not containment. Null whenever the only relation "
+            "you can name is sequence, or when unsure."
+        ),
+    )
+
+    @field_validator("etichetta", mode="before")
+    @classmethod
+    def _coerce_etichetta(cls, value: Any) -> str:
+        return _etichetta_ancora(value)
+
+    @field_validator("padre", mode="after")
+    @classmethod
+    def _tronca_padre(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value) > _ETICHETTA_ANCORA_MAX:
+            return value[:_ETICHETTA_ANCORA_MAX]
+        return value
+
+    @field_validator("natura", mode="before")
+    @classmethod
+    def _coerce_natura(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return "esplicita"
+        token = value.strip().casefold()
+        if token in NATURA_ANCORE:
+            return token
+        return _NATURA_ANCORA_SINONIMI.get(token, "esplicita")
+
+    @field_validator("tipo", mode="before")
+    @classmethod
+    def _coerce_tipo(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return "simbolica"
+        token = value.strip().casefold()
+        if token in TIPI_ANCORA:
+            return token
+        return _TIPO_ANCORA_SINONIMI.get(token, "simbolica")
+
+    @field_validator("eventi", mode="before")
+    @classmethod
+    def _coerce_eventi(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            testo = value.strip()
+            return [testo] if testo else []
+        return value
+
+    @field_validator(
+        "offset_inizio", "offset_fine", "posizione_doc_min", mode="before"
+    )
+    @classmethod
+    def _coerce_int_opzionale(cls, value: Any) -> Any:
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return None if value < 0 else value
+        if isinstance(value, float):
+            if value != value or value < 0 or value in (float("inf"), float("-inf")):
+                return None
+            return int(value)
+        if isinstance(value, str):
+            token = value.strip().replace(",", ".")
+            if not token or token.casefold() in _TESTO_NULLO:
+                return None
+            try:
+                numero = float(token)
+            except ValueError:
+                return None
+            if numero != numero or numero < 0:
+                return None
+            if numero in (float("inf"), float("-inf")):
+                return None
+            return int(numero)
+        return None
+
+
+class SegnaleAncoraEvento(_PayloadTemporale):
+    """Where one event sits relative to an ancora, as proposed by the LLM.
+
+    Placement is always required: when the text states nothing, the model
+    still infers a position and declares it with ``stimato=True`` and a
+    ``confidenza``. ``posizione`` is prima/durante/dopo a named ancora
+    (``ancora`` holds the etichetta or id); MT5/MT6 consume that ternary.
+    """
+
+    evento_id: str
+    ancora: str | None = Field(
+        default=None,
+        description=(
+            "Etichetta or id of the named ancora this signal refers to. "
+            "Null when the model cannot name one."
+        ),
+    )
+    posizione: PosizioneRispettoAncora | None = Field(
+        default=None,
+        description=(
+            "prima / durante / dopo the named ancora. Null when not declared."
+        ),
+    )
+    stimato: bool = Field(
+        default=False,
+        description=(
+            "True when the placement is inferred rather than stated by the "
+            "text. Absent means declared."
+        ),
+    )
+    confidenza: float = Field(
+        default=1.0,
+        description=(
+            "Confidence in the placement, between 0 and 1. Out-of-range or "
+            "unreadable values are clamped, never rejected."
+        ),
+    )
+    base: str | None = Field(
+        default=None,
+        description=(
+            "What an estimate rests on: the id of the anchor event when the "
+            "placement is derived from another event, otherwise a short "
+            "reason in free text. Only meaningful when stimato is true."
+        ),
+    )
+
+    @field_validator("posizione", mode="before")
+    @classmethod
+    def _coerce_posizione(cls, value: Any) -> Any:
+        if value is None or isinstance(value, bool):
+            return None
+        if not isinstance(value, str):
+            return None
+        token = value.strip().casefold()
+        if not token or token in _TESTO_NULLO:
+            return None
+        if token in get_args(PosizioneRispettoAncora):
+            return token
+        return _POSIZIONE_ANCORA_SINONIMI.get(token)
+
+
+class LivelloAncoreResult(BaseModel):
+    segnali: list[SegnaleAncoraEvento] = Field(default_factory=list)
+    ancore: list[AncoraTemporaleProposta] = Field(default_factory=list)
 
 
 TipoRelazioneLibera = Literal[
@@ -751,6 +1073,7 @@ def _filtra_candidati_evento(
 
 
 __all__ = [
+    "AncoraTemporaleProposta",
     "ArgomentoGrezzo",
     "ArgomentoRisolto",
     "ArcoEvento",
@@ -771,15 +1094,19 @@ __all__ = [
     "FraseTipo",
     "GRANULARITA_TEMPORALI",
     "GranularitaTemporale",
-    "Modalita",
-    "GenereMenzione",
+    "LivelloAncoreResult",
     "LivelloRelazioniResult",
     "LivelloTemporaleResult",
+    "Modalita",
+    "NATURA_ANCORE",
+    "NaturaAncora",
+    "GenereMenzione",
     "MenzioneRisolta",
     "NumeroMenzione",
     "OrientamentoArco",
     "PairEdgeDecision",
     "PianoNarrativo",
+    "PosizioneRispettoAncora",
     "PredicatoNonFinito",
     "RispostaSintetizzata",
     "QuarantenaItem",
@@ -789,10 +1116,13 @@ __all__ = [
     "RuoloSe",
     "RunState",
     "Segmentazione",
+    "SegnaleAncoraEvento",
     "SegnaleTemporaleEvento",
     "SoggSpeciale",
     "SottoGrafo",
+    "TIPI_ANCORA",
     "TempoVerbale",
+    "TipoAncora",
     "TipoRelazione",
     "TipoRelazioneLibera",
     "TipoSuperficiale",

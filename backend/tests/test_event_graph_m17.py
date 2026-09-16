@@ -149,7 +149,7 @@ def test_traversal_spina_dorsale_di_sequenza_only():
     spec = EventQuerySpec(traversal="spina_dorsale_di", traversal_target="ev-spine")
     cypher, params = compile_cypher(spec)
     assert "SEQUENZA" in cypher
-    assert "PRECEDE" in cypher
+    assert "PRECEDE" not in cypher
     assert "COLLEGATO" not in cypher
     assert "*0..12" in cypher
     assert "STESSO_EVENTO" not in cypher
@@ -157,12 +157,34 @@ def test_traversal_spina_dorsale_di_sequenza_only():
     assert "ev-spine" not in cypher
 
 
-def test_traversal_prima_di_precede_not_superseded():
+def test_traversal_prima_di_ancora_chain_not_precede():
     spec = EventQuerySpec(traversal="prima_di", traversal_target="ev-t")
     cypher, params = compile_cypher(spec)
-    assert "PRECEDE" in cypher
-    assert "superato_da" in cypher
+    assert "PRECEDE" not in cypher
+    assert "SUCCESSIONE_ANCORA" in cypher
+    assert "APPARTIENE_A" in cypher
+    assert "e.tempo_assoluto < start.tempo_assoluto" in cypher
     assert "$target" in cypher
+    assert params["target"] == "ev-t"
+    assert "ev-t" not in cypher
+
+
+def test_traversal_dopo_di_ancora_chain_not_precede():
+    spec = EventQuerySpec(traversal="dopo_di", traversal_target="ev-t")
+    cypher, params = compile_cypher(spec)
+    assert "PRECEDE" not in cypher
+    assert "SUCCESSIONE_ANCORA" in cypher
+    assert "APPARTIENE_A" in cypher
+    assert "e.tempo_assoluto > start.tempo_assoluto" in cypher
+    assert params["target"] == "ev-t"
+
+
+def test_traversal_vicinato_temporale_ancora_neighbors():
+    spec = EventQuerySpec(traversal="vicinato_temporale", traversal_target="ev-t")
+    cypher, params = compile_cypher(spec)
+    assert "PRECEDE" not in cypher
+    assert "SUCCESSIONE_ANCORA" in cypher
+    assert "APPARTIENE_A" in cypher
     assert params["target"] == "ev-t"
     assert "ev-t" not in cypher
 

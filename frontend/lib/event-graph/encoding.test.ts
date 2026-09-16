@@ -5,9 +5,9 @@ import {
   CLUSTER_TEMPORALE_COLOR,
   COLLEGATO_COLOR,
   CONFLITTO_BORDER,
-  CONTEMPORANEO_COLOR,
   DIZIONARIO_COLORS,
   PIANO_COLORS,
+  SUCCESSIONE_ANCORA_COLOR,
   SUCCESSIONE_ZONA_COLOR,
   ZONA_COLOR,
   encodeEdge,
@@ -69,13 +69,13 @@ describe("event-graph visual encoding", () => {
     expect(zona.filled).toBe(true);
   });
 
-  it("encodes ClusterTemporale as a filled round-rectangle distinct from Zona", () => {
-    const cluster = encodeNode({
+  it("encodes AncoraTemporale as a filled round-rectangle distinct from Zona", () => {
+    const ancora = encodeNode({
       id: "cl-1",
       label: "1994",
-      tipo: "ClusterTemporale",
+      tipo: "AncoraTemporale",
       etichetta: "1994",
-      tipo_cluster: "data_esplicita",
+      natura: "esplicita",
     });
     const zona = encodeNode({
       id: "z0",
@@ -83,44 +83,64 @@ describe("event-graph visual encoding", () => {
       tipo: "Zona",
       ordinale: 0,
     });
-    expect(cluster.shape).toBe("round-rectangle");
-    expect(cluster.filled).toBe(true);
-    expect(cluster.color).toBe(CLUSTER_TEMPORALE_COLOR);
-    expect(cluster.color).not.toBe(zona.color);
-    expect(cluster.color).not.toBe(ZONA_COLOR);
-    expect(cluster.color).not.toBe(PIANO_COLORS.PRIMO_PIANO);
-    expect(cluster.borderStyle).toBe("solid");
+    expect(ancora.shape).toBe("round-rectangle");
+    expect(ancora.filled).toBe(true);
+    expect(ancora.color).toBe(CLUSTER_TEMPORALE_COLOR);
+    expect(ancora.color).not.toBe(zona.color);
+    expect(ancora.color).not.toBe(ZONA_COLOR);
+    expect(ancora.color).not.toBe(PIANO_COLORS.PRIMO_PIANO);
+    expect(ancora.borderStyle).toBe("solid");
   });
 
-  it("dashes ClusterTemporale border when stimato is truthy; absent stays solid", () => {
+  it("dashes AncoraTemporale border when stimato is truthy; absent stays solid", () => {
     const stimato = encodeNode({
       id: "cl-st",
       label: "sera",
-      tipo: "ClusterTemporale",
+      tipo: "AncoraTemporale",
       etichetta: "sera",
       stimato: true,
     });
     const stimatoStr = encodeNode({
       id: "cl-st-s",
       label: "sera",
-      tipo: "ClusterTemporale",
+      tipo: "AncoraTemporale",
       stimato: "true",
     });
     const nonStimato = encodeNode({
       id: "cl-ok",
       label: "1843",
-      tipo: "ClusterTemporale",
+      tipo: "AncoraTemporale",
       stimato: false,
     });
     const assente = encodeNode({
       id: "cl-abs",
       label: "1843",
-      tipo: "ClusterTemporale",
+      tipo: "AncoraTemporale",
     });
     expect(stimato.borderStyle).toBe("dashed");
     expect(stimatoStr.borderStyle).toBe("dashed");
     expect(nonStimato.borderStyle).toBe("solid");
     expect(assente.borderStyle).toBe("solid");
+  });
+
+  it("still encodes leftover ClusterTemporale like AncoraTemporale", () => {
+    const leftover = encodeNode({
+      id: "old",
+      label: "1994",
+      tipo: "ClusterTemporale",
+      stimato: true,
+    });
+    const ancora = encodeNode({
+      id: "new",
+      label: "1994",
+      tipo: "AncoraTemporale",
+      stimato: true,
+    });
+    expect(leftover.shape).toBe("round-rectangle");
+    expect(leftover.filled).toBe(true);
+    expect(leftover.color).toBe(CLUSTER_TEMPORALE_COLOR);
+    expect(leftover.color).toBe(ancora.color);
+    expect(leftover.borderStyle).toBe("dashed");
   });
 
   it("encodes Evento filled, Menzione ellipse/thin, Quarantena dashed", () => {
@@ -201,6 +221,8 @@ describe("event-graph visual encoding", () => {
     expect(seq.color).toBe(DIZIONARIO_COLORS.SEQUENZA);
     expect(causa.color).not.toBe(seq.color);
     expect(causa.width).toBeGreaterThan(1);
+    expect(causa.markedArrow).toBe(true);
+    expect(seq.markedArrow).toBe(true);
   });
 
   it("treats leftover chain-typed edges as unknown (no double stroke)", () => {
@@ -216,55 +238,18 @@ describe("event-graph visual encoding", () => {
     }
   });
 
-  it("marks PRECEDE arrow; dato_esplicito solid, riferimento_testuale dashed", () => {
-    const esplicito = encodeEdge({
-      id: "p1",
-      source: "a",
-      target: "b",
-      tipo: "PRECEDE",
-      base: "dato_esplicito",
-    });
-    const testuale = encodeEdge({
-      id: "p2",
-      source: "a",
-      target: "b",
-      tipo: "PRECEDE",
-      base: "riferimento_testuale",
-    });
-    expect(esplicito.family).toBe("temporale");
-    expect(esplicito.markedArrow).toBe(true);
-    expect(esplicito.lineStyle).toBe("solid");
-    expect(testuale.markedArrow).toBe(true);
-    expect(testuale.lineStyle).toBe("dashed");
-    expect(esplicito.color).toBe(DIZIONARIO_COLORS.PRECEDE);
-  });
-
-  it("treats CONTEMPORANEO as temporale family", () => {
-    // Piano 38–40, 136–137: stesso family, stile distinto da PRECEDE
-    // (niente punta, dashed, colore proprio — non #0D9488).
-    const edge = encodeEdge({
-      id: "ct",
-      source: "a",
-      target: "b",
-      tipo: "CONTEMPORANEO",
-    });
-    const precede = encodeEdge({
-      id: "p",
-      source: "a",
-      target: "b",
-      tipo: "PRECEDE",
-    });
-    expect(edge.family).toBe("temporale");
-    expect(edge.color).toBe(CONTEMPORANEO_COLOR);
-    expect(edge.color).not.toBe(DIZIONARIO_COLORS.PRECEDE);
-    expect(edge.color).not.toBe(precede.color);
-    expect(edge.color).not.toBe(DIZIONARIO_COLORS.CAUSA);
-    expect(edge.color).not.toBe(DIZIONARIO_COLORS.SEQUENZA);
-    expect(edge.lineStyle).toBe("dashed");
-    expect(edge.markedArrow).toBe(false);
-    expect(precede.markedArrow).toBe(true);
-    expect(precede.color).toBe(DIZIONARIO_COLORS.PRECEDE);
-    expect(precede.lineStyle).toBe("solid");
+  it("treats leftover PRECEDE and CONTEMPORANEO as unknown (left the domain)", () => {
+    for (const tipo of ["PRECEDE", "CONTEMPORANEO"] as const) {
+      const edge = encodeEdge({
+        id: "old",
+        source: "a",
+        target: "b",
+        tipo,
+      });
+      expect(edge.family).toBe("other");
+      expect(edge.family).not.toBe("temporale");
+      expect(edge.family).not.toBe("dizionario");
+    }
   });
 
   it("does not change dizionario color when spiegazione is present", () => {
@@ -313,6 +298,36 @@ describe("event-graph visual encoding", () => {
     expect(edge.color).not.toBe(causa.color);
     expect(edge.color).not.toBe(DIZIONARIO_COLORS.SEQUENZA);
     expect(edge.color).not.toBe(DIZIONARIO_COLORS.CAUSA);
+  });
+
+  it("styles SUCCESSIONE_ANCORA as struttura, like SUCCESSIONE_ZONA", () => {
+    const edge = encodeEdge({
+      id: "sa",
+      source: "a0",
+      target: "a1",
+      tipo: "SUCCESSIONE_ANCORA",
+    });
+    const zona = encodeEdge({
+      id: "sz",
+      source: "z0",
+      target: "z1",
+      tipo: "SUCCESSIONE_ZONA",
+    });
+    const causa = encodeEdge({
+      id: "c",
+      source: "a",
+      target: "b",
+      tipo: "CAUSA",
+    });
+    expect(edge.family).toBe("struttura");
+    expect(edge.family).not.toBe("temporale");
+    expect(edge.family).not.toBe("dizionario");
+    expect(edge.color).toBe(SUCCESSIONE_ANCORA_COLOR);
+    expect(edge.color).toBe(SUCCESSIONE_ZONA_COLOR);
+    expect(edge.color).toBe(zona.color);
+    expect(edge.color).not.toBe(causa.color);
+    expect(edge.color).not.toBe(DIZIONARIO_COLORS.CAUSA);
+    expect(edge.markedArrow).toBe(false);
   });
 
   it("styles COLLEGATO ordine_* very light", () => {

@@ -22,6 +22,7 @@ from app.pipeline.event_graph.chunking_periods import connettivo_confine
 from app.pipeline.event_graph.event_edges import (
     COLLEGATO_RELAZIONI,
     RELAZIONE_TO_ARCO,
+    SEGNALI_LIVELLO_TEMPORALE,
     VersoRule,
     tipo_dopo_anti_causa_inventata,
 )
@@ -50,10 +51,12 @@ a tool loop. No function calling. Structured fields only.
 Fields:
 - relazione_segnale: exactly one value from the closed micro vocabulary
   (no parallel type system):
-  causa_esplicita, consecuzione, posteriorita, anteriorita, limite,
+  causa_esplicita, consecuzione, limite,
   condizione, scopo, concessione, contrasto, asindeto_sequenziale,
   temporale_ambiguo, gerundio, participio_assoluto, apposizione_relativa,
   due_punti_esplicativo, nessuno.
+  Do not use posteriorita or anteriorita: chronological before/after belongs
+  to the later temporal pass, not this stage.
 - orientamento: subordinata_principale | principale_subordinata | coordinata.
   The pair is always given in document order (left zone, then right zone).
   coordinata / subordinata_principale keep left→right for causal verso;
@@ -64,8 +67,10 @@ Fields:
 
 Do not invent CAUSA when the link is only sequential or unclear.
 Adjacent narrative zones with no causal connective (perché, quindi, perciò,
-because, therefore) are sequential: use asindeto_sequenziale or posteriorita,
+because, therefore) are sequential: use asindeto_sequenziale,
 never causa_esplicita. CAUSA is only for an explicit causal/result connective.
+If the only link is before/after (poi, prima, dopo, then, after), use
+nessuno — do not assign posteriorita or anteriorita here.
 Prefer nessuno or temporale_ambiguo when unsure.
 Do not invent / non inventare. English and Italian.
 """
@@ -226,6 +231,8 @@ def _arco_from_decision(
     adjacent: bool,
     connettivo: str | None,
 ) -> ArcoZona | None:
+    if decision.relazione_segnale in SEGNALI_LIVELLO_TEMPORALE:
+        return None
     implicit = not connettivo
     if implicit and decision.confidenza < SOGLIA_CONFIDENZA:
         if not adjacent:

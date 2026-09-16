@@ -156,16 +156,14 @@ def test_inconsistency_before_both_ways():
         eventi=[a, b],
         archi=[
             ArcoEvento(
-                tipo="PRECEDE",
+                tipo="LIMITE",
                 da_id="ev-a",
                 a_id="ev-b",
-                props={"base": "connettivo"},
             ),
             ArcoEvento(
-                tipo="PRECEDE",
+                tipo="LIMITE",
                 da_id="ev-b",
                 a_id="ev-a",
-                props={"base": "connettivo"},
             ),
         ],
     )
@@ -178,7 +176,8 @@ def test_inconsistency_before_both_ways():
     )
     assert any("ev-a" in item.motivo and "ev-b" in item.motivo for item in sotto.quarantena)
     assert all(str(arco.tipo) != "SEQUENZA" for arco in sotto.archi)
-    assert len([arco for arco in sotto.archi if str(arco.tipo) == "PRECEDE"]) == 2
+    assert all(str(arco.tipo) != "PRECEDE" for arco in sotto.archi)
+    assert len([arco for arco in sotto.archi if str(arco.tipo) == "LIMITE"]) == 2
 
 
 def test_pluperfect_inverts_mention_order():
@@ -202,23 +201,9 @@ def test_pluperfect_inverts_mention_order():
     sotto.aggiungi(eventi=[arrivò, perdere])
     chiusura_temporale(sotto)
     precede = [arco for arco in sotto.archi if str(arco.tipo) == "PRECEDE"]
-    assert precede
-    inverted = [
-        arco
-        for arco in precede
-        if arco.da_id == "ev-b" and arco.a_id == "ev-a"
-    ]
-    assert inverted
-    assert inverted[0].props.get("relazione_allen") == "before"
-    assert inverted[0].props.get("base") == "trapassato"
-    surviving_mention = [
-        arco
-        for arco in precede
-        if arco.da_id == "ev-a"
-        and arco.a_id == "ev-b"
-        and not arco.props.get("superato_da")
-    ]
-    assert surviving_mention == []
+    assert precede == []
+    collegato = [arco for arco in sotto.archi if str(arco.tipo) == "COLLEGATO"]
+    assert collegato
     assert "trapassato" in get_args(BasePrecede)
 
 
@@ -265,7 +250,7 @@ def test_isolation_ast():
     assert "def chiusura_temporale" in chiusura_src
     assert "seleziona_per_entita" in chiusura_src
     assert "trapassato" in chiusura_src
-    assert "relazione_allen" in chiusura_src
+    assert "LIMITE" in chiusura_src
 
     models_src = MODELS_PATH.read_text(encoding="utf-8")
     assert "trapassato" in models_src

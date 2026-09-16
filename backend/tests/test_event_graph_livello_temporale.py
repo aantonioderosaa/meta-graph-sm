@@ -15,6 +15,7 @@ from app.models.event_graph import (
     SegnaleTemporaleEvento,
 )
 from app.pipeline.event_graph.livello_temporale import (
+    CONFIDENZA_COLLOCAZIONE_INCERTA,
     LIVELLO_MAX_EVENTI_PER_CHIAMATA,
     SOGLIA_CLUSTER,
     SYSTEM_LIVELLO_TEMPORALE,
@@ -435,16 +436,27 @@ def test_gate_soglia_cluster_sopra_al_bordo_e_sotto():
     sanitized = _sanitize(result, eventi)
 
     etichette = {c.etichetta for c in sanitized.cluster}
-    # esattamente 0.6 raggruppa; 0.59 no, e senza membri il cluster sparisce
-    assert etichette == {"sopra", "bordo"}
+    # esattamente 0.6 raggruppa; 0.59 no, e senza membri il cluster sparisce.
+    # e-2 (il suo unico membro) non aveva nessun'altra lettura: §B11 lo
+    # raccoglie in un sottocluster a bassa confidenza invece di perderlo
+    assert etichette == {"sopra", "bordo", "collocazione incerta — bordo"}
     assert {c.etichetta: c.eventi for c in sanitized.cluster} == {
         "sopra": ["e-0"],
         "bordo": ["e-1"],
+        "collocazione incerta — bordo": ["e-2"],
     }
+    incerto = next(
+        c for c in sanitized.cluster if c.etichetta == "collocazione incerta — bordo"
+    )
+    assert incerto.padre == "bordo"
+    assert incerto.confidenza == CONFIDENZA_COLLOCAZIONE_INCERTA
     # sotto soglia resta foglia; la data stimata non è una collocazione
     superstite = next(s for s in sanitized.segnali if s.evento_id == "e-2")
     assert superstite.tempo_assoluto is None
     assert superstite.stimato is True
+    # "bordo" non ha un inizio reale (mai dichiarato), quindi risalendo il
+    # padre del sottocluster e-2 resta comunque senza una posizione nel tempo:
+    # più visibile di prima, ma ancora correttamente segnalato come mancante
     assert "e-2" in eventi_senza_collocazione(eventi, sanitized)
 
 
@@ -844,13 +856,7 @@ def test_documento_senza_date_azzera_l_iso_inventata():
     assert sanitized.cluster[0].tipo == "relativo"
 
 
-def test_precede_diretto_non_viene_ridotto_per_transitivita():
-    """A→C è un'asserzione diretta del modello, non una data inventata:
-
-    non deve sparire solo perché A→B→C esiste già. Solo il no-invented-date
-    fix (sanitize) toglie archi; la topologia da sola non basta a dire che
-    un'asserzione diretta è sbagliata.
-    """
+def test_precede_transitivo_viene_ridotto():
     eventi = [_evento(0), _evento(1), _evento(2)]
     result = LivelloTemporaleResult(
         segnali=[
@@ -861,6 +867,6 @@ def test_precede_diretto_non_viene_ridotto_per_transitivita():
     )
     sanitized = _sanitize(result, eventi)
     by_id = {s.evento_id: s for s in sanitized.segnali}
-    assert by_id["e-0"].precede == ["e-1", "e-2"]
+    assert by_id["e-0"].precede == ["e-1"]
     assert by_id["e-1"].precede == ["e-2"]
     assert by_id["e-2"].precede == []

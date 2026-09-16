@@ -186,6 +186,11 @@ def test_schema_contains_zona_constraint():
     assert "eg_cluster_temporale_id" in raw
     assert "eg_cluster_temporale_doc" in raw
     assert ":ClusterTemporale" in raw
+    assert "eg_ancora_temporale_id" in raw
+    assert "eg_ancora_temporale_doc" in raw
+    assert "eg_ancora_temporale_ord" in raw
+    assert "eg_ancora_temporale_ordinale" in raw
+    assert ":AncoraTemporale" in raw
 
 
 def test_zona_defaults_match_m0_contract():

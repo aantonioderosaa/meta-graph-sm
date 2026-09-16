@@ -126,8 +126,16 @@ def _install_espandi(monkeypatch, order: list[str] | None = None, fuse: bool = F
         return EspansioneZona(zona=zona, sotto=local, unita=[])
 
     monkeypatch.setattr(
-        "app.pipeline.event_graph.pipeline.espandi_zona",
+        "app.pipeline.event_graph.pipeline.estrai_zona",
         stub,
+    )
+
+    async def _no_relazioni_zona(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.collega_relazioni_zona",
+        _no_relazioni_zona,
     )
 
     async def _no_transizioni(*args, **kwargs):
@@ -138,12 +146,12 @@ def _install_espandi(monkeypatch, order: list[str] | None = None, fuse: bool = F
         _no_transizioni,
     )
 
-    async def _no_livello_temporale(*args, **kwargs):
+    async def _no_livello_ancore(*args, **kwargs):
         return None
 
     monkeypatch.setattr(
-        "app.pipeline.event_graph.pipeline.estrai_livello_temporale",
-        _no_livello_temporale,
+        "app.pipeline.event_graph.pipeline.esegui_livello_ancore",
+        _no_livello_ancore,
     )
 
     async def _no_livello_relazioni(*args, **kwargs):
@@ -152,6 +160,22 @@ def _install_espandi(monkeypatch, order: list[str] | None = None, fuse: bool = F
     monkeypatch.setattr(
         "app.pipeline.event_graph.pipeline.estrai_livello_relazioni",
         _no_livello_relazioni,
+    )
+
+    async def _no_buchi(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.riempi_buchi_documento",
+        _no_buchi,
+    )
+
+    async def _no_evinti(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.pipeline.evinci_eventi_documento",
+        _no_evinti,
     )
     return called
 
@@ -245,18 +269,19 @@ async def test_intra_coref_fusion_or_catena_same_lemma_shared_sogg(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fase_b_persisti_then_temporal_esegui(monkeypatch):
+async def test_fase_b_persisti_without_temporal_esegui(monkeypatch):
     zona = _zona()
     _install_macro(monkeypatch, [zona])
     _install_espandi(monkeypatch)
     order: list[str] = []
+    esegui_calls: list[str] = []
 
     async def fake_persisti(session, sotto, *, job_id=None):
         order.append("persisti")
         return None
 
     async def fake_esegui(session, sotto, job_id, **kwargs):
-        order.append("esegui")
+        esegui_calls.append("esegui")
         return None
 
     monkeypatch.setattr(
@@ -275,7 +300,8 @@ async def test_fase_b_persisti_then_temporal_esegui(monkeypatch):
         "job-fase-b",
         session=session,
     )
-    assert order == ["persisti", "esegui"]
+    assert order == ["persisti"]
+    assert esegui_calls == []
 
 
 @pytest.mark.asyncio
@@ -365,9 +391,10 @@ async def test_health_exists_never_404():
 
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/event-graph/health")
-    assert response.status_code in {200, 503}
-    assert response.status_code != 404
+        for path in ("/health", "/event-graph/health"):
+            response = await client.get(path)
+            assert response.status_code in {200, 503}
+            assert response.status_code != 404
 
 
 @pytest.mark.asyncio

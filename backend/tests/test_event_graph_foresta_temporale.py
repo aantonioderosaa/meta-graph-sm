@@ -21,6 +21,7 @@ from app.models.event_graph import (
 )
 from app.pipeline.event_graph import foresta_temporale as ft
 from app.pipeline.event_graph.livello_temporale import (
+    CONFIDENZA_COLLOCAZIONE_INCERTA,
     _merge_results,
     _sanitize,
     estrai_livello_temporale,
@@ -749,7 +750,16 @@ def test_sanitize_tiene_il_gate_a_06_e_non_risuscita_i_contenitori():
     assert per_etichetta["24 dic"].padre == "1843"
     # il cluster sotto soglia perde i membri e, senza figli, sparisce
     assert "25 dic" not in per_etichetta
-    assert eventi_senza_collocazione(eventi, sanitized) == ["e-1"]
+    # e-1 resta scoperto (né segnale diretto né appartenenza): §B11 gli crea un
+    # sottocluster a bassa confidenza agganciato al cluster collocato più
+    # vicino ("24 dic"), invece di lasciarlo una foglia senza traccia
+    incerto = per_etichetta["collocazione incerta — 24 dic"]
+    assert incerto.eventi == ["e-1"]
+    assert incerto.padre == "24 dic"
+    assert incerto.confidenza == CONFIDENZA_COLLOCAZIONE_INCERTA
+    # "24 dic" ha un inizio reale: risalendo il padre del sottocluster, e-1 è
+    # ora collocato (per quanto a bassa confidenza) — non più una foglia persa
+    assert eventi_senza_collocazione(eventi, sanitized) == []
 
 
 def test_eventi_senza_collocazione_risale_la_foresta():
@@ -806,13 +816,25 @@ async def test_estrai_fonde_le_finestre_per_collocazione(monkeypatch):
     # le due finestre hanno etichettato lo stesso giorno in due modi diversi, e
     # una sola delle due ha dichiarato la granularità che l'altra implica: è la
     # stessa collocazione, quindi il cluster è uno
-    assert len(result.cluster) == 2
-    figlio = next(c for c in result.cluster if c.etichetta != "1843")
-    assert figlio.etichetta == "24 dic, la vigilia"
+    figlio = next(c for c in result.cluster if c.etichetta == "24 dic, la vigilia")
     assert figlio.eventi == ["e-0", "e-60"]
     assert figlio.padre == "1843"
+    # e-1..e-59: lo stub non emette nessun segnale né appartenenza per loro,
+    # quindi §B11 li raccoglie in un sottocluster a bassa confidenza agganciato
+    # all'unico cluster collocato — non è più un caso isolato da un solo test,
+    # è lo stesso meccanismo di test_sanitize_tiene_il_gate_a_06_...
+    incerto = next(
+        c for c in result.cluster if c.etichetta.startswith("collocazione incerta")
+    )
+    assert incerto.padre == "24 dic, la vigilia"
+    assert incerto.confidenza == CONFIDENZA_COLLOCAZIONE_INCERTA
+    assert incerto.eventi == [f"e-{i}" for i in range(1, 60)]
+    assert len(result.cluster) == 3
     assert ft.violazioni_foresta(result.cluster) == []
-    assert ft.archi_contiene(result.cluster) == [("1843", "24 dic, la vigilia")]
+    assert set(ft.archi_contiene(result.cluster)) == {
+        ("1843", "24 dic, la vigilia"),
+        ("24 dic, la vigilia", incerto.etichetta),
+    }
 
 
 # --- isolamento D6 ----------------------------------------------------------

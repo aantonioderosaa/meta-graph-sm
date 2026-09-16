@@ -20,7 +20,6 @@ from app.pipeline.event_graph.ids import quarantena_id
 EVENT_EVENT_TIPI = frozenset(
     {
         "CAUSA",
-        "PRECEDE",
         "LIMITE",
         "CONDIZIONE",
         "SCOPO",
