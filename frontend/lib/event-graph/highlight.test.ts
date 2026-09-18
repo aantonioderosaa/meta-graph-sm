@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   HIGHLIGHT_COLORS,
+  idsFromNlQuery,
   idsFromQueryResult,
   mergeHighlights,
 } from "./highlight";
@@ -57,5 +58,20 @@ describe("idsFromQueryResult", () => {
     expect(idsFromQueryResult(null)).toEqual([]);
     expect(idsFromQueryResult(undefined)).toEqual([]);
     expect(idsFromQueryResult({ eventi: [], archi: [] })).toEqual([]);
+  });
+});
+
+describe("idsFromNlQuery", () => {
+  it("includes eventi_citati from the synthesized answer", () => {
+    expect(
+      idsFromNlQuery({
+        id: "q1",
+        modo: "nl",
+        spec_generata: { testo: "vento" },
+        risultato: { eventi: [{ id: "e1" }], archi: [] },
+        risposta: "Il vento soffiò.",
+        eventi_citati: ["e1", "e2"],
+      }),
+    ).toEqual(["e1", "e1", "e2"]);
   });
 });

@@ -13,10 +13,11 @@ export type EventGraphNodeTipo =
   | "ClusterTemporale";
 
 export type PipelineStage =
-  | "estrazione"
-  | "regole_chunk"
-  | "riconciliazione"
+  | "macro"
+  | "espansione"
   | "collocazione_temporale"
+  | "relazioni"
+  | "riconciliazione"
   | "done"
   | "failed";
 
@@ -53,6 +54,8 @@ export type EventGraphNodeData = {
   fine?: string | null;
   stimato?: boolean | string | null;
   confidenza?: number | null;
+  occorrenze?: number | null;
+  riassunti?: string[] | string | null;
 };
 
 export type EventGraphEdgeData = {
@@ -86,8 +89,43 @@ export type EventGraphJobResponse = {
   job_id: string;
 };
 
+export type EventGraphJobStatus = "running" | "done" | "failed";
+
+export type EventGraphJob = {
+  job_id: string;
+  status: EventGraphJobStatus | string;
+  last_stage?: string | null;
+  last_event?: string | null;
+  ts?: string | null;
+  payload?: Record<string, unknown>;
+  events?: EventGraphPipelineEvent[];
+  documento?: string | null;
+};
+
+export type EventGraphJobList = {
+  jobs: EventGraphJob[];
+};
+
 export type EventGraphHealthResponse = {
   status: string;
+};
+
+export type EventGraphDocument = {
+  id: string;
+  formato: string;
+  bytes: number;
+  caratteri: number;
+  updated_at?: string | null;
+  n_eventi?: number;
+  anteprima?: string | null;
+};
+
+export type EventGraphDocumentList = {
+  documents: EventGraphDocument[];
+};
+
+export type EventGraphWipeResponse = {
+  deleted: boolean;
 };
 
 export type GraphFilters = {
@@ -102,7 +140,8 @@ export type TempoVerbale =
   | "imperfetto"
   | "passato"
   | "futuro"
-  | "non_finito";
+  | "non_finito"
+  | "trapassato";
 
 export type TraversalKind =
   | "catena_di"
@@ -127,7 +166,9 @@ export type TipoRelazione =
   | "SEQUENZA"
   | "CONTENUTO"
   | "COLLEGATO"
-  | "SATELLITE_DI";
+  | "SATELLITE_DI"
+  | "APPARTIENE_A"
+  | "SUCCESSIONE_ANCORA";
 
 export type CatenaRuolo = "STESSO_EVENTO" | "AGGIORNA" | "CONTRADDICE";
 
@@ -158,6 +199,8 @@ export type FinestraTempoAssoluto = {
 
 export type EventQuerySpec = {
   lemma?: string;
+  /** Fulltext search over event wording (current default retrieval path). */
+  testo?: string;
   piano?: PianoNarrativo;
   fattualita?: Fattualita;
   tempo?: TempoVerbale;
@@ -176,6 +219,11 @@ export type EventQueryEvento = {
   fattualita?: string | null;
   tempo?: string | null;
   documento?: string | null;
+  tempo_assoluto?: string | null;
+  posizione_doc?: number | null;
+  posizione_chunk?: number | null;
+  offset_inizio?: number | null;
+  score?: number | null;
 };
 
 export type EventQueryArco = {
@@ -202,6 +250,8 @@ export type EventNlQueryResponse = {
   modo: "nl";
   spec_generata: EventQuerySpec;
   risultato: EventQueryRisultato;
+  risposta?: string | null;
+  eventi_citati?: string[];
 };
 
 export type EventGraphPipelineEvent = {
@@ -213,10 +263,11 @@ export type EventGraphPipelineEvent = {
 };
 
 export const PIPELINE_STAGES: PipelineStage[] = [
-  "estrazione",
-  "regole_chunk",
-  "riconciliazione",
+  "macro",
+  "espansione",
   "collocazione_temporale",
+  "relazioni",
+  "riconciliazione",
   "done",
   "failed",
 ];

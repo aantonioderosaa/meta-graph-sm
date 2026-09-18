@@ -5,10 +5,13 @@
 import type {
   ArcoDettaglio,
   EventGraphCatalog,
+  EventGraphDocumentList,
   EventGraphHealthResponse,
+  EventGraphJobList,
   EventGraphJobResponse,
   EventGraphResponse,
   EventGraphStats,
+  EventGraphWipeResponse,
   EventNlQueryResponse,
   EventQuerySpec,
   EventStructuredQueryResponse,
@@ -129,6 +132,20 @@ export function ingestDocument(
     method: "POST",
     body: JSON.stringify({ doc_id: docId, text }),
   });
+}
+
+export function fetchDocuments(): Promise<EventGraphDocumentList> {
+  return request<EventGraphDocumentList>(eventGraphPath("/documents"));
+}
+
+export function wipeKnowledgeBase(): Promise<EventGraphWipeResponse> {
+  return request<EventGraphWipeResponse>(eventGraphPath("/graph"), {
+    method: "DELETE",
+  });
+}
+
+export function fetchJobs(): Promise<EventGraphJobList> {
+  return request<EventGraphJobList>(eventGraphPath("/jobs"));
 }
 
 export function fetchHealth(): Promise<EventGraphHealthResponse> {

@@ -157,6 +157,24 @@ def test_abbreviations_and_decimals_do_not_false_split():
     assert "3.14" in zones[0].testo
 
 
+def test_numbered_list_period_stays_with_the_item():
+    text = (
+        "1. 12 marzo 1987, ore 08:15 — Un giovane meccanico trova una auto.\n"
+        "2. Dopo circa 3 ore, ore 11:20 — Inizia a smontare il motore."
+    )
+    spans = split_sentences_with_offsets(text)
+    assert len(spans) == 2
+    assert spans[0].testo.startswith("1. 12 marzo 1987")
+    assert "trova una auto" in spans[0].testo
+    assert spans[1].testo.startswith("2. Dopo circa 3 ore")
+    assert "smontare il motore" in spans[1].testo
+    year_stop = split_sentences_with_offsets(
+        "He was born in 1987. Then he left the town."
+    )
+    assert len(year_stop) == 2
+    assert year_stop[0].testo.endswith("1987.")
+
+
 def test_zona_segmentation_isolation_ast():
     source = ZONA_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(ZONA_PATH))

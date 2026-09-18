@@ -265,6 +265,26 @@ def _is_abbrev_period(text: str, period_index: int) -> bool:
     return False
 
 
+def _is_list_ordinal_period(text: str, period_index: int) -> bool:
+    """True for a line-initial ``1. `` / ``11. `` marker, not ``1987. Then``.
+
+    Decimals (``3.14``) never reach here: the splitter only breaks a period
+    when the next character is space or end-of-text.
+    """
+    j = period_index - 1
+    if j < 0 or not text[j].isdigit():
+        return False
+    while j >= 0 and text[j].isdigit():
+        j -= 1
+    k = j
+    while k >= 0 and text[k] in " \t":
+        k -= 1
+    if k >= 0 and text[k] != "\n":
+        return False
+    nxt = period_index + 1
+    return nxt >= len(text) or text[nxt].isspace()
+
+
 def _split_sentences(text: str) -> list[str]:
     sentences: list[str] = []
     start = 0
@@ -277,7 +297,7 @@ def _split_sentences(text: str) -> list[str]:
                 if i + 1 < n and text[i + 1].isalpha():
                     i += 1
                     continue
-                if _is_abbrev_period(text, i):
+                if _is_abbrev_period(text, i) or _is_list_ordinal_period(text, i):
                     i += 1
                     continue
             while i + 1 < n and text[i + 1] in _TERMINATORS:

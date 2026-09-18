@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ElementInspector } from "@/components/event-graph/ElementInspector";
 import { EventIngestPanel } from "@/components/event-graph/EventIngestPanel";
@@ -20,6 +20,11 @@ import {
   isAncoraTemporaleNode,
 } from "@/lib/event-graph/layout-temporale";
 import { EMPTY_STATS, type LegendFilter } from "@/lib/event-graph/legend";
+import {
+  LIVE_GRAPH_POLL_MS,
+  LIVE_GRAPH_REFRESH_DEBOUNCE_MS,
+  graphFingerprint,
+} from "@/lib/event-graph/live-graph";
 import type {
   ElementSelection,
   EventGraphCatalog,
@@ -67,13 +72,21 @@ export function EventGraphShell() {
   const [vista, setVista] = useState<VistaGraph>("tutto");
   const [focusedZonaId, setFocusedZonaId] = useState<string | null>(null);
   const [ancoraPath, setAncoraPath] = useState<string[]>([]);
+  const [kbEpoch, setKbEpoch] = useState(0);
+  const [graphLive, setGraphLive] = useState(false);
+  const fingerprintRef = useRef("");
+  const refreshTimerRef = useRef<number | null>(null);
 
   const loadGraph = useCallback(async () => {
     try {
       const graph = await fetchGraph(
         vista === "tutto" ? {} : { vista },
       );
-      setElements(graph.elements);
+      const fingerprint = `${vista}|${graphFingerprint(graph.elements)}`;
+      if (fingerprint !== fingerprintRef.current) {
+        fingerprintRef.current = fingerprint;
+        setElements(graph.elements);
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Grafo non disponibile");
@@ -93,6 +106,26 @@ export function EventGraphShell() {
   useEffect(() => {
     void loadGraph();
   }, [loadGraph]);
+
+  useEffect(() => {
+    if (!graphLive) return;
+    const timer = window.setInterval(() => {
+      void loadGraph();
+    }, LIVE_GRAPH_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [graphLive, loadGraph]);
+
+  const scheduleGraphRefresh = useCallback(() => {
+    if (refreshTimerRef.current != null) return;
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void loadGraph();
+    }, LIVE_GRAPH_REFRESH_DEBOUNCE_MS);
+  }, [loadGraph]);
+
+  const handleLiveChange = useCallback((live: boolean) => {
+    setGraphLive(live);
+  }, []);
 
   useEffect(() => {
     setFocusedZonaId(null);
@@ -148,6 +181,23 @@ export function EventGraphShell() {
     },
     [vista, elements],
   );
+
+  const handleWiped = useCallback(() => {
+    fingerprintRef.current = "";
+    setElements({ nodes: [], edges: [] });
+    setCatalog(null);
+    setStats(EMPTY_STATS);
+    setHighlights({});
+    setLegendFilter(null);
+    setSelection(null);
+    setJobId(null);
+    setError(null);
+    setFocusedZonaId(null);
+    setAncoraPath([]);
+    setGraphLive(false);
+    setKbEpoch((epoch) => epoch + 1);
+    void loadGraph();
+  }, [loadGraph]);
 
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
@@ -262,6 +312,7 @@ export function EventGraphShell() {
                 highlights={highlights}
                 legendFilter={legendFilter}
                 layout={LAYOUT_BY_VISTA[vista]}
+                live={graphLive}
                 onSelect={handleSelect}
                 className="h-full"
               />
@@ -280,9 +331,21 @@ export function EventGraphShell() {
             filter={legendFilter}
             onFilterChange={setLegendFilter}
           />
-          <EventQueryPanel onHighlightsChange={setHighlights} />
-          <EventIngestPanel onJobStarted={setJobId} />
-          <EventPipelineMonitor jobId={jobId} onDone={loadGraph} />
+          <EventQueryPanel
+            key={`query-${kbEpoch}`}
+            onHighlightsChange={setHighlights}
+          />
+          <EventIngestPanel
+            onJobStarted={setJobId}
+            onWiped={handleWiped}
+          />
+          <EventPipelineMonitor
+            key={`pipeline-${kbEpoch}`}
+            jobId={jobId}
+            onDone={loadGraph}
+            onProgress={scheduleGraphRefresh}
+            onLiveChange={handleLiveChange}
+          />
         </aside>
       </div>
     </div>

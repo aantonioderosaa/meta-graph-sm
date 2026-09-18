@@ -87,7 +87,7 @@ def test_senza_riferimento_relativa_resta_senza_iso():
     out = normalizza_ancore([ieri], documento="doc-1")
     assert len(out) == 1
     assert out[0].inizio is None
-    assert out[0].tipo == "relativa"
+    assert out[0].tipo == "vaga"
     assert out[0].espressione == "ieri"
     assert out[0].stimato is False
 
@@ -353,7 +353,7 @@ def test_relativa_senza_riferimento_datato_non_inventa_inizio():
     out = normalizza_ancore([rel], documento="doc-1")
     assert len(out) == 1
     assert out[0].inizio is None
-    assert out[0].tipo == "relativa"
+    assert out[0].tipo == "vaga"
     assert out[0].espressione == "due settimane dopo"
     assert out[0].stimato is False
 
@@ -363,7 +363,7 @@ def test_natale_simbolica_senza_iso_non_inventa_calendario():
     out = normalizza_ancore([natale], documento="doc-1", riferimento="1843-12-24")
     assert len(out) == 1
     assert out[0].inizio is None
-    assert out[0].tipo == "simbolica"
+    assert out[0].tipo == "vaga"
 
 
 def test_padre_punta_a_etichetta_che_esiste_dopo_univoche():
@@ -440,6 +440,130 @@ async def test_esegui_pubblica_riepilogo_sul_bus():
     finally:
         await event_graph_bus.unsubscribe(job_id, queue)
         event_graph_bus.reset_event_bus()
+
+
+def test_orario_eredita_il_giorno_del_riferimento_precedente():
+    dated = _ancora(
+        etichetta="12 marzo 1987, ore 08:15",
+        tipo="data",
+        inizio="1987-03-12T08:15",
+        granularita="minuto",
+        posizione_doc_min=0,
+    )
+    clock = _ancora(
+        etichetta="ore 11:20",
+        tipo="ora",
+        espressione="ore 11:20",
+        posizione_doc_min=10,
+    )
+    out = normalizza_ancore([dated, clock], documento="doc-1")
+    ore = next(a for a in out if a.espressione == "ore 11:20")
+    assert ore.inizio == "1987-03-12T11:20"
+    assert ore.granularita == "minuto"
+    assert ore.stimato is True
+    assert ore.tipo == "ora"
+
+
+def test_orario_dopo_mezzanotte_passa_al_giorno_successivo():
+    sera = _ancora(
+        etichetta="4 luglio 1997, ore 21:45",
+        tipo="data",
+        inizio="1997-07-04T21:45",
+        granularita="minuto",
+        posizione_doc_min=0,
+    )
+    clock = _ancora(
+        etichetta="ore 00:30",
+        tipo="ora",
+        espressione="ore 00:30",
+        posizione_doc_min=5,
+    )
+    out = normalizza_ancore([sera, clock], documento="doc-1")
+    ore = next(a for a in out if a.espressione == "ore 00:30")
+    assert ore.inizio == "1997-07-05T00:30"
+
+
+def test_stesso_orario_su_giorni_diversi_non_fonde():
+    primo = _ancora(
+        etichetta="12 marzo 1987, ore 08:15",
+        tipo="data",
+        inizio="1987-03-12T08:15",
+        granularita="minuto",
+        posizione_doc_min=0,
+    )
+    ore_a = _ancora(
+        etichetta="ore 16:30",
+        tipo="ora",
+        espressione="ore 16:30",
+        posizione_doc_min=10,
+    )
+    secondo = _ancora(
+        etichetta="7 giugno 1991, ore 14:00",
+        tipo="data",
+        inizio="1991-06-07T14:00",
+        granularita="ora",
+        posizione_doc_min=20,
+    )
+    ore_b = _ancora(
+        etichetta="ore 16:30",
+        tipo="ora",
+        espressione="ore 16:30",
+        posizione_doc_min=30,
+    )
+    out = normalizza_ancore([primo, ore_a, secondo, ore_b], documento="doc-1")
+    orari = [a for a in out if a.espressione == "ore 16:30"]
+    assert {a.inizio for a in orari} == {"1987-03-12T16:30", "1991-06-07T16:30"}
+
+
+def test_orario_a_parole_eredita_il_giorno():
+    dated = _ancora(
+        etichetta="12 marzo 1987, ore 08:15",
+        tipo="data",
+        inizio="1987-03-12T08:15",
+        granularita="minuto",
+        posizione_doc_min=0,
+    )
+    clock = _ancora(
+        etichetta="alle undici e venti",
+        tipo="ora",
+        espressione="alle undici e venti",
+        posizione_doc_min=10,
+    )
+    out = normalizza_ancore([dated, clock], documento="doc-1")
+    ore = next(a for a in out if a.espressione == "alle undici e venti")
+    assert ore.inizio == "1987-03-12T11:20"
+    assert ore.stimato is True
+
+
+def test_orario_senza_riferimento_datato_non_inventa_il_giorno():
+    clock = _ancora(
+        etichetta="ore 11:20",
+        tipo="ora",
+        espressione="ore 11:20",
+    )
+    out = normalizza_ancore([clock], documento="doc-1")
+    assert len(out) == 1
+    assert out[0].inizio is None
+    assert out[0].tipo == "ora"
+
+
+def test_orario_non_eredita_un_anno_senza_giorno():
+    anno = _ancora(
+        etichetta="1843",
+        tipo="data",
+        inizio="1843",
+        granularita="anno",
+        posizione_doc_min=0,
+    )
+    clock = _ancora(
+        etichetta="ore 8",
+        tipo="ora",
+        espressione="ore 8",
+        posizione_doc_min=1,
+    )
+    out = normalizza_ancore([anno, clock], documento="doc-1")
+    ore = next(a for a in out if a.espressione == "ore 8")
+    assert ore.inizio is None
 
 
 def test_isolamento_d6():

@@ -29,9 +29,7 @@ def test_natura_e_tipo_ancora_vocabolari_chiusi():
         "data",
         "ora",
         "scadenza",
-        "epoca",
-        "relativa",
-        "simbolica",
+        "vaga",
     )
     assert TIPI_ANCORA == get_args(TipoAncora)
     assert get_args(PosizioneRispettoAncora) == ("prima", "durante", "dopo")
@@ -49,7 +47,7 @@ def test_successione_ancora_e_in_tipo_relazione():
 def test_ancora_default_e_campi_nuovi():
     ancora = AncoraTemporaleProposta(etichetta="1843")
     assert ancora.natura == "esplicita"
-    assert ancora.tipo == "simbolica"
+    assert ancora.tipo == "vaga"
     assert ancora.eventi == []
     assert ancora.descrizione is None
     assert ancora.granularita is None
@@ -119,9 +117,10 @@ def test_natura_e_tipo_sporchi_vengono_coerciti():
     assert (
         AncoraTemporaleProposta(etichetta="x", tipo="data_esplicita").tipo == "data"
     )
-    assert AncoraTemporaleProposta(etichetta="x", tipo="relativo").tipo == "relativa"
-    assert AncoraTemporaleProposta(etichetta="x", tipo="simbolico").tipo == "simbolica"
-    assert AncoraTemporaleProposta(etichetta="x", tipo="nope").tipo == "simbolica"
+    assert AncoraTemporaleProposta(etichetta="x", tipo="relativo").tipo == "vaga"
+    assert AncoraTemporaleProposta(etichetta="x", tipo="simbolico").tipo == "vaga"
+    assert AncoraTemporaleProposta(etichetta="x", tipo="epoca").tipo == "vaga"
+    assert AncoraTemporaleProposta(etichetta="x", tipo="nope").tipo == "vaga"
 
 
 def test_granularita_sconosciuta_diventa_none_invece_di_rompere():
@@ -284,6 +283,7 @@ def test_schema_json_espone_vocabolari_ancora():
         "natura",
         "tipo",
         "eventi",
+        "occorrenze",
         "descrizione",
         "granularita",
         "inizio",

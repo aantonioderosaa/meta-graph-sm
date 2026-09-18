@@ -216,20 +216,8 @@ export function encodeNode(
   };
 }
 
-export const EDGE_WIDTH_MIN = 1;
-export const EDGE_WIDTH_MAX = 6;
-
-/** Map a stored confidence in [0, 1] to stroke width. 0.9 → 5.5. */
-export function edgeWidthFromConfidenza(
-  confidenza: unknown,
-  fallback: number,
-): number {
-  const n =
-    typeof confidenza === "number" ? confidenza : Number(confidenza);
-  if (!Number.isFinite(n)) return fallback;
-  const clamped = Math.max(0, Math.min(1, n));
-  return EDGE_WIDTH_MIN + clamped * (EDGE_WIDTH_MAX - EDGE_WIDTH_MIN);
-}
+/** Uniform stroke for every arc. `confidenza` stays on the payload (tooltip / inspector). */
+export const EDGE_WIDTH = 2.5;
 
 export function encodeEdge(
   edge: EventGraphEdgeData | EventGraphEdgeElement,
@@ -242,21 +230,17 @@ export function encodeEdge(
   const conflitto = data.conflitto === true;
 
   let color = ARGOMENTALE_COLOR;
-  let width = 2;
   let lineStyle: "solid" | "dashed" = "solid";
   let double = false;
   let markedArrow = false;
 
   if (family === "argomentali") {
     color = ARGOMENTALE_COLOR;
-    width = 1;
   } else if (family === "dizionario") {
     color = DIZIONARIO_COLORS[tipo] ?? ARGOMENTALE_COLOR;
-    width = 2.5;
     markedArrow = true;
   } else if (family === "placeholder") {
     color = COLLEGATO_COLOR;
-    width = 1;
     if (segnale.startsWith("ordine_")) {
       color = COLLEGATO_COLOR;
     }
@@ -265,14 +249,11 @@ export function encodeEdge(
       tipo === "SUCCESSIONE_ZONA" || tipo === "SUCCESSIONE_ANCORA"
         ? SUCCESSIONE_ZONA_COLOR
         : STRUTTURA_COLOR;
-    width = tipo === "SUCCESSIONE_ZONA" || tipo === "SUCCESSIONE_ANCORA" ? 3 : 2;
   }
-
-  width = edgeWidthFromConfidenza(data.confidenza, width);
 
   return {
     color,
-    width,
+    width: EDGE_WIDTH,
     lineStyle,
     family,
     double,

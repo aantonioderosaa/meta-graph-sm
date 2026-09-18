@@ -1,13 +1,13 @@
 /**
- * Relazioni view: circle of linked Evento nodes so nothing sits on a
- * sequential ladder. Isolated events sit on a row below. No cytoscape.
+ * Relazioni view: force-directed (cose) placement of Evento nodes.
+ * Spacing constants keep labels readable; layout stays organic, not a circle.
  */
 
 import { isEventoNode, orderedEventoIds } from "./layout-zigzag";
 import type { EventGraphElements, EventGraphNodeData } from "./types";
 
-export const RELAZIONI_MIN_GAP = 180;
-export const RELAZIONI_ISOLATE_GAP = 180;
+export const RELAZIONI_MIN_GAP = 260;
+export const RELAZIONI_ISOLATE_GAP = 260;
 export const RELAZIONI_NODE_WIDTH = 118;
 export const RELAZIONI_NODE_HEIGHT = 52;
 export const RELAZIONI_LABEL_MAX = 36;
@@ -157,4 +157,27 @@ export function positionsRelazioni(
 
   resolveOverlaps(positions, RELAZIONI_MIN_GAP);
   return positions;
+}
+
+/** Spacious cose options: same organic layout as before, readable node gap. */
+export function coseRelazioniLayoutOptions(randomize = false): Record<string, unknown> {
+  return {
+    name: "cose",
+    animate: false,
+    fit: false,
+    padding: 48,
+    randomize,
+    nodeDimensionsIncludeLabels: true,
+    nodeRepulsion: () => 18000,
+    nodeOverlap: 48,
+    idealEdgeLength: () => RELAZIONI_MIN_GAP,
+    edgeElasticity: () => 120,
+    nestingFactor: 1.2,
+    gravity: 0.2,
+    numIter: 2000,
+    initialTemp: 300,
+    coolingFactor: 0.95,
+    minTemp: 1.0,
+    componentSpacing: RELAZIONI_ISOLATE_GAP,
+  };
 }

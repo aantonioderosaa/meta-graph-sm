@@ -107,7 +107,7 @@ def test_normalize_referential_and_fold():
     assert _normalize_referential("l'uomo") == "uomo"
     assert _normalize_referential("L\u2019uomo") == "uomo"
     assert _normalize_referential("il viandante") == "viandante"
-    assert _normalize_referential("il vecchio Sole") == "vecchio sole"
+    assert _normalize_referential("il vecchio Sole") == "sole"
     folded = fold_text("L\u2019uomo, \u201csentendo il vento\u201d")
     assert "'" in folded
     assert "\u2019" not in folded
@@ -118,9 +118,11 @@ def test_normalize_referential_and_fold():
 
 def test_sole_invece_matches_turno_del_sole():
     from app.pipeline.event_graph.mention_coref import _names_match
+    from app.pipeline.event_graph.entita_forma import pulisci_forma
 
-    assert _names_match("Il Sole, invece", "il turno del Sole")
-    assert _names_match("il Sole", "il turno del Sole")
+    assert _names_match("Il Sole, invece", "il Sole")
+    assert pulisci_forma("il turno del Sole") == "turno"
+    assert pulisci_forma("Il Sole, invece") == "Sole"
 
 
 def test_b1_three_sole_forms_fuse_to_content_hash():

@@ -23,7 +23,15 @@ from app.pipeline.event_graph.catalog import (
     grafo_livello3,
     stats,
 )
-from app.pipeline.event_graph.infra.bus import run_tracked_job, subscribe, unsubscribe
+from app.pipeline.event_graph.infra.bus import (
+    elenca_job,
+    merge_job_lists,
+    register_job,
+    reset_event_bus,
+    run_tracked_job,
+    subscribe,
+    unsubscribe,
+)
 from app.pipeline.event_graph.infra.driver import get_driver
 from app.pipeline.event_graph.infra.llm import LLMValidationError
 from app.pipeline.event_graph.metrics import elenca_run
@@ -32,6 +40,8 @@ from app.pipeline.event_graph.persistence import (
     carica_documento_testo,
     carica_zona,
     carica_zone,
+    elenca_documenti,
+    wipe_grafo,
 )
 from app.pipeline.event_graph.pipeline import espandi_zona, run_event_graph_ingestion
 from app.pipeline.event_graph.query_nl import esegui_nl
@@ -42,6 +52,7 @@ from app.pipeline.event_graph.query_structured import (
     esegui,
     get_query,
     registra_query,
+    reset_query_history,
 )
 from app.pipeline.event_graph.zona_edges import ArcoZona
 from app.pipeline.event_graph.zona_segmentation import Zona
@@ -80,6 +91,7 @@ async def ingest_event_graph_document(
     body: EventGraphDocumentRequest,
 ) -> EventGraphJobResponse:
     job_id = str(uuid.uuid4())
+    register_job(job_id)
     asyncio.create_task(
         run_tracked_job(
             job_id,
@@ -87,6 +99,36 @@ async def ingest_event_graph_document(
         )
     )
     return EventGraphJobResponse(job_id=job_id)
+
+
+@router.get("/documents")
+async def list_event_graph_documents() -> dict:
+    """Ingested documents: id, format, byte size, preview."""
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            documents = await elenca_documenti(session)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"documents": documents}
+
+
+@router.delete("/graph")
+async def wipe_event_graph() -> dict:
+    """Wipe the event-graph knowledge base (nodes, rels, in-memory query history)."""
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            await wipe_grafo(session)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    reset_query_history()
+    reset_event_bus()
+    return {"deleted": True}
 
 
 def _zona_payload(zona: Zona) -> dict:
@@ -213,6 +255,22 @@ async def stream_event_graph_job(
         sse_event_generator(job_id),
         media_type="text/event-stream",
     )
+
+
+@router.get("/jobs")
+async def list_event_graph_jobs() -> dict:
+    """Live ingest jobs (in-memory SSE history) plus completed :EventGraphRun."""
+    jobs = elenca_job()
+    runs: list = []
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            runs = await elenca_run(session)
+    except HTTPException:
+        raise
+    except Exception:
+        runs = []
+    return {"jobs": merge_job_lists(jobs, runs)}
 
 
 @router.get("/health")

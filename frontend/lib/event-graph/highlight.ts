@@ -3,7 +3,7 @@
  * Pure — no cytoscape, no fetch.
  */
 
-import type { EventQueryRisultato } from "./types";
+import type { EventNlQueryResponse, EventQueryRisultato } from "./types";
 
 export type HighlightKind = "structured" | "nl" | "both";
 
@@ -24,6 +24,16 @@ export function idsFromQueryResult(
     if (!arco) continue;
     if (arco.source) ids.push(String(arco.source));
     if (arco.target) ids.push(String(arco.target));
+  }
+  return ids;
+}
+
+export function idsFromNlQuery(
+  result?: EventNlQueryResponse | null,
+): string[] {
+  const ids = idsFromQueryResult(result?.risultato);
+  for (const id of result?.eventi_citati ?? []) {
+    if (id) ids.push(String(id));
   }
   return ids;
 }

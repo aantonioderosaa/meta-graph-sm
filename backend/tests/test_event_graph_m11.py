@@ -179,6 +179,8 @@ async def test_merge_evento_menzione_documento_quarantena_no_delete():
     blob = _blob(session)
     assert "MERGE (e:Evento" in blob
     assert "MERGE (m:Menzione" in blob
+    assert "m.riferimenti = $riferimenti" in blob
+    assert "m.occorrenze = $occorrenze" in blob
     assert "MERGE (d:Documento" in blob
     assert "MERGE (q:Quarantena" in blob
     assert "MERGE" in blob

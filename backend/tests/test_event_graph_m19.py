@@ -408,9 +408,38 @@ async def test_grafo_fakesession_cytoscape_shape():
     assert "fuso_in" in blob
     assert "e.posizione_doc AS posizione_doc" in blob
     assert "e.offset_inizio AS offset_inizio" in blob
+    assert "m.riassunti AS riassunti" in blob
     assert any(params.get("documento") == "doc-1" for _, params in session.runs)
     assert any(params.get("piano") == "PRIMO_PIANO" for _, params in session.runs)
     assert any(params.get("lemma") == "arrivare" for _, params in session.runs)
+
+
+@pytest.mark.asyncio
+async def test_grafo_menzione_espone_riassunti_e_occorrenze():
+    session = FakeSession(
+        rows=[
+            {
+                "id": "m-garage",
+                "label": "garage",
+                "tipo": "Menzione",
+                "documento": "doc-1",
+                "descrizione": "lo stesso vecchio garage",
+                "occorrenze": 2,
+                "riassunti": (
+                    '["lo stesso vecchio garage", "nel garage nuovo"]'
+                ),
+            }
+        ]
+    )
+    result = await grafo(session, documento="doc-1")
+    node = result["elements"]["nodes"][0]["data"]
+    assert node["label"] == "garage"
+    assert node["occorrenze"] == 2
+    assert node["riassunti"] == [
+        "lo stesso vecchio garage",
+        "nel garage nuovo",
+    ]
+    assert node["descrizione"] == "lo stesso vecchio garage"
 
 
 @pytest.mark.asyncio

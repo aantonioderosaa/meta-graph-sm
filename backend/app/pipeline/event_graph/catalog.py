@@ -170,7 +170,9 @@ def _viste() -> dict[str, dict[str, Any]]:
                 "TipoRelazioneLibera di significato (CAUSA, CONDIZIONE, "
                 "SCOPO, CONCESSIONE, CONTRASTO, LIMITE, CONTENUTO) da grammatica "
                 "e livello 3. Nessun arco SEQUENZA: il livello 3 legge il testo "
-                "e la lista eventi, non l'ordine di esposizione."
+                "e la lista eventi, non l'ordine di esposizione. "
+                "Vicinanza senza nulla in comune non basta; "
+                "con qualcosa in comune non è una penalità."
             ),
         },
     }
@@ -426,21 +428,24 @@ _NODES_CYPHER = (
     "RETURN e.id AS id, e.lemma AS label, 'Evento' AS tipo, e.piano AS piano, "
     "e.fattualita AS fattualita, e.documento AS documento, e.fuso_in AS fuso_in, "
     "e.posizione_doc AS posizione_doc, e.posizione_chunk AS posizione_chunk, "
-    "e.offset_inizio AS offset_inizio "
+    "e.offset_inizio AS offset_inizio, "
+    "null AS descrizione, null AS occorrenze, null AS riassunti "
     "UNION ALL "
     "MATCH (m:Menzione) "
     "WHERE ($documento IS NULL OR m.documento = $documento) "
     "RETURN m.id AS id, coalesce(m.forma, m.forma_canonica, m.id) AS label, "
     "'Menzione' AS tipo, null AS piano, null AS fattualita, "
     "m.documento AS documento, null AS fuso_in, "
-    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio "
+    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio, "
+    "m.summary AS descrizione, m.occorrenze AS occorrenze, m.riassunti AS riassunti "
     "UNION ALL "
     "MATCH (q:Quarantena) "
     "WHERE ($documento IS NULL OR q.ancora_doc = $documento) "
     "RETURN q.id AS id, coalesce(q.frammento, q.id) AS label, "
     "'Quarantena' AS tipo, null AS piano, null AS fattualita, "
     "q.ancora_doc AS documento, null AS fuso_in, "
-    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio"
+    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio, "
+    "null AS descrizione, null AS occorrenze, null AS riassunti"
 )
 
 _EDGES_CYPHER = (
@@ -482,6 +487,19 @@ def _node_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
         "fattualita": mapping.get("fattualita"),
         "documento": mapping.get("documento"),
     }
+    riassunti = _as_str_list(mapping.get("riassunti"))
+    if riassunti:
+        data["riassunti"] = riassunti
+    if mapping.get("descrizione"):
+        data["descrizione"] = mapping.get("descrizione")
+    elif riassunti:
+        data["descrizione"] = riassunti[-1]
+    occorrenze = mapping.get("occorrenze")
+    if occorrenze is not None and occorrenze != "":
+        try:
+            data["occorrenze"] = int(occorrenze)
+        except (TypeError, ValueError):
+            pass
     _attach_posizione(data, mapping)
     return {"data": data}
 
@@ -757,6 +775,7 @@ _L2_CLUSTER_CYPHER = (
     "a.posizione_doc_min AS posizione_doc_min, "
     "a.stimato AS stimato, a.confidenza AS confidenza, "
     "a.natura AS natura, a.ordinale AS ordinale, "
+    "a.occorrenze AS occorrenze, "
     "p.id AS parent, 'AncoraTemporale' AS tipo "
     # MT5 guarantees at most one active parent; the sort only makes the
     # first-wins dedupe below deterministic if that guarantee ever breaks.
@@ -818,6 +837,7 @@ def _l2_cluster_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | 
         "fine": mapping.get("fine"),
         "natura": mapping.get("natura"),
         "ordinale": _as_int(mapping.get("ordinale")),
+        "occorrenze": _as_int(mapping.get("occorrenze")),
         # Verbatim: an ancora written without a calendar signal has neither,
         # and the view never invents a time for it. Only ``ordine_vista``
         # is resolved.

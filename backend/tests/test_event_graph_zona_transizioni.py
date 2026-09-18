@@ -111,8 +111,10 @@ async def test_a_u2_genera_transizioni_zona_best_effort_per_pair(monkeypatch):
         "Prima zona: il bosco.\n\nSeconda zona: il sentiero.",
         "Seconda zona: il sentiero.\n\nTerza zona: la città.",
     ]
-    assert result == {("z-1", "z-2"): "Cambia il luogo, si entra in città."}
-    assert ("z-0", "z-1") not in result
+    assert result == {
+        ("z-0", "z-1"): "",
+        ("z-1", "z-2"): "Cambia il luogo, si entra in città.",
+    }
 
 
 @pytest.mark.asyncio
@@ -139,3 +141,67 @@ async def test_a_u3_merge_successione_zona_idempotent():
     assert "MERGE (za)-[r:SUCCESSIONE_ZONA]->(zb)" in blob
     assert "MERGE (za:Zona" not in blob
     _assert_no_delete(session)
+
+
+@pytest.mark.asyncio
+async def test_arco_strutturale_anche_se_riassunto_vuoto_e_llm_fallisce(monkeypatch):
+    async def stub(system_prompt, user_prompt, response_model, temperature=0, job_id=None):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.zona_transizioni.call_structured",
+        stub,
+    )
+    zone = [
+        _zona("z-0", 0, ""),
+        _zona("z-1", 1, ""),
+        _zona("z-2", 2, "", espansa=False),
+    ]
+    result = await genera_transizioni_zona(zone, job_id="job-t")
+    assert result == {("z-0", "z-1"): ""}
+    assert ("z-1", "z-2") not in result
+
+
+@pytest.mark.asyncio
+async def test_transizione_usa_testo_se_riassunto_vuoto(monkeypatch):
+    captured: list[str] = []
+
+    async def stub(system_prompt, user_prompt, response_model, temperature=0, job_id=None):
+        captured.append(user_prompt)
+        return TransizioneZonaResult(riassunto="Cambia il soggetto.")
+
+    monkeypatch.setattr(
+        "app.pipeline.event_graph.zona_transizioni.call_structured",
+        stub,
+    )
+    zone = [
+        _zona("z-0", 0, "", testo="Il meccanico trova l'auto."),
+        _zona("z-1", 1, "", testo="Smonta il motore."),
+    ]
+    result = await genera_transizioni_zona(zone, job_id="job-t")
+    assert captured
+    assert "Il meccanico trova l'auto." in captured[0]
+    assert "Smonta il motore." in captured[0]
+    assert result == {("z-0", "z-1"): "Cambia il soggetto."}
+
+
+@pytest.mark.asyncio
+async def test_merge_successione_con_testo_vuoto():
+    session = FakeSession()
+    await _merge_successione_zona(session, "z-a", "z-b", "", "job-1")
+    assert session.runs
+    query, params = session.runs[0]
+    assert "SUCCESSIONE_ZONA" in query
+    assert params["riassunto"] == ""
+
+
+@pytest.mark.asyncio
+async def test_persisti_transizioni_scrive_arco_senza_testo():
+    from app.pipeline.event_graph.persistence import persisti_transizioni_zona
+
+    session = FakeSession()
+    await persisti_transizioni_zona(session, {("z-a", "z-b"): ""}, "job-1")
+    assert session.runs
+    query, params = session.runs[0]
+    assert "SUCCESSIONE_ZONA" in query
+    assert params["riassunto"] == ""

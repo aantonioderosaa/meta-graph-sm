@@ -48,6 +48,12 @@ from datetime import date
 from typing import Final
 
 from app.models.event_graph import GRANULARITA_TEMPORALI, GranularitaTemporale
+from app.pipeline.event_graph.tempo_parole import (
+    OrarioParole,
+    data_da_parole,
+    intero_da_parole,
+    orario_da_parole,
+)
 
 SCALA_CHIAVE: Final[int] = 16
 """Sedicesimi di secondo per secondo: i bit bassi ospitano il tie-break."""
@@ -69,6 +75,60 @@ _SECONDI_AL_GIORNO: Final[int] = 86_400
 # suffisso di fuso. Frazioni e fuso vengono accettati e *ignorati* (vedi
 # `analizza`), non rifiutati: scartare l'intera collocazione per un 'Z' di
 # troppo sarebbe il contrario di best-effort.
+_MESI_NUMERO: Final[dict[str, int]] = {
+    "gennaio": 1,
+    "january": 1,
+    "febbraio": 2,
+    "february": 2,
+    "marzo": 3,
+    "march": 3,
+    "aprile": 4,
+    "april": 4,
+    "maggio": 5,
+    "may": 5,
+    "giugno": 6,
+    "june": 6,
+    "luglio": 7,
+    "july": 7,
+    "agosto": 8,
+    "august": 8,
+    "settembre": 9,
+    "september": 9,
+    "ottobre": 10,
+    "october": 10,
+    "novembre": 11,
+    "november": 11,
+    "dicembre": 12,
+    "december": 12,
+}
+_MESI_ALT: Final[str] = "|".join(
+    sorted(_MESI_NUMERO, key=len, reverse=True)
+)
+_DATA_IT: Final[re.Pattern[str]] = re.compile(
+    rf"(?:(?:il|dal|da|nel|nella|di)\s+)?(\d{{1,2}})\s+({_MESI_ALT})\s+(\d{{4}})",
+    re.IGNORECASE,
+)
+_DATA_NUM: Final[re.Pattern[str]] = re.compile(
+    r"(?<!\d)(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?!\d)"
+)
+_INTERVALLO_DAL_AL: Final[re.Pattern[str]] = re.compile(
+    rf"(?:dal|da)\s+(?P<sinistra>{_DATA_IT.pattern})\s+al\s+"
+    rf"(?P<destra>\d{{1,2}}\s+(?:{_MESI_ALT})(?:\s+\d{{4}})?)",
+    re.IGNORECASE,
+)
+_INTERVALLO_TRA_ANNI: Final[re.Pattern[str]] = re.compile(
+    r"\btra\s+(\d{4})\s+e\s+(\d{4})\b",
+    re.IGNORECASE,
+)
+_INTERVALLO_ANNI: Final[re.Pattern[str]] = re.compile(
+    r"\b(\d{4})\s*[-–]\s*(\d{4})\b"
+)
+_ORA_IN_TESTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:alle|all['’]|ore)\s+(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\b"
+    r"|\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b",
+    re.IGNORECASE,
+)
+
 _ISO_VARIABILE: Final[re.Pattern[str]] = re.compile(
     r"""^
     (?P<anno>\d{4})
@@ -136,6 +196,206 @@ _SECONDI_MAX: Final[int] = (
 """Fine esclusiva dell'asse rappresentabile: mezzanotte dopo il 9999-12-31."""
 
 
+def _tempo_da_componenti(
+    anno: int,
+    mese: int,
+    giorno: int,
+    ora: int,
+    minuto: int,
+    secondo: int,
+    precisione_: GranularitaTemporale,
+) -> TempoISO | None:
+    secondi = _secondi_da_epoca(anno, mese, giorno, ora, minuto, secondo)
+    if secondi is None:
+        return None
+    return TempoISO(
+        anno=anno,
+        mese=mese,
+        giorno=giorno,
+        ora=ora,
+        minuto=minuto,
+        secondo=secondo,
+        precisione=precisione_,
+        canonico=_canonico(anno, mese, giorno, ora, minuto, secondo, precisione_),
+        secondi=secondi,
+    )
+
+
+def _orario_da_cifre(testo: str) -> OrarioParole | None:
+    match = _ORA_IN_TESTO.search(testo or "")
+    if match is None:
+        return None
+    if match.group(1) is not None:
+        ora = int(match.group(1))
+        minuto_g = match.group(2)
+        secondo_g = match.group(3)
+    else:
+        ora = int(match.group(4))
+        minuto_g = match.group(5)
+        secondo_g = match.group(6)
+    minuto = int(minuto_g or 0)
+    secondo = int(secondo_g or 0)
+    if not (0 <= ora <= 23 and 0 <= minuto <= 59 and 0 <= secondo <= 59):
+        return None
+    if secondo_g is not None:
+        precisione: GranularitaTemporale = "secondo"
+    elif minuto_g is not None:
+        precisione = "minuto"
+    else:
+        precisione = "ora"
+    return OrarioParole(ora, minuto, secondo, precisione)
+
+
+def _ora_in_testo(testo: str) -> tuple[int, int, int] | None:
+    dettaglio = orario_dettaglio_da_espressione(testo)
+    if dettaglio is None:
+        return None
+    return dettaglio.ora, dettaglio.minuto, dettaglio.secondo
+
+
+def orario_dettaglio_da_espressione(valore: object) -> OrarioParole | None:
+    """Clock-of-day with the precision the span actually writes."""
+    if not isinstance(valore, str):
+        return None
+    testo = valore.strip()
+    if not testo:
+        return None
+    cifre = _orario_da_cifre(testo)
+    if cifre is not None:
+        return cifre
+    return orario_da_parole(testo)
+
+
+def orario_da_espressione(valore: object) -> tuple[int, int, int] | None:
+    """Clock-of-day from a TEMPO span: (ora, minuto, secondo), or None.
+
+    Does not invent a calendar date. ``ore 11:20`` and ``alle otto`` are clocks;
+    ``12 marzo`` is not.
+    """
+    dettaglio = orario_dettaglio_da_espressione(valore)
+    if dettaglio is None:
+        return None
+    return dettaglio.ora, dettaglio.minuto, dettaglio.secondo
+
+
+def _da_data_parti(
+    giorno: int | None,
+    mese: int,
+    anno: int,
+    testo: str,
+) -> TempoISO | None:
+    orario = orario_dettaglio_da_espressione(testo)
+    if orario is not None and giorno is not None:
+        return _tempo_da_componenti(
+            anno,
+            mese,
+            giorno,
+            orario.ora,
+            orario.minuto,
+            orario.secondo,
+            orario.precisione,  # type: ignore[arg-type]
+        )
+    if giorno is not None:
+        return _tempo_da_componenti(anno, mese, giorno, 0, 0, 0, "giorno")
+    return _tempo_da_componenti(anno, mese, 1, 0, 0, 0, "mese")
+
+
+def _da_data_it(match: re.Match[str], testo: str) -> TempoISO | None:
+    giorno = int(match.group(1))
+    mese = _MESI_NUMERO.get(match.group(2).casefold())
+    anno = int(match.group(3))
+    if mese is None:
+        return None
+    return _da_data_parti(giorno, mese, anno, testo)
+
+
+def _da_data_num(match: re.Match[str]) -> TempoISO | None:
+    primo = int(match.group(1))
+    secondo = int(match.group(2))
+    anno = int(match.group(3))
+    if secondo > 12:
+        mese, giorno = primo, secondo
+    else:
+        giorno, mese = primo, secondo
+    return _tempo_da_componenti(anno, mese, giorno, 0, 0, 0, "giorno")
+
+
+def collocazione_da_espressione(valore: object) -> TempoISO | None:
+    """ISO first, then a written Italian/English date in the same string.
+
+    Does not invent a calendar: ``ieri`` stays ``None``. ``analizza`` remains
+    ISO-only; this is the reader for TEMPO mentions already extracted in MICRO.
+    """
+    iso = analizza(valore)
+    if iso is not None:
+        return iso
+    if not isinstance(valore, str):
+        return None
+    testo = valore.strip()
+    if not testo:
+        return None
+    match = _DATA_IT.search(testo)
+    if match is not None:
+        letto = _da_data_it(match, testo)
+        if letto is not None:
+            return letto
+    parlato = data_da_parole(testo, _MESI_NUMERO)
+    if parlato is not None:
+        giorno, mese, anno = parlato
+        letto = _da_data_parti(giorno, mese, anno, testo)
+        if letto is not None:
+            return letto
+    match_num = _DATA_NUM.search(testo)
+    if match_num is not None:
+        return _da_data_num(match_num)
+    nudo = re.fullmatch(r"(?:nel|in)\s+(.+)", testo, re.IGNORECASE)
+    if nudo is not None:
+        anno_span = nudo.group(1).strip()
+        iso_anno = analizza(anno_span) if re.fullmatch(r"\d{4}", anno_span) else None
+        if iso_anno is not None:
+            return iso_anno
+        anno_parole = intero_da_parole(anno_span)
+        if anno_parole is not None and 1 <= anno_parole <= 9999:
+            return analizza(f"{anno_parole:04d}")
+    return None
+
+
+def intervallo_da_espressione(
+    valore: object,
+) -> tuple[TempoISO, TempoISO] | None:
+    """Closed written interval, or None. No inference beyond the string."""
+    if not isinstance(valore, str):
+        return None
+    testo = valore.strip()
+    if not testo:
+        return None
+    dal_al = _INTERVALLO_DAL_AL.search(testo)
+    if dal_al is not None:
+        sinistra = collocazione_da_espressione(dal_al.group("sinistra"))
+        destra_raw = dal_al.group("destra").strip()
+        destra = collocazione_da_espressione(destra_raw)
+        if destra is None and sinistra is not None and not re.search(r"\d{4}", destra_raw):
+            destra = collocazione_da_espressione(f"{destra_raw} {sinistra.anno}")
+        if sinistra is not None and destra is not None:
+            return sinistra, destra
+    tra = _INTERVALLO_TRA_ANNI.search(testo)
+    if tra is not None:
+        sinistra = analizza(tra.group(1))
+        destra = analizza(tra.group(2))
+        if sinistra is not None and destra is not None:
+            return sinistra, destra
+    anni = _INTERVALLO_ANNI.search(testo)
+    if anni is not None and anni.group(1) != anni.group(2):
+        # Bare ``1987-03-12`` is ISO, not a year span.
+        if analizza(testo.strip()) is not None:
+            return None
+        sinistra = analizza(anni.group(1))
+        destra = analizza(anni.group(2))
+        if sinistra is not None and destra is not None:
+            return sinistra, destra
+    return None
+
+
 def analizza(valore: object) -> TempoISO | None:
     """Legge una collocazione ISO a precisione variabile.
 
@@ -165,20 +425,8 @@ def analizza(valore: object) -> TempoISO | None:
     minuto = int(parti["minuto"] or 0)
     secondo = int(parti["secondo"] or 0)
 
-    secondi = _secondi_da_epoca(anno, mese, giorno, ora, minuto, secondo)
-    if secondi is None:
-        return None
-
-    return TempoISO(
-        anno=anno,
-        mese=mese,
-        giorno=giorno,
-        ora=ora,
-        minuto=minuto,
-        secondo=secondo,
-        precisione=trovata,
-        canonico=_canonico(anno, mese, giorno, ora, minuto, secondo, trovata),
-        secondi=secondi,
+    return _tempo_da_componenti(
+        anno, mese, giorno, ora, minuto, secondo, trovata
     )
 
 
@@ -360,7 +608,11 @@ __all__ = [
     "analizza",
     "bounds",
     "chiave_ordine",
+    "collocazione_da_espressione",
+    "intervallo_da_espressione",
     "normalizza",
+    "orario_da_espressione",
+    "orario_dettaglio_da_espressione",
     "piu_grossa",
     "precisione",
     "rango_granularita",

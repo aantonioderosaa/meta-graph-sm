@@ -22,7 +22,10 @@ from app.pipeline.event_graph.tempo_iso import (
     analizza,
     bounds,
     chiave_ordine,
+    collocazione_da_espressione,
+    intervallo_da_espressione,
     normalizza,
+    orario_da_espressione,
     piu_grossa,
     precisione,
     rango_granularita,
@@ -532,3 +535,34 @@ def test_allen_da_tempo_assoluto_resta_coerente(sinistra, destra, attesa):
 
 def test_allen_ignora_le_collocazioni_illeggibili():
     assert _allen_from_assoluto(_evento("a", "ieri"), _evento("b", "1843")) is None
+
+
+def test_collocazione_da_espressione_legge_date_italiane_senza_cambiare_analizza():
+    assert analizza("12 marzo 1987") is None
+    tempo = collocazione_da_espressione("12 marzo 1987")
+    assert tempo is not None
+    assert tempo.canonico == "1987-03-12"
+    assert tempo.precisione == "giorno"
+    con_ora = collocazione_da_espressione("12 marzo 1987, ore 08:15")
+    assert con_ora is not None
+    assert con_ora.canonico == "1987-03-12T08:15"
+    assert collocazione_da_espressione("ieri") is None
+    assert orario_da_espressione("ore 11:20") == (11, 20, 0)
+    assert orario_da_espressione("alle otto") == (8, 0, 0)
+    assert orario_da_espressione("12 marzo 1987") is None
+    mezzanotte_ora = collocazione_da_espressione("17 luglio 1960, ore 09:00")
+    assert mezzanotte_ora is not None
+    assert mezzanotte_ora.canonico == "1960-07-17T09:00"
+    assert mezzanotte_ora.precisione == "minuto"
+    parlato = collocazione_da_espressione(
+        "dodici marzo millenovecentottantasette, alle otto e un quarto"
+    )
+    assert parlato is not None
+    assert parlato.canonico == "1987-03-12T08:15"
+
+
+def test_intervallo_dal_al():
+    coppia = intervallo_da_espressione("Dal 12 marzo 1987 al 15 marzo 1987")
+    assert coppia is not None
+    assert coppia[0].canonico == "1987-03-12"
+    assert coppia[1].canonico == "1987-03-15"

@@ -28,6 +28,7 @@ from app.pipeline.event_graph.chunking_periods import (
     split_sentences_with_offsets,
 )
 from app.pipeline.event_graph.dedup import (
+    _estendi_span_evento,
     _evento_da_partecipazione,
     _find_offset,
 )
@@ -161,6 +162,8 @@ def applica_eventi_mancanti(
             continue
         zona_testo = zona.testo or ""
         start, end = _find_offset(zona_testo, evento_testo, 0)
+        start, end = _estendi_span_evento(zona_testo, start, end)
+        evento_testo = zona_testo[start:end]
         base_offset = int(zona.offset_inizio or 0)
         global_start = base_offset + start
         global_end = base_offset + end

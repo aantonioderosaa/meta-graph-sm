@@ -8,7 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from app.models.event_graph import AncoraTemporaleProposta, LivelloAncoreResult
+from app.models.event_graph import (
+    AncoraTemporaleProposta,
+    ArgomentoRisolto,
+    EventoRisolto,
+    LivelloAncoreResult,
+    MenzioneRisolta,
+)
 from app.pipeline.event_graph.ancore_estrazione import (
     EVENTO_DOCUMENTO,
     EVENTO_ZONA,
@@ -17,6 +23,7 @@ from app.pipeline.event_graph.ancore_estrazione import (
     AncoreZonaLlm,
     estrai_ancore,
     prepass_regex,
+    proposte_da_menzioni_tempo,
     proposte_da_semi,
     user_ancore_zona,
 )
@@ -325,3 +332,123 @@ def test_isolamento_d6():
 
 def test_esito_non_e_none_ed_espone_livello():
     assert LivelloAncoreResult().ancore == []
+
+
+@pytest.mark.asyncio
+async def test_eventi_passati_usano_tempo_senza_llm():
+    testo = "1. 12 marzo 1987, ore 08:15 — Un meccanico trova un'auto."
+    zona = _zona(testo)
+    menzione = MenzioneRisolta(id="m-data", forma="12 marzo 1987")
+    evento = EventoRisolto(
+        id="ev-1",
+        lemma=testo,
+        span=testo,
+        documento="doc-1",
+        chunk_id=zona.id,
+        offset_inizio=0,
+        offset_fine=len(testo),
+        argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-data")],
+    )
+
+    async def boom(*_args, **_kwargs):
+        raise AssertionError("temporal phase must not re-extract")
+
+    result = await estrai_ancore(
+        [zona],
+        call_structured=boom,
+        eventi=[evento],
+        menzioni=[menzione],
+    )
+    assert len(result.ancore) == 1
+    ancora = result.ancore[0]
+    assert ancora.espressione == "12 marzo 1987"
+    assert ancora.inizio == "1987-03-12"
+    assert ancora.eventi == ["ev-1"]
+    assert ancora.tipo == "data"
+
+
+def test_proposte_stessa_occorrenza_fondono_eventi():
+    zona = _zona("Il 12 marzo 1987 aprì e chiuse.")
+    menzione = MenzioneRisolta(id="m-1", forma="12 marzo 1987")
+    eventi = [
+        EventoRisolto(
+            id="ev-a",
+            lemma="aprì",
+            chunk_id=zona.id,
+            offset_inizio=0,
+            argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-1")],
+        ),
+        EventoRisolto(
+            id="ev-b",
+            lemma="chiuse",
+            chunk_id=zona.id,
+            offset_inizio=0,
+            argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-1")],
+        ),
+    ]
+    ancore = proposte_da_menzioni_tempo(eventi, [menzione], [zona])
+    assert len(ancore) == 1
+    assert set(ancore[0].eventi) == {"ev-a", "ev-b"}
+    assert ancore[0].inizio == "1987-03-12"
+
+
+def test_proposte_stesso_orologio_occorrenze_diverse_restano_due():
+    testo = (
+        "Dopo circa un'ora, ore 16:30 — prova. "
+        "Dopo 90 minuti, ore 16:30 — termina."
+    )
+    zona = _zona(testo)
+    skate = MenzioneRisolta(id="m-a", forma="ore 16:30")
+    calcio = MenzioneRisolta(id="m-b", forma="ore 16:30")
+    off_a = testo.find("ore 16:30")
+    off_b = testo.find("ore 16:30", off_a + 1)
+    eventi = [
+        EventoRisolto(
+            id="ev-skate",
+            lemma="provare",
+            chunk_id=zona.id,
+            offset_inizio=off_a,
+            argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-a")],
+        ),
+        EventoRisolto(
+            id="ev-calcio",
+            lemma="terminare",
+            chunk_id=zona.id,
+            offset_inizio=off_b,
+            argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-b")],
+        ),
+    ]
+    ancore = proposte_da_menzioni_tempo(eventi, [skate, calcio], [zona])
+    orari = [a for a in ancore if a.espressione == "ore 16:30"]
+    assert len(orari) == 2
+    assert {a.offset_inizio for a in orari} == {off_a, off_b}
+
+
+def test_proposte_scartano_offset_frasale_e_tengono_vaga():
+    zona = _zona("Dopo circa 3 ore ripartì. Anni 70, dopo un po' successe.")
+    offset = MenzioneRisolta(id="m-off", forma="dopo circa 3 ore")
+    vaga = MenzioneRisolta(id="m-vaga", forma="anni 70")
+    poco = MenzioneRisolta(id="m-poco", forma="dopo un po'")
+    eventi = [
+        EventoRisolto(
+            id="ev-off",
+            lemma="ripartì",
+            chunk_id=zona.id,
+            argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-off")],
+        ),
+        EventoRisolto(
+            id="ev-vaga",
+            lemma="successe",
+            chunk_id=zona.id,
+            argomenti=[
+                ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-vaga"),
+                ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-poco"),
+            ],
+        ),
+    ]
+    ancore = proposte_da_menzioni_tempo(eventi, [offset, vaga, poco], [zona])
+    espr = {item.espressione for item in ancore}
+    assert "dopo circa 3 ore" not in espr
+    assert "anni 70" in espr
+    assert "dopo un po'" in espr or "dopo un po" in espr
+    assert all(item.tipo == "vaga" for item in ancore)

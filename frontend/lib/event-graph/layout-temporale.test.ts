@@ -189,7 +189,7 @@ describe("timelineRankEdges", () => {
     expect(edges.map((edge) => edge.data.tipo)).toEqual(
       edges.map(() => "SUCCESSIONE_ANCORA"),
     );
-    expect(edges.some((edge) => edge.data.tipo === "PRECEDE")).toBe(false);
+    expect(edges.some((edge) => String(edge.data.tipo) === "PRECEDE")).toBe(false);
     const pairs = rankPairs(nodes);
     expect(pairs).toEqual([
       ["A", "B"],
@@ -216,6 +216,7 @@ describe("timelineRankEdges", () => {
 describe("ancoraDisplayLabel / isAncoraTemporaleNode", () => {
   it("prefers etichetta and ignores eventi", () => {
     expect(ancoraDisplayLabel(ancora("a1", { etichetta: "1843" }))).toBe("1843");
+    expect(ancoraDisplayLabel(ancora("a1", { etichetta: "1843\u2060" }))).toBe("1843");
     expect(ancoraDisplayLabel(ancora("a1", { label: "anno" }))).toBe("anno");
     expect(isAncoraTemporaleNode(ancora("a1"))).toBe(true);
     expect(

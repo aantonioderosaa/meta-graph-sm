@@ -6,6 +6,7 @@ import {
   COLLEGATO_COLOR,
   CONFLITTO_BORDER,
   DIZIONARIO_COLORS,
+  EDGE_WIDTH,
   PIANO_COLORS,
   SUCCESSIONE_ANCORA_COLOR,
   SUCCESSIONE_ZONA_COLOR,
@@ -199,7 +200,7 @@ describe("event-graph visual encoding", () => {
     });
     expect(edge.family).toBe("argomentali");
     expect(edge.color).toBe(ARGOMENTALE_COLOR);
-    expect(edge.width).toBe(1);
+    expect(edge.width).toBe(EDGE_WIDTH);
     expect(edge.double).toBe(false);
   });
 
@@ -220,7 +221,8 @@ describe("event-graph visual encoding", () => {
     expect(causa.color).toBe(DIZIONARIO_COLORS.CAUSA);
     expect(seq.color).toBe(DIZIONARIO_COLORS.SEQUENZA);
     expect(causa.color).not.toBe(seq.color);
-    expect(causa.width).toBeGreaterThan(1);
+    expect(causa.width).toBe(EDGE_WIDTH);
+    expect(seq.width).toBe(EDGE_WIDTH);
     expect(causa.markedArrow).toBe(true);
     expect(seq.markedArrow).toBe(true);
   });
@@ -340,7 +342,7 @@ describe("event-graph visual encoding", () => {
     });
     expect(edge.family).toBe("placeholder");
     expect(edge.color).toBe(COLLEGATO_COLOR);
-    expect(edge.width).toBe(1);
+    expect(edge.width).toBe(EDGE_WIDTH);
   });
 
   it("makes superato_da semi-transparent and conflitto a red border", () => {
@@ -364,7 +366,7 @@ describe("event-graph visual encoding", () => {
     expect(conflict.borderColor).toBe(CONFLITTO_BORDER);
   });
 
-  it("scales edge width from confidenza (0.9 is thicker than 0.4)", () => {
+  it("keeps confidenza on the payload but draws every arc at the same width", () => {
     const high = encodeEdge({
       id: "c-hi",
       source: "a",
@@ -385,9 +387,24 @@ describe("event-graph visual encoding", () => {
       target: "b",
       tipo: "CAUSA",
     });
-    expect(high.width).toBe(5.5);
-    expect(low.width).toBe(3);
-    expect(missing.width).toBe(2.5);
-    expect(high.width).toBeGreaterThan(low.width);
+    const seq = encodeEdge({
+      id: "s",
+      source: "a",
+      target: "b",
+      tipo: "SEQUENZA",
+      confidenza: 1,
+    });
+    const sogg = encodeEdge({
+      id: "r1",
+      source: "e",
+      target: "m",
+      tipo: "SOGG",
+    });
+    expect(high.width).toBe(EDGE_WIDTH);
+    expect(low.width).toBe(EDGE_WIDTH);
+    expect(missing.width).toBe(EDGE_WIDTH);
+    expect(seq.width).toBe(EDGE_WIDTH);
+    expect(sogg.width).toBe(EDGE_WIDTH);
+    expect(high.width).toBe(low.width);
   });
 });

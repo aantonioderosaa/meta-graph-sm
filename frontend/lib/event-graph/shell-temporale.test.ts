@@ -16,6 +16,7 @@ describe("EventGraphPanel relation names on edges", () => {
   it("draws the tipo on Tutto/Relazioni edges with a colored mid-line label", () => {
     const source = readFileSync(panelPath, "utf8");
     expect(source).toContain("ladderEdgeLabel");
+    expect(source).toContain("coseRelazioniLayoutOptions");
     expect(source).toContain("text-background-color");
     expect(source).toContain("useNamedEdges");
     expect(source).not.toMatch(/useCose[\s\S]*label:\s*"data\(spiegazione\)"/);
