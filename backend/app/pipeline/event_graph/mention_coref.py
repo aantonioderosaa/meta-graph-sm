@@ -9,6 +9,7 @@ those rules; no vector similarity.
 from __future__ import annotations
 
 import inspect
+import json
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -17,11 +18,13 @@ from app.models.event_graph import (
     ChunkFactsheet,
     EventoRisolto,
     MenzioneRisolta,
+    RiferimentoMenzione,
     SottoGrafo,
 )
 from app.pipeline.event_graph import RULESET_VERSION
 from app.pipeline.event_graph.ids import content_hash
 from app.pipeline.event_graph.text_norm import _normalize_referential
+from app.pipeline.event_graph.entita_forma import pulisci_forma
 
 REGOLA = "mention_coref.risolvi_intra"
 REGOLA_PERSISTENTE = "mention_coref.fondi_referenziali_vs_persistente"
@@ -30,7 +33,9 @@ _ANTECEDENT_TIPI = frozenset({"nome_proprio", "sn_comune"})
 _REFERENTIAL_TIPI = _ANTECEDENT_TIPI
 _PERSISTED_QUERY = (
     "MATCH (m:Menzione) "
-    "RETURN m.id AS id, m.forma_canonica AS forma_canonica"
+    "RETURN m.id AS id, m.forma_canonica AS forma_canonica, "
+    "m.forma AS forma, m.summary AS summary, m.riassunti AS riassunti, "
+    "m.eventi AS eventi, m.riferimenti AS riferimenti, m.occorrenze AS occorrenze"
 )
 
 
@@ -110,7 +115,10 @@ def _unpack_eventi(
 def _seed_mentions(sotto: SottoGrafo, menzioni: Iterable[MenzioneRisolta]) -> None:
     for mention in menzioni:
         key = mention.id or f"anon:{len(sotto.menzioni)}"
-        if key not in sotto.menzioni:
+        esistente = sotto.menzioni.get(key)
+        if esistente is not None and esistente is not mention:
+            esistente.assorbi(mention)
+        else:
             sotto.menzioni[key] = mention
 
 
@@ -210,7 +218,23 @@ def _fuse_referential_forms(sotto: SottoGrafo, eventi: Sequence[EventoRisolto]) 
         return
     redirect: dict[str, str] = {}
     for cluster in _cluster_referential_forms(candidates):
-        canonical = max(cluster, key=lambda m: len(m.forma_canonica))
+        for member in cluster:
+            pulita = pulisci_forma(member.forma_canonica or member.forma)
+            if pulita:
+                member.forma = pulita
+                member.forma_canonica = pulita
+        def _rank(m: MenzioneRisolta) -> tuple[int, int, int]:
+            forma = m.forma_canonica or m.forma or ""
+            tokens = [tok for tok in forma.split() if tok]
+            proper = bool(tokens) and all(tok[:1].isupper() for tok in tokens)
+            if proper:
+                return (0, -len(tokens), -len(forma))
+            return (1, len(tokens), len(forma))
+
+        canonical = min(cluster, key=_rank)
+        for member in cluster:
+            if member is not canonical:
+                canonical.assorbi(member)
         canon_id = _referential_id(canonical.forma_canonica)
         if canonical.id != canon_id:
             redirect[canonical.id] = canon_id
@@ -359,7 +383,107 @@ def _row_forma(row: dict[str, Any]) -> str:
     return str(value) if value is not None else ""
 
 
-async def _load_persisted(session: Any) -> list[tuple[str, str]]:
+def _as_str_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            return [value]
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed if str(item)]
+        return [value]
+    return []
+
+
+def _as_riferimenti(value: Any) -> list[RiferimentoMenzione]:
+    items: list[Any]
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            return []
+        items = parsed if isinstance(parsed, list) else []
+    elif isinstance(value, list):
+        items = value
+    else:
+        return []
+    out: list[RiferimentoMenzione] = []
+    for item in items:
+        if isinstance(item, dict):
+            out.append(
+                RiferimentoMenzione(
+                    evento_id=str(item.get("evento_id") or ""),
+                    summary=str(item.get("summary") or ""),
+                )
+            )
+        elif isinstance(item, str) and item.strip():
+            out.append(RiferimentoMenzione(summary=item.strip()))
+    return out
+
+
+def _menzione_da_persistita(mapping: dict[str, Any], mid: str) -> MenzioneRisolta:
+    forma = _row_forma(mapping)
+    surface = mapping.get("forma") or mapping.get("m.forma") or forma
+    eventi = _as_str_list(mapping.get("eventi") or mapping.get("m.eventi"))
+    riassunti = _as_str_list(mapping.get("riassunti") or mapping.get("m.riassunti"))
+    riferimenti = _as_riferimenti(
+        mapping.get("riferimenti") or mapping.get("m.riferimenti")
+    )
+    if not riferimenti:
+        n = max(len(eventi), len(riassunti))
+        for i in range(n):
+            riferimenti.append(
+                RiferimentoMenzione(
+                    evento_id=eventi[i] if i < len(eventi) else "",
+                    summary=riassunti[i] if i < len(riassunti) else "",
+                )
+            )
+    if riferimenti:
+        if not eventi:
+            seen_e: list[str] = []
+            for item in riferimenti:
+                if item.evento_id and item.evento_id not in seen_e:
+                    seen_e.append(item.evento_id)
+            eventi = seen_e
+        if not riassunti:
+            seen_s: list[str] = []
+            for item in riferimenti:
+                if item.summary and item.summary not in seen_s:
+                    seen_s.append(item.summary)
+            riassunti = seen_s
+    occorrenze = mapping.get("occorrenze") or mapping.get("m.occorrenze")
+    try:
+        occorrenze_i = int(occorrenze) if occorrenze is not None else 0
+    except (TypeError, ValueError):
+        occorrenze_i = 0
+    pulita = pulisci_forma(str(surface or forma)) or str(surface or forma)
+    return MenzioneRisolta(
+        id=mid,
+        forma=pulita,
+        forma_canonica=pulita or forma,
+        summary=str(mapping.get("summary") or mapping.get("m.summary") or ""),
+        riassunti=riassunti,
+        eventi=eventi,
+        occorrenze=occorrenze_i or len(riferimenti),
+        riferimenti=riferimenti,
+        tipo_superficiale="sn_comune",
+        non_risolto=False,
+    )
+
+
+async def _load_persisted(session: Any) -> list[MenzioneRisolta]:
     raw = session.run(_PERSISTED_QUERY)
     if inspect.isawaitable(raw):
         raw = await raw
@@ -385,7 +509,7 @@ async def _load_persisted(session: Any) -> list[tuple[str, str]]:
                     {"id": row[0], "forma_canonica": row[1]} if isinstance(row, (list, tuple)) else row
                     for row in fetched
                 ]
-    out: list[tuple[str, str]] = []
+    out: list[MenzioneRisolta] = []
     for row in records:
         mapping = row if isinstance(row, dict) else None
         if mapping is None:
@@ -402,19 +526,18 @@ async def _load_persisted(session: Any) -> list[tuple[str, str]]:
         mid = _row_id(mapping)
         if not mid:
             continue
-        out.append((mid, _row_forma(mapping)))
+        out.append(_menzione_da_persistita(mapping, mid))
     return out
 
 
 def _pick_vs_persisted(
     mention: MenzioneRisolta,
-    matches: list[tuple[str, str]],
-) -> tuple[str, str]:
-    """Reuse a persisted id (append-only). First name-match wins."""
+    matches: list[MenzioneRisolta],
+) -> MenzioneRisolta | None:
+    """Reuse a persisted instance (append-only). First name-match wins."""
     if not matches:
-        return mention.forma_canonica, mention.id
-    pid, pforma = matches[0]
-    return pforma, pid
+        return None
+    return matches[0]
 
 
 async def fondi_referenziali_vs_persistente(session: Any, sotto: SottoGrafo) -> None:
@@ -427,25 +550,33 @@ async def fondi_referenziali_vs_persistente(session: Any, sotto: SottoGrafo) -> 
         if mention.tipo_superficiale not in _REFERENTIAL_TIPI:
             continue
         matches = [
-            (pid, pforma)
-            for pid, pforma in persisted
-            if _names_match(mention.forma_canonica, pforma)
+            item
+            for item in persisted
+            if _names_match(mention.forma_canonica, item.forma_canonica or item.forma)
         ]
         if not matches:
             continue
-        best_forma, best_id = _pick_vs_persisted(mention, matches)
-        if best_id == mention.id:
+        best = _pick_vs_persisted(mention, matches)
+        if best is None:
             continue
-        redirect[old_id] = best_id
-        mention.id = best_id
-        mention.forma_canonica = best_forma
-        if not mention.forma:
-            mention.forma = best_forma
+        pulita = pulisci_forma(mention.forma_canonica or mention.forma)
+        if pulita:
+            mention.forma = pulita
+            mention.forma_canonica = pulita
+        mention.assorbi(best)
         mention.non_risolto = False
         mention.regola = REGOLA_PERSISTENTE
         mention.versione_regole = RULESET_VERSION
+        if best.id == mention.id:
+            continue
+        redirect[old_id] = best.id
+        mention.id = best.id
         sotto.menzioni.pop(old_id, None)
-        sotto.menzioni[best_id] = mention
+        esistente = sotto.menzioni.get(best.id)
+        if esistente is not None and esistente is not mention:
+            esistente.assorbi(mention)
+        else:
+            sotto.menzioni[best.id] = mention
     _retarget_args(sotto.eventi, redirect)
     _drop_redirected(sotto, redirect)
 

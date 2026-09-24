@@ -27,6 +27,7 @@ from app.pipeline.event_graph.ancore_linea import (
     granularita_effettiva,
     violazioni_foresta,
 )
+from app.pipeline.event_graph.ancore_smistamento import ESPRESSIONE_INCERTI_PREFIX
 from app.pipeline.event_graph.catalog import _l2_chiave_evento, catalogo, grafo_livello2
 from app.pipeline.event_graph.tempo_iso import rango_granularita
 from app.pipeline.event_graph.zona_segmentation import Zona
@@ -135,7 +136,7 @@ def _eventi_2007(testo: str, documento: str) -> list[EventoRisolto]:
 
 
 def _patch_estrazione(monkeypatch, ancore: list[AncoraTemporaleProposta]) -> None:
-    async def _estrai(zone, job_id=None, call_structured=None):
+    async def _estrai(zone, job_id=None, call_structured=None, **_kwargs):
         return EstrazioneAncoreResult(
             livello=LivelloAncoreResult(ancore=list(ancore), segnali=[]),
             n_zone=len(zone or []),
@@ -224,6 +225,8 @@ async def test_a6_2007_anno_padre_dei_mesi(monkeypatch):
         assert etichetta_normalizzata(mese.padre) == etichetta_normalizzata(anno.etichetta)
 
     for ancora in smistamento.linea.ancore:
+        if (ancora.espressione or "").startswith(ESPRESSIONE_INCERTI_PREFIX):
+            continue
         padre_nome = (ancora.padre or "").strip()
         if not padre_nome:
             continue
@@ -238,7 +241,16 @@ async def test_a6_2007_anno_padre_dei_mesi(monkeypatch):
         assert rango_padre > rango_figlio
 
     contiene = _merge_params(session, "MERGE (p)-[r:CONTIENE {id: $rel_id}]->(f)")
-    assert len(contiene) == 3
+    incerti = [
+        a
+        for a in smistamento.linea.ancore
+        if (a.espressione or "").startswith(ESPRESSIONE_INCERTI_PREFIX)
+    ]
+    assert {etichetta_normalizzata(a.padre) for a in incerti} == {
+        etichetta_normalizzata(m.etichetta) for m in mesi
+    }
+    assert len(incerti) == 3
+    assert len(contiene) == 6
 
     prima = _prima_etichetta_catena(smistamento.linea)
     minimo = _evento_offset_minimo(eventi)
@@ -279,9 +291,13 @@ async def test_a6_zero_precede_e_etichette_vietate_dopo_persist(monkeypatch):
 @pytest.mark.asyncio
 async def test_a6_carol_mini_esplicita_e_prima_ancora_evento_minimo():
     zone = [_zona(TESTO_DATATO, documento=DOC_DATATO)]
-    eventi = _eventi_datati(DOC_DATATO)
+    eventi, menzioni = _eventi_datati(DOC_DATATO)
     smistamento, session = await _esegui(
-        zone, eventi, documento=DOC_DATATO, job_id="job-a6-carol"
+        zone,
+        eventi,
+        documento=DOC_DATATO,
+        job_id="job-a6-carol",
+        menzioni=menzioni,
     )
     _assert_invarianti(smistamento, session, eventi, documento=DOC_DATATO)
     _assert_zero_precede_contemporaneo(session)
@@ -384,7 +400,7 @@ async def test_a6_vista_livello2_eventi_per_offset_non_id():
     event_ids = [
         node["data"]["id"]
         for node in body["elements"]["nodes"]
-        if node["data"].get("tipo") == "Evento"
+        if node["data"].get("tipo") == "Fatto"
     ]
     assert event_ids == ["zzz-early", "aaa-late"]
 
@@ -394,16 +410,16 @@ def test_a6_viste_tutto_ordine_relazioni_invariate_senza_precede():
     assert "PRECEDE" not in tipi
     assert "CONTEMPORANEO" not in tipi
     viste = catalogo()["viste"]
-    assert set(viste["tutto"]["nodi"]) == {"Evento", "Menzione", "Quarantena"}
+    assert set(viste["tutto"]["nodi"]) == {"Fatto", "Menzione", "Quarantena"}
     assert "PRECEDE" not in viste["tutto"]["archi"]
     assert "CONTEMPORANEO" not in viste["tutto"]["archi"]
-    assert set(viste["ordine"]["nodi"]) == {"Zona", "Evento"}
+    assert set(viste["ordine"]["nodi"]) == {"Zona", "Fatto"}
     assert set(viste["ordine"]["archi"]) == {
         "SUCCESSIONE_ZONA",
         "SEQUENZA",
         "COLLEGATO",
     }
-    assert viste["relazioni"]["nodi"] == ["Evento"]
+    assert viste["relazioni"]["nodi"] == ["Fatto"]
     assert set(viste["relazioni"]["archi"]) == {
         "CAUSA",
         "CONDIZIONE",

@@ -2,6 +2,8 @@
 
 Indipendente dal classificatore macro (zona_edges.py): questo arco esiste
 sempre, per ogni confine, e porta solo testo, mai un tipo di relazione.
+Il riassunto di transizione è best-effort: se l'LLM manca, l'arco resta
+comunque, con testo vuoto.
 """
 
 from __future__ import annotations
@@ -21,9 +23,24 @@ argomento). Non riassumere il contenuto, descrivi il cambiamento. Italiano o
 inglese, la stessa lingua del testo. Temperatura 0."""
 
 
+_MAX_BLOCCO_TRANSIZIONE = 600
+
+
+def _blocco_transizione(zona: Zona) -> str:
+    """Riassunto if present; otherwise a truncated zone text so the trunk
+    still gets a label when M1 failed."""
+    riassunto = (zona.riassunto or "").strip()
+    if riassunto:
+        return riassunto
+    testo = (zona.testo or "").strip()
+    if len(testo) <= _MAX_BLOCCO_TRANSIZIONE:
+        return testo
+    return testo[:_MAX_BLOCCO_TRANSIZIONE].rstrip()
+
+
 def user_transizione(zona_a: Zona, zona_b: Zona) -> str:
-    """Only zone summaries — never the raw zone text."""
-    return f"{zona_a.riassunto}\n\n{zona_b.riassunto}"
+    """Prefer zone summaries; fall back to truncated testo if M1 left them empty."""
+    return f"{_blocco_transizione(zona_a)}\n\n{_blocco_transizione(zona_b)}"
 
 
 def _as_transizione(parsed: Any) -> TransizioneZonaResult | None:
@@ -60,15 +77,15 @@ async def genera_transizioni_zona(
     *,
     job_id: str | None = None,
 ) -> dict[tuple[str, str], str]:
-    """One call per consecutive pair (zona[i], zona[i+1]) where BOTH have espansa=True.
+    """One SUCCESSIONE_ZONA pair per consecutive expanded zones (ordinale).
 
-    Best-effort per pair: LLM failure on one pair omits that key; other pairs
-    continue. Keys are (zona_a.id, zona_b.id); values are non-empty riassunto
-    strings. Skip pairs with empty riassunto on either side (no LLM call).
+    The arc is structural: every such pair is in the result even if the
+    transition LLM fails or both riassunti are empty. Values are the
+    transition text when the call succeeds, otherwise ``""``.
     """
     out: dict[tuple[str, str], str] = {}
     try:
-        items = list(zone or [])
+        items = sorted(list(zone or []), key=lambda item: item.ordinale)
     except Exception:
         return out
     for i in range(len(items) - 1):
@@ -76,15 +93,18 @@ async def genera_transizioni_zona(
             zona_a, zona_b = items[i], items[i + 1]
             if not (zona_a.espansa and zona_b.espansa):
                 continue
-            if not (zona_a.riassunto or "").strip() or not (zona_b.riassunto or "").strip():
+            if not zona_a.id or not zona_b.id or zona_a.id == zona_b.id:
+                continue
+            key = (zona_a.id, zona_b.id)
+            out[key] = ""
+            if not _blocco_transizione(zona_a) or not _blocco_transizione(zona_b):
                 continue
             result = await genera_transizione(zona_a, zona_b, job_id=job_id)
             if result is None:
                 continue
             riassunto = (result.riassunto or "").strip()
-            if not riassunto:
-                continue
-            out[(zona_a.id, zona_b.id)] = riassunto
+            if riassunto:
+                out[key] = riassunto
         except Exception:
             continue
     return out

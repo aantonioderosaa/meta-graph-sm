@@ -47,6 +47,21 @@ export const SUCCESSIONE_ANCORA_COLOR = SUCCESSIONE_ZONA_COLOR;
 /** Node-trait swatch only — catena is not an arc family. */
 export const CATENA_COLOR = "#4F46E5";
 
+/** Keys are EntitaKernelCategoria values (event-graph local vocabulary, mirrors
+ * frontend/lib/graph-encoding.ts's E1-E8 palette for visual consistency —
+ * declared locally, no cross-import into the dormant Metagraph module). */
+export const KERNEL_CATEGORY_COLORS: Record<string, string> = {
+  Agente: "#0369A1",
+  OggettoFisico: "#B45309",
+  Luogo: "#15803D",
+  Evento: "#BE123C",
+  EntitaTemporale: "#0F766E",
+  EntitaInformativa: "#7C3AED",
+  CostruttoSociale: "#C2410C",
+  EntitaAstratta: "#334155",
+  Temporale: "#0EA5E9",
+};
+
 export const ARGOMENTALI = new Set([
   "SOGG",
   "OGG",
@@ -171,14 +186,20 @@ export function encodeNode(
   node: EventGraphNodeData | EventGraphNodeElement,
 ): EncodedNode {
   const data = asNodeData(node);
-  const tipo = String(data.tipo ?? "Evento");
+  const tipo = String(data.tipo ?? "Fatto");
   const piano = String(data.piano ?? "");
   const fattualita = String(data.fattualita ?? "");
   const desaturated = Boolean(fattualita) && fattualita !== "FATTUALE";
 
   let color: string = PIANO_FALLBACK;
   const isAncora = tipo === "AncoraTemporale" || tipo === "ClusterTemporale";
-  if (tipo === "Zona") {
+  // Vista "entita" only: member nodes (Menzione/Evento) carry a `categoria`
+  // field there and only there — outside that vista this is always empty,
+  // so this branch never fires for the "Tutto" gray Menzione styling below.
+  const categoriaKernel = data.categoria ? String(data.categoria) : "";
+  if (categoriaKernel && (tipo === "Menzione" || tipo === "Fatto")) {
+    color = KERNEL_CATEGORY_COLORS[categoriaKernel] ?? MENZIONE_COLOR;
+  } else if (tipo === "Zona") {
     color = ZONA_COLOR;
   } else if (isAncora) {
     color = CLUSTER_TEMPORALE_COLOR;
@@ -192,17 +213,20 @@ export function encodeNode(
     color = PIANO_COLORS.SFONDO;
   } else if (piano === "FUORI_LINEA") {
     color = PIANO_COLORS.FUORI_LINEA;
+  } else if (tipo === "KernelCategoria") {
+    color = KERNEL_CATEGORY_COLORS[categoriaKernel] ?? PIANO_FALLBACK;
   }
 
   if (desaturated) {
     color = desaturateHex(color);
   }
 
-  const filled = tipo === "Evento" || tipo === "Zona" || isAncora;
+  const isKernelCategoria = tipo === "KernelCategoria";
+  const filled = tipo === "Fatto" || tipo === "Zona" || isAncora || isKernelCategoria;
   const thin = tipo === "Menzione";
   const dashed =
     tipo === "Quarantena" || (isAncora && isTruthyFlag(data.stimato));
-  const hub = tipo === "Zona" || isAncora;
+  const hub = tipo === "Zona" || isAncora || isKernelCategoria;
 
   return {
     color,
@@ -216,20 +240,8 @@ export function encodeNode(
   };
 }
 
-export const EDGE_WIDTH_MIN = 1;
-export const EDGE_WIDTH_MAX = 6;
-
-/** Map a stored confidence in [0, 1] to stroke width. 0.9 → 5.5. */
-export function edgeWidthFromConfidenza(
-  confidenza: unknown,
-  fallback: number,
-): number {
-  const n =
-    typeof confidenza === "number" ? confidenza : Number(confidenza);
-  if (!Number.isFinite(n)) return fallback;
-  const clamped = Math.max(0, Math.min(1, n));
-  return EDGE_WIDTH_MIN + clamped * (EDGE_WIDTH_MAX - EDGE_WIDTH_MIN);
-}
+/** Uniform stroke for every arc. `confidenza` stays on the payload (tooltip / inspector). */
+export const EDGE_WIDTH = 2.5;
 
 export function encodeEdge(
   edge: EventGraphEdgeData | EventGraphEdgeElement,
@@ -242,21 +254,17 @@ export function encodeEdge(
   const conflitto = data.conflitto === true;
 
   let color = ARGOMENTALE_COLOR;
-  let width = 2;
   let lineStyle: "solid" | "dashed" = "solid";
   let double = false;
   let markedArrow = false;
 
   if (family === "argomentali") {
     color = ARGOMENTALE_COLOR;
-    width = 1;
   } else if (family === "dizionario") {
     color = DIZIONARIO_COLORS[tipo] ?? ARGOMENTALE_COLOR;
-    width = 2.5;
     markedArrow = true;
   } else if (family === "placeholder") {
     color = COLLEGATO_COLOR;
-    width = 1;
     if (segnale.startsWith("ordine_")) {
       color = COLLEGATO_COLOR;
     }
@@ -265,14 +273,11 @@ export function encodeEdge(
       tipo === "SUCCESSIONE_ZONA" || tipo === "SUCCESSIONE_ANCORA"
         ? SUCCESSIONE_ZONA_COLOR
         : STRUTTURA_COLOR;
-    width = tipo === "SUCCESSIONE_ZONA" || tipo === "SUCCESSIONE_ANCORA" ? 3 : 2;
   }
-
-  width = edgeWidthFromConfidenza(data.confidenza, width);
 
   return {
     color,
-    width,
+    width: EDGE_WIDTH,
     lineStyle,
     family,
     double,

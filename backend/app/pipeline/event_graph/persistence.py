@@ -40,6 +40,7 @@ from app.pipeline.event_graph.livello_relazioni import relazioni_causa_ciclo
 from app.pipeline.event_graph.zona_edges import SUCCESSIONE_ZONA, ArcoZona
 from app.pipeline.event_graph.zona_segmentation import Zona
 from app.pipeline.event_graph.zona_transizioni import REGOLA as REGOLA_SUCCESSIONE_ZONA
+from app.pipeline.event_graph.livello_entita import persist_livello_entita
 
 REGOLA = "persistence.persisti"
 REGOLA_LIVELLO_TEMPORALE = "livello_temporale.estrai"
@@ -260,7 +261,7 @@ async def _merge_documento(
 
 async def _merge_evento(session: Any, event: EventoRisolto, now: str) -> str:
     query = (
-        "MERGE (e:Evento {id: $id}) "
+        "MERGE (e:Fatto {id: $id}) "
         "ON CREATE SET e.created_at = $created_at "
         "SET e.lemma = $lemma, "
         "e.tempo = $tempo, "
@@ -362,8 +363,37 @@ async def _merge_menzione(session: Any, mention: MenzioneRisolta) -> str:
         "m.documento = $documento, "
         "m.chunk_id = $chunk_id, "
         "m.regola = $regola, "
-        "m.versione_regole = $versione_regole"
+        "m.versione_regole = $versione_regole, "
+        "m.summary = $summary, "
+        "m.riassunti = $riassunti, "
+        "m.eventi = $eventi, "
+        "m.riferimenti = $riferimenti, "
+        "m.occorrenze = $occorrenze"
     )
+    riassunti = list(mention.riassunti or [])
+    eventi = list(mention.eventi or [])
+    riferimenti = [
+        {"evento_id": item.evento_id, "summary": item.summary}
+        for item in mention.riferimenti
+    ]
+    if mention.riferimenti:
+        if not riassunti:
+            riassunti = [item.summary for item in mention.riferimenti if item.summary]
+        if not eventi:
+            seen_e: list[str] = []
+            for item in mention.riferimenti:
+                if item.evento_id and item.evento_id not in seen_e:
+                    seen_e.append(item.evento_id)
+            eventi = seen_e
+    if not riferimenti:
+        n = max(len(eventi), len(riassunti))
+        for i in range(n):
+            riferimenti.append(
+                {
+                    "evento_id": eventi[i] if i < len(eventi) else "",
+                    "summary": riassunti[i] if i < len(riassunti) else "",
+                }
+            )
     await _run(
         session,
         query,
@@ -379,6 +409,11 @@ async def _merge_menzione(session: Any, mention: MenzioneRisolta) -> str:
             "chunk_id": mention.chunk_id,
             "regola": _regola_di(mention.regola),
             "versione_regole": RULESET_VERSION,
+            "summary": mention.summary or (riassunti[-1] if riassunti else ""),
+            "riassunti": _json_prop(riassunti),
+            "eventi": _json_prop(eventi),
+            "riferimenti": _json_prop(riferimenti),
+            "occorrenze": int(mention.occorrenze or len(riferimenti) or 0),
         },
     )
     return query
@@ -394,7 +429,7 @@ async def _merge_argomento(
 ) -> str:
     extra = ", r.preposizione = $preposizione" if ruolo == "OBL" else ""
     query = (
-        f"MATCH (e:Evento {{id: $e_id}}) "
+        f"MATCH (e:Fatto {{id: $e_id}}) "
         f"MATCH (m:Menzione {{id: $m_id}}) "
         f"MERGE (e)-[r:{ruolo}]->(m) "
         f"SET r.regola = $regola, r.versione_regole = $versione_regole{extra}"
@@ -419,8 +454,8 @@ async def _merge_arco(
 ) -> str:
     tipo = str(arco.tipo)
     query = (
-        f"MATCH (da:Evento {{id: $da_id}}) "
-        f"MATCH (a:Evento {{id: $a_id}}) "
+        f"MATCH (da:Fatto {{id: $da_id}}) "
+        f"MATCH (a:Fatto {{id: $a_id}}) "
         f"MERGE (da)-[r:{tipo} {{id: $rel_id}}]->(a) "
         f"SET r.base = $base, r.segnale = $segnale, r.run_id = $run_id, "
         f"r.regola = $regola, r.versione_regole = $versione_regole, "
@@ -584,7 +619,7 @@ async def sopprimi_collegato_ridondanti(session: Any, doc_id: str) -> int:
     """
     rows = await _run(
         session,
-        "MATCH (a:Evento {documento: $doc_id})-[c:COLLEGATO]-(b:Evento) "
+        "MATCH (e:Fatto {documento: $doc_id})-[c:COLLEGATO]-(b:Fatto) "
         "WHERE c.superato_da IS NULL AND EXISTS { MATCH (a)-[:SEQUENZA]-(b) } "
         "WITH DISTINCT c "
         "SET c.superato_da = 'sequenza' "
@@ -784,6 +819,7 @@ async def persisti_documento(
         "SET d.versione_regole = $versione_regole, "
         "d.updated_at = $updated_at, "
         "d.regola = $regola, "
+        "d.formato = $formato, "
         "d.testo = $testo"
     )
     await _run(
@@ -794,6 +830,7 @@ async def persisti_documento(
             "versione_regole": RULESET_VERSION,
             "updated_at": _now_iso(),
             "regola": REGOLA,
+            "formato": "txt",
             "testo": testo,
         },
     )
@@ -930,8 +967,6 @@ async def persisti_transizioni_zona(
             continue
         id_a, id_b = key
         text = riassunto if isinstance(riassunto, str) else str(riassunto or "")
-        if not text.strip():
-            continue
         await _merge_successione_zona(session, str(id_a), str(id_b), text, job_id)
 
 
@@ -1290,7 +1325,7 @@ async def _merge_appartiene_a(
     stimato: bool,
 ) -> str:
     query = (
-        "MATCH (e:Evento {id: $e_id}) "
+        "MATCH (e:Fatto {id: $e_id}) "
         "MATCH (c:ClusterTemporale {id: $c_id}) "
         "MERGE (e)-[r:APPARTIENE_A]->(c) "
         "SET r.attivo = true, "
@@ -1327,7 +1362,7 @@ async def _disattiva_appartiene_a_obsoleti(
     MT6 tornerebbe ambiguo. L'arco vecchio resta, disattivato.
     """
     query = (
-        "MATCH (e:Evento {id: $e_id})-[r:APPARTIENE_A]->(c:ClusterTemporale) "
+        "MATCH (e:Fatto {id: $e_id})-[r:APPARTIENE_A]->(c:ClusterTemporale) "
         "WHERE c.id <> $c_id "
         "SET r.attivo = false, "
         "r.sostituito_da = $c_id, "
@@ -1347,8 +1382,8 @@ async def _disattiva_appartiene_a_obsoleti(
 
 async def _merge_precede_livello(session: Any, da_id: str, a_id: str) -> str:
     query = (
-        "MATCH (da:Evento {id: $da}) "
-        "MATCH (a:Evento {id: $a}) "
+        "MATCH (da:Fatto {id: $da}) "
+        "MATCH (a:Fatto {id: $a}) "
         "MERGE (da)-[r:PRECEDE]->(a) "
         "SET r.regola = coalesce(r.regola, $regola), "
         "r.versione_regole = $versione_regole, "
@@ -1370,8 +1405,8 @@ async def _merge_precede_livello(session: Any, da_id: str, a_id: str) -> str:
 
 async def _merge_contemporaneo(session: Any, da_id: str, a_id: str) -> str:
     query = (
-        "MATCH (da:Evento {id: $da}) "
-        "MATCH (a:Evento {id: $a}) "
+        "MATCH (da:Fatto {id: $da}) "
+        "MATCH (a:Fatto {id: $a}) "
         "MERGE (da)-[r:CONTEMPORANEO]->(a) "
         "SET r.regola = $regola, r.versione_regole = $versione_regole"
     )
@@ -1395,7 +1430,7 @@ async def _set_tempo_assoluto(
     revisioni: Any,
 ) -> str:
     query = (
-        "MATCH (e:Evento {id: $id}) "
+        "MATCH (e:Fatto {id: $id}) "
         "SET e.tempo_assoluto = $tempo_assoluto, "
         "e.tempo_assoluto_revisioni = $revisioni"
     )
@@ -1583,6 +1618,48 @@ async def persisti_livello_temporale(
         await _set_tempo_assoluto(session, evento_id, tempo, revisioni)
 
 
+async def persisti_livello_entita(
+    session: Any,
+    result: LivelloEntitaResult,
+    doc_id: str,
+) -> None:
+    """Persiste le classificazioni delle entità nel database.
+    
+    Args:
+        session: Sessione di database Neo4j
+        result: Risultato della classificazione
+        doc_id: ID del documento
+    """
+    if not result.classificazioni:
+        return
+    
+    # Costruiamo un batch singolo per documento
+    queries = []
+    
+    for classificazione in result.classificazioni:
+        # menzione_id punta a un nodo :Menzione (SOGG/OGG/TEMPO) o :Fatto
+        # (auto-classificazione "Fatti") — il match copre entrambi i label.
+        query = (
+            "MATCH (m) WHERE m.id = $menzione_id AND (m:Fatto OR m:Menzione) "
+            "SET m.kernel_category = $categoria"
+        )
+        
+        params = {
+            "menzione_id": classificazione.menzione_id,
+            "categoria": classificazione.categoria.value
+        }
+        
+        queries.append((query, params))
+    
+    # Eseguiamo tutte le query in un batch
+    for query, params in queries:
+        try:
+            await session.run(query, **params)
+        except Exception as e:
+            print(f"Errore durante la persistenza della classificazione: {e}")
+            continue
+
+
 def _etichetta_ancora(ancora: AncoraTemporaleProposta) -> str:
     return (ancora.etichetta or "").strip()
 
@@ -1685,6 +1762,7 @@ async def _merge_ancora_temporale(
         "a.stimato = $stimato, "
         "a.confidenza = $confidenza, "
         "a.posizione_doc_min = $posizione_doc_min, "
+        "a.occorrenze = $occorrenze, "
         "a.regola = $regola, "
         "a.versione_regole = $versione_regole"
     )
@@ -1709,6 +1787,7 @@ async def _merge_ancora_temporale(
             "stimato": bool(ancora.stimato),
             "confidenza": _prop_confidenza(ancora.confidenza),
             "posizione_doc_min": ancora.posizione_doc_min,
+            "occorrenze": int(ancora.occorrenze or len(ancora.eventi or []) or 0),
             "regola": REGOLA_LIVELLO_ANCORE,
             "versione_regole": RULESET_VERSION,
         },
@@ -1780,7 +1859,7 @@ async def _merge_appartiene_a_ancora(
     base: str | None,
 ) -> str:
     query = (
-        "MATCH (e:Evento {id: $e_id}) "
+        "MATCH (e:Fatto {id: $e_id}) "
         "MATCH (a:AncoraTemporale {id: $a_id}) "
         "MERGE (e)-[r:APPARTIENE_A {id: $rel_id}]->(a) "
         "SET r.attivo = true, "
@@ -1814,7 +1893,7 @@ async def _disattiva_appartiene_a_ancora_obsoleti(
 ) -> str:
     """Tombstone APPARTIENE_A toward another AncoraTemporale; never DELETE."""
     query = (
-        "MATCH (e:Evento {id: $e_id})-[r:APPARTIENE_A]->(a:AncoraTemporale) "
+        "MATCH (e:Fatto {id: $e_id})-[r:APPARTIENE_A]->(a:AncoraTemporale) "
         "WHERE a.id <> $a_id "
         "SET r.attivo = false, "
         "r.sostituito_da = $a_id, "
@@ -1916,7 +1995,7 @@ async def persisti_livello_ancore(
     Three passes — nodes, then CONTIENE, then APPARTIENE_A / SUCCESSIONE_ANCORA
     — because MATCH-based rels vanish if the node is missing. Does not write
     PRECEDE / CONTEMPORANEO. Append-only: obsolete APPARTIENE_A / CONTIENE are
-    deactivated (``attivo=false``, ``sostituito_da``), never DELETE'd.
+    deactivated (``attivo=false``, ``sostituito_da``), never removed.
     Empty/None is a no-op.
     """
     if smistamento is None:
@@ -2056,8 +2135,8 @@ async def _merge_relazione_libera(
     spiegazione: str,
 ) -> str:
     query = (
-        f"MATCH (da:Evento {{id: $da_id}}) "
-        f"MATCH (a:Evento {{id: $a_id}}) "
+        f"MATCH (da:Fatto {{id: $da_id}}) "
+        f"MATCH (a:Fatto {{id: $a_id}}) "
         f"MERGE (da)-[r:{tipo} {{livello: '3'}}]->(a) "
         f"SET r.livello = '3', "
         f"r.regola = $regola, "
@@ -2207,6 +2286,75 @@ async def carica_archi_macro(
     return archi
 
 
+_LISTA_DOCUMENTI_CYPHER = (
+    "MATCH (d:Documento) "
+    "OPTIONAL MATCH (e:Fatto {documento: d.id}) "
+    "WHERE e.fuso_in IS NULL OR e.fuso_in = '' "
+    "RETURN d.id AS id, d.testo AS testo, d.formato AS formato, "
+    "d.updated_at AS updated_at, count(e) AS n_eventi "
+    "ORDER BY d.id"
+)
+
+_ANTEPRIMA_MAX = 160
+_FORMATO_DEFAULT = "txt"
+
+
+def _peso_testo(testo: str | None) -> tuple[int, int]:
+    raw = testo or ""
+    return len(raw.encode("utf-8")), len(raw)
+
+
+def _anteprima_testo(testo: str | None) -> str | None:
+    raw = (testo or "").strip()
+    if not raw:
+        return None
+    if len(raw) <= _ANTEPRIMA_MAX:
+        return raw
+    return raw[:_ANTEPRIMA_MAX].rstrip() + "…"
+
+
+def _documento_payload(mapping: dict[str, Any]) -> dict[str, Any]:
+    raw = mapping.get("testo")
+    if raw is None:
+        raw = mapping.get("d.testo")
+    testo = "" if raw is None else str(raw)
+    bytes_, caratteri = _peso_testo(testo)
+    formato = _optional_str(mapping.get("formato") or mapping.get("d.formato"))
+    n_eventi = mapping.get("n_eventi")
+    try:
+        n_eventi_i = int(n_eventi) if n_eventi is not None else 0
+    except (TypeError, ValueError):
+        n_eventi_i = 0
+    return {
+        "id": str(mapping.get("id") or mapping.get("d.id") or ""),
+        "formato": formato or _FORMATO_DEFAULT,
+        "bytes": bytes_,
+        "caratteri": caratteri,
+        "updated_at": _optional_str(
+            mapping.get("updated_at") or mapping.get("d.updated_at")
+        ),
+        "n_eventi": n_eventi_i,
+        "anteprima": _anteprima_testo(testo),
+    }
+
+
+async def elenca_documenti(session: Any) -> list[dict[str, Any]]:
+    """Ingested ``:Documento`` rows with size, format, and a short preview."""
+    docs: list[dict[str, Any]] = []
+    for row in await _query_rows(session, _LISTA_DOCUMENTI_CYPHER, {}):
+        payload = _documento_payload(_row_mapping(row))
+        if payload["id"]:
+            docs.append(payload)
+    return docs
+
+
+async def wipe_grafo(session: Any) -> str:
+    """Delete every node and relationship; leave constraints/indexes intact."""
+    query = "MATCH (n) DETACH DELETE n"
+    await _run(session, query, {})
+    return query
+
+
 async def carica_documento_testo(session: Any, doc_id: str) -> str | None:
     rows = await _query_rows(
         session,
@@ -2230,16 +2378,19 @@ __all__ = [
     "carica_documento_testo",
     "carica_zona",
     "carica_zone",
+    "elenca_documenti",
     "persisti",
     "persisti_archi_macro",
     "persisti_arco_macro",
     "persisti_documento",
     "persisti_livello_ancore",
+    "persisti_livello_entita",
     "persisti_livello_relazioni",
     "persisti_livello_temporale",
     "persisti_transizioni_zona",
     "persisti_zona",
     "persisti_zone",
     "sopprimi_collegato_ridondanti",
+    "wipe_grafo",
     "_merge_successione_zona",
 ]

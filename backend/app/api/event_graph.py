@@ -18,12 +18,24 @@ from app.pipeline.event_graph.catalog import (
     dettaglio_arco,
     dettaglio_nodo,
     grafo,
+    grafo_entita,
     grafo_livello1,
     grafo_livello2,
     grafo_livello3,
     stats,
 )
-from app.pipeline.event_graph.infra.bus import run_tracked_job, subscribe, unsubscribe
+from app.pipeline.event_graph.infra.bus import (
+    cancel_job,
+    elenca_job,
+    has_running_job,
+    merge_job_lists,
+    register_job,
+    register_running_task,
+    reset_event_bus,
+    run_tracked_job,
+    subscribe,
+    unsubscribe,
+)
 from app.pipeline.event_graph.infra.driver import get_driver
 from app.pipeline.event_graph.infra.llm import LLMValidationError
 from app.pipeline.event_graph.metrics import elenca_run
@@ -32,6 +44,8 @@ from app.pipeline.event_graph.persistence import (
     carica_documento_testo,
     carica_zona,
     carica_zone,
+    elenca_documenti,
+    wipe_grafo,
 )
 from app.pipeline.event_graph.pipeline import espandi_zona, run_event_graph_ingestion
 from app.pipeline.event_graph.query_nl import esegui_nl
@@ -42,6 +56,7 @@ from app.pipeline.event_graph.query_structured import (
     esegui,
     get_query,
     registra_query,
+    reset_query_history,
 )
 from app.pipeline.event_graph.zona_edges import ArcoZona
 from app.pipeline.event_graph.zona_segmentation import Zona
@@ -79,14 +94,59 @@ async def sse_event_generator(job_id: str) -> AsyncIterator[str]:
 async def ingest_event_graph_document(
     body: EventGraphDocumentRequest,
 ) -> EventGraphJobResponse:
+    # Check if there's already a running job
+    existing_job = has_running_job()
+    if existing_job is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "Ingestione già in corso", "job_id": existing_job}
+        )
+    
     job_id = str(uuid.uuid4())
-    asyncio.create_task(
+    register_job(job_id)
+    task = asyncio.create_task(
         run_tracked_job(
             job_id,
             run_event_graph_ingestion(body.doc_id, body.text, job_id),
         )
     )
+    register_running_task(job_id, task)
     return EventGraphJobResponse(job_id=job_id)
+
+
+@router.get("/documents")
+async def list_event_graph_documents() -> dict:
+    """Ingested documents: id, format, byte size, preview."""
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            documents = await elenca_documenti(session)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"documents": documents}
+
+
+@router.delete("/graph")
+async def wipe_event_graph() -> dict:
+    """Wipe the event-graph knowledge base (nodes, rels, in-memory query history)."""
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            # Check for and cancel any running job before wiping
+            running_job_id = has_running_job()
+            if running_job_id is not None:
+                await cancel_job(running_job_id)
+            
+            await wipe_grafo(session)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    reset_query_history()
+    reset_event_bus()
+    return {"deleted": True}
 
 
 def _zona_payload(zona: Zona) -> dict:
@@ -215,6 +275,22 @@ async def stream_event_graph_job(
     )
 
 
+@router.get("/jobs")
+async def list_event_graph_jobs() -> dict:
+    """Live ingest jobs (in-memory SSE history) plus completed :EventGraphRun."""
+    jobs = elenca_job()
+    runs: list = []
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            runs = await elenca_run(session)
+    except HTTPException:
+        raise
+    except Exception:
+        runs = []
+    return {"jobs": merge_job_lists(jobs, runs)}
+
+
 @router.get("/health")
 async def event_graph_health() -> dict[str, str]:
     try:
@@ -268,7 +344,7 @@ async def event_graph_graph(
     documento: str | None = Query(default=None),
     piano: str | None = Query(default=None),
     lemma: str | None = Query(default=None),
-    vista: Literal["tutto", "ordine", "temporale", "relazioni"] = Query(
+    vista: Literal["tutto", "ordine", "temporale", "relazioni", "entita"] = Query(
         default="tutto"
     ),
 ) -> dict:
@@ -281,6 +357,8 @@ async def event_graph_graph(
                 return await grafo_livello2(session, documento=documento)
             if vista == "relazioni":
                 return await grafo_livello3(session, documento=documento)
+            if vista == "entita":
+                return await grafo_entita(session, documento=documento)
             return await grafo(
                 session, documento=documento, piano=piano, lemma=lemma
             )
@@ -292,7 +370,7 @@ async def event_graph_graph(
 
 @router.get("/nodo/{node_id}")
 async def event_graph_nodo(node_id: str) -> dict:
-    """Every property of one node (:Evento/:Menzione/:Quarantena/:Zona/...).
+    """Every property of one node (:Fatto/:Menzione/:Quarantena/:Zona/...).
 
     Feeds the frontend selection dashboard.
     """

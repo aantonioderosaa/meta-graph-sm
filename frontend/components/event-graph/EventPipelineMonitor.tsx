@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   Card,
@@ -8,93 +8,187 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { eventGraphStreamUrl } from "@/lib/event-graph/api";
+import { eventGraphStreamUrl, fetchJobs } from "@/lib/event-graph/api";
 import {
-  PIPELINE_STAGES,
-  type EventGraphPipelineEvent,
-  type PipelineStage,
+  PROCESS_STAGES,
+  documentoFromJob,
+  graphTouchesViewport,
+  jobIsLive,
+  mergeJobLists,
+  mergePipelineEvents,
+  stageStatus,
+  upsertJob,
+} from "@/lib/event-graph/live-graph";
+import type {
+  EventGraphJob,
+  EventGraphPipelineEvent,
+  PipelineStage,
 } from "@/lib/event-graph/types";
 import { cn } from "@/lib/utils";
 
 const STAGE_LABELS: Record<PipelineStage, string> = {
-  estrazione: "Estrazione",
-  regole_chunk: "Regole chunk",
-  riconciliazione: "Riconciliazione",
+  macro: "Macro",
+  espansione: "Espansione",
   collocazione_temporale: "Collocazione temporale",
+  relazioni: "Relazioni",
+  riconciliazione: "Riconciliazione",
   done: "Done",
   failed: "Fallito",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "pending",
+  active: "active",
+  done: "done",
+  failed: "failed",
+  skipped: "skipped",
 };
 
 type EventPipelineMonitorProps = {
   jobId?: string | null;
   onDone?: () => void;
+  onProgress?: () => void;
+  onLiveChange?: (live: boolean) => void;
 };
 
-function stageOrder(stage: string): number {
-  return PIPELINE_STAGES.indexOf(stage as PipelineStage);
+function shortJobId(jobId: string): string {
+  return jobId.length <= 12 ? jobId : `${jobId.slice(0, 8)}…`;
 }
 
-function stageStatus(
-  stage: PipelineStage,
-  events: EventGraphPipelineEvent[],
-): "pending" | "active" | "done" | "failed" {
-  const hasFailed = events.some((e) => e.stage === "failed");
-  const hasDone = events.some((e) => e.stage === "done");
-  if (stage === "failed") return hasFailed ? "failed" : "pending";
-  if (stage === "done") return hasDone ? "done" : "pending";
-  if (events.some((e) => e.stage === stage) && (hasDone || hasFailed)) {
-    return hasFailed && !hasDone ? "done" : "done";
-  }
-  const seen = events.filter((e) => e.stage === stage);
-  if (seen.length === 0) {
-    const last = events[events.length - 1]?.stage;
-    if (last && stageOrder(stage) === stageOrder(last) + 1 && !hasDone && !hasFailed) {
-      return "active";
+function eventsOf(job: EventGraphJob | null): EventGraphPipelineEvent[] {
+  return job?.events ?? [];
+}
+
+export function EventPipelineMonitor({
+  jobId,
+  onDone,
+  onProgress,
+  onLiveChange,
+}: EventPipelineMonitorProps) {
+  const [jobs, setJobs] = useState<EventGraphJob[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const loadJobs = useCallback(async () => {
+    try {
+      const payload = await fetchJobs();
+      setJobs((prev) => mergeJobLists(prev, payload.jobs ?? []));
+    } catch {
+      /* keep the last successful snapshot */
     }
-    return "pending";
-  }
-  const later = events.some(
-    (e) => stageOrder(e.stage) > stageOrder(stage) || e.stage === "done",
-  );
-  return later || hasDone ? "done" : "active";
-}
-
-export function EventPipelineMonitor({ jobId, onDone }: EventPipelineMonitorProps) {
-  const [events, setEvents] = useState<EventGraphPipelineEvent[]>([]);
+  }, []);
 
   useEffect(() => {
-    if (!jobId) {
-      setEvents([]);
-      return;
+    void loadJobs();
+    const timer = window.setInterval(() => {
+      void loadJobs();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [loadJobs]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    setJobs((prev) =>
+      upsertJob(prev, {
+        job_id: jobId,
+        status: "running",
+        events: prev.find((job) => job.job_id === jobId)?.events ?? [],
+      }),
+    );
+    setSelectedId(jobId);
+  }, [jobId]);
+
+  const selected =
+    jobs.find((job) => job.job_id === selectedId) ?? jobs[0] ?? null;
+  const streamJobId = selected && jobIsLive(selected) ? selected.job_id : null;
+
+  useEffect(() => {
+    if (selected && selected.job_id !== selectedId) {
+      setSelectedId(selected.job_id);
     }
-    setEvents([]);
-    const url = eventGraphStreamUrl(jobId);
-    const source = new EventSource(url);
+  }, [selected, selectedId]);
 
-    source.onmessage = (msg) => {
-      try {
-        const parsed = JSON.parse(msg.data) as EventGraphPipelineEvent;
-        setEvents((prev) => [...prev, parsed]);
-        if (parsed.stage === "done") {
-          onDone?.();
-          source.close();
-        } else if (parsed.stage === "failed") {
-          source.close();
+  useEffect(() => {
+    onLiveChange?.(jobs.some((job) => jobIsLive(job)));
+  }, [jobs, onLiveChange]);
+
+  useEffect(() => {
+    if (!streamJobId) return;
+    let stopped = false;
+    let source: EventSource | null = null;
+    let retry: number | null = null;
+    let terminal = false;
+
+    const connect = () => {
+      if (stopped || terminal) return;
+      source = new EventSource(eventGraphStreamUrl(streamJobId));
+      source.onmessage = (msg) => {
+        try {
+          const parsed = JSON.parse(msg.data) as EventGraphPipelineEvent;
+          let isNew = false;
+          setJobs((prev) => {
+            const current = prev.find((job) => job.job_id === streamJobId);
+            const previousEvents = eventsOf(current ?? null);
+            const events = mergePipelineEvents(previousEvents, parsed);
+            if (events === previousEvents) {
+              isNew = false;
+              return prev;
+            }
+            isNew = true;
+            const status =
+              parsed.stage === "failed"
+                ? "failed"
+                : parsed.stage === "done"
+                  ? "done"
+                  : "running";
+            return upsertJob(prev, {
+              job_id: streamJobId,
+              status,
+              last_stage: parsed.stage,
+              last_event: parsed.event,
+              ts: parsed.ts,
+              payload: parsed.payload,
+              events,
+            });
+          });
+          if (!isNew) return;
+          if (graphTouchesViewport(parsed)) onProgress?.();
+          if (parsed.stage === "done") {
+            terminal = true;
+            onDone?.();
+            source?.close();
+          } else if (parsed.stage === "failed") {
+            terminal = true;
+            source?.close();
+          }
+        } catch {
+          /* ignore malformed frames */
         }
-      } catch {
-        // ignore malformed frames
-      }
+      };
+      source.onerror = () => {
+        source?.close();
+        if (!stopped && !terminal) {
+          retry = window.setTimeout(connect, 1000);
+        }
+      };
     };
-    source.onerror = () => {
-      source.close();
-    };
-    return () => {
-      source.close();
-    };
-  }, [jobId, onDone]);
 
-  const visibleStages = PIPELINE_STAGES.filter((s) => s !== "failed");
-  const failed = events.some((e) => e.stage === "failed");
+    connect();
+    return () => {
+      stopped = true;
+      source?.close();
+      if (retry != null) window.clearTimeout(retry);
+    };
+  }, [streamJobId, onDone, onProgress]);
+
+  const events = eventsOf(selected);
+  const failed = events.some((event) => event.stage === "failed");
+  const failPayload = [...events].reverse().find((event) => event.stage === "failed");
+
+  const liveHint = useMemo(() => {
+    if (jobs.some((job) => jobIsLive(job))) return "Aggiornamento live";
+    if (jobs.length > 0) return "Storico ingestioni";
+    return null;
+  }, [jobs]);
 
   return (
     <Card>
@@ -102,15 +196,50 @@ export function EventPipelineMonitor({ jobId, onDone }: EventPipelineMonitorProp
         <CardTitle className="text-sm">Pipeline</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 p-4 pt-0">
-        {!jobId ? (
-          <p className="text-xs text-muted-foreground">In attesa di un job_id.</p>
+        {liveHint ? (
+          <p className="text-xs text-muted-foreground">{liveHint}</p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            job_id: <code>{jobId}</code>
+            In attesa di un&apos;ingestione.
           </p>
         )}
+        {jobs.length > 0 ? (
+          <ul className="max-h-28 space-y-1 overflow-y-auto">
+            {jobs.map((job) => {
+              const active = selected?.job_id === job.job_id;
+              const doc = documentoFromJob(job);
+              return (
+                <li key={job.job_id}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center justify-between rounded border px-2 py-1 text-left text-[11px]",
+                      active
+                        ? "border-sky-300 bg-sky-50"
+                        : "border-border text-muted-foreground hover:bg-muted/50",
+                    )}
+                    onClick={() => setSelectedId(job.job_id)}
+                  >
+                    <span className="min-w-0 truncate">
+                      <code>{shortJobId(job.job_id)}</code>
+                      {doc ? ` · ${doc}` : ""}
+                    </span>
+                    <span className="ml-2 shrink-0 uppercase tracking-wide">
+                      {job.status}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {selected ? (
+          <p className="text-xs text-muted-foreground">
+            job_id: <code className="break-all">{selected.job_id}</code>
+          </p>
+        ) : null}
         <ol className="space-y-1.5">
-          {visibleStages.map((stage) => {
+          {PROCESS_STAGES.map((stage) => {
             const status = stageStatus(stage, events);
             return (
               <li
@@ -119,18 +248,37 @@ export function EventPipelineMonitor({ jobId, onDone }: EventPipelineMonitorProp
                   "flex items-center justify-between rounded border px-2 py-1 text-xs",
                   status === "done" && "border-emerald-300 bg-emerald-50",
                   status === "active" && "border-sky-300 bg-sky-50",
+                  status === "skipped" && "border-border bg-muted/40 text-muted-foreground",
                   status === "pending" && "border-border text-muted-foreground",
                 )}
               >
                 <span>{STAGE_LABELS[stage]}</span>
-                <span className="uppercase tracking-wide">{status}</span>
+                <span className="uppercase tracking-wide">
+                  {STATUS_LABELS[status] ?? status}
+                </span>
               </li>
             );
           })}
+          <li
+            className={cn(
+              "flex items-center justify-between rounded border px-2 py-1 text-xs",
+              events.some((event) => event.stage === "done")
+                ? "border-emerald-300 bg-emerald-50"
+                : "border-border text-muted-foreground",
+            )}
+          >
+            <span>{STAGE_LABELS.done}</span>
+            <span className="uppercase tracking-wide">
+              {events.some((event) => event.stage === "done") ? "done" : "pending"}
+            </span>
+          </li>
         </ol>
         {failed ? (
           <p className="text-xs text-destructive" role="alert">
-            Pipeline fallita.
+            Pipeline fallita
+            {failPayload?.payload?.error
+              ? `: ${String(failPayload.payload.error)}`
+              : "."}
           </p>
         ) : null}
       </CardContent>

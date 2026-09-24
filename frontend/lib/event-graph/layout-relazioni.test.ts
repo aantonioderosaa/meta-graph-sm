@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   RELAZIONI_ISOLATE_GAP,
   RELAZIONI_MIN_GAP,
+  coseRelazioniLayoutOptions,
   positionsRelazioni,
   relazioniNodeLabel,
 } from "./layout-relazioni";
@@ -16,7 +17,7 @@ function evento(
     data: {
       id,
       label: extra.label ?? id,
-      tipo: "Evento" as const,
+      tipo: "Fatto" as const,
       posizione_doc: extra.posizione_doc,
     },
   };
@@ -78,6 +79,8 @@ describe("positionsRelazioni", () => {
     expect(pos.e2).toBeDefined();
     expect(pos.e0).not.toEqual(pos.e1);
     expect(minPairDistance(pos)).toBeGreaterThanOrEqual(RELAZIONI_MIN_GAP - 1e-6);
+    expect(RELAZIONI_MIN_GAP).toBeGreaterThanOrEqual(240);
+    expect(RELAZIONI_ISOLATE_GAP).toBeGreaterThanOrEqual(240);
     const r0 = Math.hypot(pos.e0.x, pos.e0.y);
     const r1 = Math.hypot(pos.e1.x, pos.e1.y);
     const r2 = Math.hypot(pos.e2.x, pos.e2.y);
@@ -122,5 +125,21 @@ describe("positionsRelazioni", () => {
     const pos = positionsRelazioni(elements);
     expect(pos.i1.x - pos.i0.x).toBeCloseTo(RELAZIONI_ISOLATE_GAP, 5);
     expect(minPairDistance(pos)).toBeGreaterThanOrEqual(RELAZIONI_MIN_GAP - 1e-6);
+  });
+});
+
+describe("relazioni spacing", () => {
+  it("keeps a readable gap between event nodes", () => {
+    expect(RELAZIONI_MIN_GAP).toBeGreaterThanOrEqual(240);
+    expect(RELAZIONI_ISOLATE_GAP).toBeGreaterThanOrEqual(240);
+  });
+
+  it("uses organic cose spacing, not a fixed circle", () => {
+    const opts = coseRelazioniLayoutOptions(true);
+    expect(opts.name).toBe("cose");
+    expect(opts.randomize).toBe(true);
+    expect(opts.idealEdgeLength).toBeTypeOf("function");
+    expect((opts.idealEdgeLength as () => number)()).toBe(RELAZIONI_MIN_GAP);
+    expect(opts.componentSpacing).toBe(RELAZIONI_ISOLATE_GAP);
   });
 });

@@ -221,7 +221,7 @@ def test_ancora_temporale_id_stable_document_local_normalized_collocazione():
 def test_schema_cypher_constraints_indexes_and_labels():
     raw = SCHEMA_PATH.read_text(encoding="utf-8")
     constraints = [
-        "eg_evento_id",
+        "eg_fatto_id",
         "eg_menzione_id",
         "eg_quarantena_id",
         "eg_documento_id",
@@ -232,12 +232,12 @@ def test_schema_cypher_constraints_indexes_and_labels():
         "eg_ancora_temporale_id",
     ]
     indexes = [
-        "eg_evento_doc",
-        "eg_evento_lemma",
-        "eg_evento_piano",
-        "eg_evento_posizione",
-        "eg_evento_tempo_abs",
-        "eg_evento_catena",
+        "eg_fatto_doc",
+        "eg_fatto_lemma",
+        "eg_fatto_piano",
+        "eg_fatto_posizione",
+        "eg_fatto_tempo_abs",
+        "eg_fatto_catena",
         "eg_menzione_forma",
         "eg_zona_doc",
         "eg_zona_offset",
@@ -261,11 +261,11 @@ def test_schema_cypher_constraints_indexes_and_labels():
     assert ":AncoraTemporale" in raw
     assert ":Chunk" not in raw.replace(":EgChunk", "")
     assert "VECTOR" not in raw.upper()
-    # Addendum 5: one Lucene fulltext index on :Evento is the deliberate,
+    # Addendum 5: one Lucene fulltext index on :Fatto is the deliberate,
     # scoped exception to the no-search-index rule — keyword/topic retrieval
     # for /query/structured's `testo` field. Still no vector/ML embeddings.
     assert raw.upper().count("FULLTEXT") == 1
-    assert "eg_evento_testo" in raw
+    assert "eg_fatto_testo" in raw
 
 
 def _import_modules(tree: ast.AST) -> list[str]:

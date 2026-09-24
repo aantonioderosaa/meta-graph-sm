@@ -35,11 +35,11 @@ _EVENTO_KEYS = (
 # Hardcoded traversal fragments — keys are TraversalKind, never user text.
 _TRAVERSAL_CLAUSES: dict[str, str] = {
     "catena_di": (
-        "MATCH (s:Evento {id: $target}) "
+        "MATCH (s:Fatto {id: $target}) "
         "WHERE s.catena_id IS NOT NULL AND e.catena_id = s.catena_id"
     ),
     "spina_dorsale_di": (
-        "MATCH path = (start:Evento)-[:SEQUENZA*0..12]-(e) "
+        "MATCH path = (start:Fatto)-[:SEQUENZA*0..12]-(e) "
         "WHERE start.id = $target AND ALL(r IN relationships(path) WHERE "
         "r.superato_da IS NULL)"
     ),
@@ -47,7 +47,7 @@ _TRAVERSAL_CLAUSES: dict[str, str] = {
     # "prima di E" = events whose ancora precedes E's ancora along
     # SUCCESSIONE_ANCORA. tempo_assoluto stays as an additional clause.
     "prima_di": (
-        "MATCH (start:Evento) WHERE start.id = $target "
+        "MATCH (start:Fatto) WHERE start.id = $target "
         "AND ("
         "e.tempo_assoluto < start.tempo_assoluto "
         "OR EXISTS { "
@@ -62,7 +62,7 @@ _TRAVERSAL_CLAUSES: dict[str, str] = {
         "AND NOT EXISTS { MATCH (e)-[c:COLLEGATO]-(start) WHERE c.superato_da IS NOT NULL }"
     ),
     "dopo_di": (
-        "MATCH (start:Evento) WHERE start.id = $target "
+        "MATCH (start:Fatto) WHERE start.id = $target "
         "AND ("
         "e.tempo_assoluto > start.tempo_assoluto "
         "OR EXISTS { "
@@ -77,7 +77,7 @@ _TRAVERSAL_CLAUSES: dict[str, str] = {
         "AND NOT EXISTS { MATCH (e)-[c:COLLEGATO]-(start) WHERE c.superato_da IS NOT NULL }"
     ),
     "vicinato_temporale": (
-        "MATCH (start:Evento)-[ras:APPARTIENE_A]->(ancora_s:AncoraTemporale) "
+        "MATCH (start:Fatto)-[ras:APPARTIENE_A]->(ancora_s:AncoraTemporale) "
         "WHERE start.id = $target AND coalesce(ras.attivo, true) "
         "MATCH (e)-[rae:APPARTIENE_A]->(ancora_e:AncoraTemporale) "
         "WHERE coalesce(rae.attivo, true) "
@@ -159,7 +159,7 @@ def compile_cypher(spec: EventQuerySpec) -> tuple[str, dict]:
     # an exact-string filter, and since Addendum 4 e.lemma holds the whole
     # event sentence, exact match almost never hits a paraphrase or a name.
     testo = getattr(spec, "testo", None)
-    start = "MATCH (e:Evento)"
+    start = "MATCH (e:Fatto)"
     order_prefix = ""
     if testo:
         start = (

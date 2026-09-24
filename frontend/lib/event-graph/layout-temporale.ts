@@ -127,7 +127,7 @@ export function ancoraDisplayLabel(
 ): string {
   const data = node ? nodeData(node) : null;
   if (!data) return "";
-  const etichetta = data.etichetta != null ? String(data.etichetta).trim() : "";
+  const etichetta = data.etichetta != null ? String(data.etichetta).replaceAll("\u2060", "").trim() : "";
   if (etichetta) return etichetta;
   return String(data.label ?? data.id ?? "");
 }

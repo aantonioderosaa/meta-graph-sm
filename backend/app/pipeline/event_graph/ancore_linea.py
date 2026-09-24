@@ -789,7 +789,7 @@ def _evidenze(
             lato = _lato_da_testo(testo)
             if lato is None:
                 continue
-            if ancora.tipo != "relativa" and ancora.natura != "aperta":
+            if ancora.tipo not in {"vaga", "relativa"} and ancora.natura != "aperta":
                 continue
             resto = _resto_dopo_lato(testo, lato)
             bersaglio = _risolvi_nome(resto, per_etichetta)
@@ -859,7 +859,7 @@ def _inserisci_aperte(
         _id_sintetica(
             documento=documento,
             natura="aperta",
-            tipo="relativa",
+            tipo="vaga",
             inizio=None,
             fine=None,
             chiave=chiave,
@@ -867,7 +867,7 @@ def _inserisci_aperte(
         aperta = AncoraTemporaleProposta(
             etichetta=etichetta,
             natura="aperta",
-            tipo="relativa",
+            tipo="vaga",
             stimato=True,
             padre=bersaglio.padre,
             espressione=chiave,

@@ -8,13 +8,16 @@ import {
   eventGraphUrl,
   fetchArcoDettaglio,
   fetchCatalog,
+  fetchDocuments,
   fetchGraph,
   fetchHealth,
+  fetchJobs,
   fetchNodoDettaglio,
   fetchStats,
   ingestDocument,
   queryNl,
   queryStructured,
+  wipeKnowledgeBase,
 } from "./api";
 
 function okResponse(body: unknown = {}) {
@@ -43,9 +46,19 @@ describe("event-graph api paths", () => {
     expect(eventGraphPath("/stream", { job_id: "j1" })).toBe(
       "/event-graph/stream?job_id=j1",
     );
+    expect(eventGraphPath("/jobs")).toBe("/event-graph/jobs");
     expect(eventGraphPath("/health")).toBe("/event-graph/health");
     expect(eventGraphPath("/graph")).toBe("/event-graph/graph");
     expect(eventGraphUrl("/graph")).toBe(`${API_URL}/event-graph/graph`);
+  });
+
+  it("fetchJobs GETs /event-graph/jobs", async () => {
+    fetchMock.mockResolvedValue(okResponse({ jobs: [] }));
+    await fetchJobs();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_URL}/event-graph/jobs`,
+      expect.objectContaining({ headers: expect.any(Object) }),
+    );
   });
 
   it("fetchGraph GETs /event-graph/graph", async () => {
@@ -126,6 +139,39 @@ describe("event-graph api paths", () => {
     );
   });
 
+  it("fetchDocuments GETs /event-graph/documents", async () => {
+    fetchMock.mockResolvedValue(
+      okResponse({
+        documents: [
+          {
+            id: "sole-vento",
+            formato: "txt",
+            bytes: 2167,
+            caratteri: 2167,
+            n_eventi: 12,
+          },
+        ],
+      }),
+    );
+    const result = await fetchDocuments();
+    expect(result.documents).toHaveLength(1);
+    expect(result.documents[0]?.id).toBe("sole-vento");
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_URL}/event-graph/documents`,
+      expect.objectContaining({ headers: expect.any(Object) }),
+    );
+  });
+
+  it("wipeKnowledgeBase DELETEs /event-graph/graph", async () => {
+    fetchMock.mockResolvedValue(okResponse({ deleted: true }));
+    const result = await wipeKnowledgeBase();
+    expect(result.deleted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_URL}/event-graph/graph`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
   it("fetchHealth GETs /event-graph/health", async () => {
     fetchMock.mockResolvedValue(okResponse({ status: "ok" }));
     const health = await fetchHealth();
@@ -153,6 +199,7 @@ describe("event-graph api paths", () => {
     );
     await queryStructured({
       lemma: "arrivare",
+      testo: "vento",
       piano: undefined,
       fonte: "",
       finestra_tempo_assoluto: { da: "", a: "" },
@@ -161,7 +208,7 @@ describe("event-graph api paths", () => {
       `${API_URL}/event-graph/query/structured`,
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ lemma: "arrivare" }),
+        body: JSON.stringify({ lemma: "arrivare", testo: "vento" }),
       }),
     );
   });
@@ -221,11 +268,14 @@ describe("event-graph api paths", () => {
   it("never targets legacy /documents or /events/stream", async () => {
     await fetchGraph();
     await ingestDocument("d", "t");
+    await fetchDocuments();
+    await wipeKnowledgeBase();
     await fetchHealth();
     await queryStructured({ lemma: "x" });
     await queryNl("y");
     await fetchCatalog();
     await fetchStats();
+    await fetchJobs();
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls.every((url) => url.includes("/event-graph/"))).toBe(true);
     expect(urls.some((url) => url.endsWith("/documents") && !url.includes("/event-graph/"))).toBe(

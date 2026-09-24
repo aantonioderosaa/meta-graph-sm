@@ -43,8 +43,8 @@ export function isEventoNode(
 ): boolean {
   const data = node ? nodeData(node) : null;
   if (!data) return false;
-  const tipo = String(data.tipo ?? "Evento");
-  return tipo === "Evento" || tipo === "";
+  const tipo = String(data.tipo ?? "Fatto");
+  return tipo === "Fatto" || tipo === "";
 }
 
 export function chiaveEsposizione(

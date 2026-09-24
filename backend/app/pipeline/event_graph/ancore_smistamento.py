@@ -1,11 +1,19 @@
 """MT5 — assign events to leaf ancore (APPARTIENE_A).
 
-Dated events land on the most specific containing leaf via ``tempo_iso.bounds``.
-Undated (and dated-but-uncontained) events are asked prima/durante/dopo against
-the named ancore of one zona or small window — never the full document.
-LLM failure is logged and published; an event the text does not place stays
-unassigned (no APPARTIENE_A, no reserve bucket). Sterile ancore (no events in
-the subtree) are dropped.
+Events that already have TEMPO mentions land on the matching ancora (the
+dictionary link is the placement). Dated ISO ``tempo_assoluto`` is the
+fallback. Remaining events may still be asked prima/durante/dopo against
+named ancore of one zona — that does not mint new dates. Sterile ancore
+are dropped.
+
+Until proven otherwise every ancora is vague: a date without a clock time,
+or a clock time without a date, cannot place the event on the SUCCESSIONE
+line. The event hangs vertically from that line-ancora (incerti first
+child). A clock without a date is first attached to the dated interval it
+falls in (the finest calendar span that already started in the text); the
+event then sits as vague at the start of that interval, not as a minted
+hour. Only an ancora that has both a calendar date and a clock time may
+hold events directly on the line.
 
 Isolation D6: ``app.pipeline.event_graph.*`` and ``app.models.event_graph``
 only. LLM exclusively via ``infra.llm.call_structured``.
@@ -15,7 +23,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, NamedTuple
 
@@ -25,6 +33,7 @@ from app.models.event_graph import (
     AncoraTemporaleProposta,
     EventoRisolto,
     LivelloAncoreResult,
+    MenzioneRisolta,
     SegnaleAncoraEvento,
 )
 from app.pipeline.event_graph.ancore_linea import (
@@ -55,6 +64,9 @@ MAX_EVENTI_FINESTRA: Final[int] = 12
 MAX_CHAR_CAMPO: Final[int] = 240
 _POS_MANCANTE: Final[int] = 10**12
 _LARGHEZZA_MANCANTE: Final[int] = 10**18
+ESPRESSIONE_INCERTI_PREFIX: Final[str] = "incerto|"
+_ETICHETTA_INVISIBILE: Final[str] = "\u2060"
+_PRECISIONI_PUNTO: Final[frozenset[str]] = frozenset({"ora", "minuto", "secondo"})
 
 SYSTEM_SMISTAMENTO = """\
 You place events relative to named temporal anchors of ONE window.
@@ -147,6 +159,22 @@ def _iso_tempo_assoluto(valore: object) -> str | None:
             if isinstance(grezzo, str) and grezzo.strip() and analizza(grezzo.strip()):
                 return grezzo.strip()
     return None
+
+
+def _precisione_evento(evento: EventoRisolto) -> str | None:
+    iso = _iso_tempo_assoluto(evento.tempo_assoluto)
+    if iso is None:
+        return None
+    tempo = analizza(iso)
+    return None if tempo is None else tempo.precisione
+
+
+def _precisione_piu_fine(prec_evento: str | None, gran_intervallo: str | None) -> bool:
+    rango_e = rango_granularita(prec_evento)
+    rango_i = rango_granularita(gran_intervallo)
+    if rango_e is None or rango_i is None:
+        return False
+    return rango_e < rango_i
 
 
 def _istante_evento(evento: EventoRisolto) -> int | None:
@@ -262,6 +290,72 @@ def _come_zone(zone: object) -> list[Zona]:
     return []
 
 
+def _come_menzioni(
+    menzioni: Mapping[str, MenzioneRisolta] | Sequence[MenzioneRisolta] | object,
+) -> dict[str, MenzioneRisolta]:
+    if menzioni is None:
+        return {}
+    if isinstance(menzioni, Mapping):
+        return {
+            key: value
+            for key, value in menzioni.items()
+            if isinstance(key, str) and isinstance(value, MenzioneRisolta)
+        }
+    if isinstance(menzioni, Sequence) and not isinstance(menzioni, (str, bytes)):
+        fuori: dict[str, MenzioneRisolta] = {}
+        for item in menzioni:
+            if isinstance(item, MenzioneRisolta) and item.id:
+                fuori[item.id] = item
+        return fuori
+    return {}
+
+
+def _forme_tempo(
+    evento: EventoRisolto, menzioni: Mapping[str, MenzioneRisolta]
+) -> list[str]:
+    forme: list[str] = []
+    visti: set[str] = set()
+    for arg in evento.argomenti or []:
+        if getattr(arg, "ruolo", None) != "TEMPO":
+            continue
+        menzione = menzioni.get(arg.menzione_id or "")
+        nome = (menzione.forma if menzione is not None else "") or ""
+        chiave = nome.strip().casefold()
+        if not nome.strip() or chiave in visti:
+            continue
+        visti.add(chiave)
+        forme.append(nome.strip())
+    grezzo = (evento.tempo_assoluto_grezzo or "").strip()
+    if grezzo and grezzo.casefold() not in visti:
+        forme.append(grezzo)
+    return forme
+
+
+def _ancora_match_forma(ancora: AncoraTemporaleProposta, chiavi: set[str]) -> bool:
+    expr = (ancora.espressione or "").strip().casefold()
+    eti = (ancora.etichetta or "").strip().casefold()
+    return bool(expr and expr in chiavi) or bool(eti and eti in chiavi)
+
+
+def _foglia_per_tempo(
+    ancore: Sequence[AncoraTemporaleProposta],
+    forme: Sequence[str],
+    evento: EventoRisolto,
+) -> AncoraTemporaleProposta | None:
+    chiavi = {item.strip().casefold() for item in forme if item and item.strip()}
+    if not chiavi:
+        return None
+    hits = [a for a in ancore if _testo(a.etichetta) and _ancora_match_forma(a, chiavi)]
+    if not hits:
+        return None
+    foglie_ok = [a for a in hits if _is_leaf(ancore, a)] or list(hits)
+    migliore = min(foglie_ok, key=_specificita)
+    banda = _specificita(migliore)[:2]
+    pari = [a for a in foglie_ok if _specificita(a)[:2] == banda]
+    vicino = _foglia_piu_vicina(pari, evento)
+    return vicino if vicino is not None else migliore
+
+
 def _figli(
     ancore: Sequence[AncoraTemporaleProposta], padre: AncoraTemporaleProposta
 ) -> list[AncoraTemporaleProposta]:
@@ -309,27 +403,17 @@ def _foglia_contenente(
     contenenti = [a for a in ancore if _testo(a.etichetta) and _contiene_istante(a, istante)]
     if not contenenti:
         return None
+    prec = _precisione_evento(evento)
     foglie_ok = [a for a in contenenti if _is_leaf(ancore, a)]
-    if foglie_ok:
-        return min(foglie_ok, key=_specificita)
     migliore = min(contenenti, key=_specificita)
-    if _is_leaf(ancore, migliore):
-        return migliore
-    disc = _discendenti_foglia(ancore, migliore)
-    disc_ok = [a for a in disc if _contiene_istante(a, istante)]
-    if disc_ok:
-        return min(disc_ok, key=_specificita)
-    if disc:
-        pos = _pos_evento(evento)
-        return min(
-            disc,
-            key=lambda a: (
-                abs(_pos_ancora(a) - pos),
-                etichetta_normalizzata(a.etichetta),
-                _pos_ancora(a),
-            ),
-        )
-    return None
+    if _precisione_piu_fine(prec, granularita_effettiva(migliore)):
+        if foglie_ok:
+            return min(foglie_ok, key=_specificita)
+        disc = _discendenti_foglia(ancore, migliore)
+        disc_ok = [a for a in disc if _contiene_istante(a, istante)]
+        if disc_ok:
+            return min(disc_ok, key=_specificita)
+    return migliore
 
 
 def _foglia_piu_vicina(
@@ -463,18 +547,8 @@ def _foglia_da_ancora(
     ancora: AncoraTemporaleProposta,
     evento: EventoRisolto,
 ) -> AncoraTemporaleProposta:
-    if _is_leaf(ancore, ancora):
-        return ancora
-    disc = _discendenti_foglia(ancore, ancora)
-    if not disc:
-        return ancora
-    istante = _istante_evento(evento)
-    if istante is not None:
-        contenenti = [a for a in disc if _contiene_istante(a, istante)]
-        if contenenti:
-            return min(contenenti, key=_specificita)
-    vicino = _foglia_piu_vicina(disc, evento)
-    return vicino if vicino is not None else disc[0]
+    del ancore, evento
+    return ancora
 
 
 def _evento_nella_zona(evento: EventoRisolto, zona: Zona) -> bool:
@@ -798,6 +872,181 @@ class _Stato:
         return nuova
 
 
+def _e_incerti(ancora: AncoraTemporaleProposta) -> bool:
+    return (ancora.espressione or "").startswith(ESPRESSIONE_INCERTI_PREFIX)
+
+
+def ancora_precisa(ancora: AncoraTemporaleProposta) -> bool:
+    """True only when the ancora names a calendar date and a clock time together.
+
+    ISO time requires the date prefix, so ``ora``/``minuto``/``secondo`` is the
+    proof. A coarser effective granularity (day, year, …) means the clock is
+    not the occupied window. Date-only, time-only, deadlines, and lexical
+    spans stay vague.
+    """
+    if not isinstance(ancora, AncoraTemporaleProposta) or _e_incerti(ancora):
+        return False
+    tempo = analizza(ancora.inizio)
+    if tempo is None or tempo.precisione not in _PRECISIONI_PUNTO:
+        return False
+    gran = granularita_effettiva(ancora)
+    if gran is not None and gran not in _PRECISIONI_PUNTO:
+        return False
+    return True
+
+
+def _e_orario_senza_data(ancora: AncoraTemporaleProposta) -> bool:
+    """Clock-of-day (or minute) that does not name which calendar day."""
+    if not isinstance(ancora, AncoraTemporaleProposta) or _e_incerti(ancora):
+        return False
+    if ancora_precisa(ancora):
+        return False
+    tempo = analizza(ancora.inizio)
+    if tempo is not None:
+        return False
+    if ancora.tipo == "ora":
+        return True
+    gran = granularita_effettiva(ancora)
+    return gran in _PRECISIONI_PUNTO
+
+
+def _e_intervallo_di_linea(ancora: AncoraTemporaleProposta) -> bool:
+    """Span that can sit on the line and receive vague clocks as first child."""
+    if not isinstance(ancora, AncoraTemporaleProposta):
+        return False
+    if _e_incerti(ancora) or _e_orario_senza_data(ancora) or ancora_precisa(ancora):
+        return False
+    if analizza(ancora.inizio) is not None:
+        return True
+    if ancora.natura in {"intervallo", "aperta"}:
+        return True
+    return ancora.tipo in {"data", "scadenza", "vaga"}
+
+
+def _intervallo_contenente(
+    ancore: Sequence[AncoraTemporaleProposta],
+    ancora: AncoraTemporaleProposta,
+    evento: EventoRisolto,
+) -> AncoraTemporaleProposta:
+    padre = _risolvi_nome(ancora.padre or "", ancore)
+    if padre is not None and _e_intervallo_di_linea(padre):
+        return padre
+    pos = _pos_evento(evento)
+    if pos == _POS_MANCANTE:
+        pos = _pos_ancora(ancora)
+    candidati = [
+        item
+        for item in ancore
+        if _testo(item.etichetta)
+        and _e_intervallo_di_linea(item)
+        and _pos_ancora(item) <= pos
+    ]
+    if not candidati:
+        return ancora
+
+    def _chiave_intervallo(item: AncoraTemporaleProposta) -> tuple:
+        rango = rango_granularita(granularita_effettiva(item))
+        return (
+            _larghezza(item),
+            rango if rango is not None else 99,
+            -_pos_ancora(item),
+            _chiave(item),
+        )
+
+    return min(candidati, key=_chiave_intervallo)
+
+
+def _aggancia_intervallo(
+    ancore: Sequence[AncoraTemporaleProposta],
+    ancora: AncoraTemporaleProposta | None,
+    evento: EventoRisolto,
+) -> AncoraTemporaleProposta | None:
+    if ancora is None or _e_incerti(ancora) or not _e_orario_senza_data(ancora):
+        return ancora
+    return _intervallo_contenente(ancore, ancora, evento)
+
+
+def _espressione_incerti(padre: AncoraTemporaleProposta) -> str:
+    return f"{ESPRESSIONE_INCERTI_PREFIX}{_chiave(padre)}"
+
+
+def _etichetta_incerti(intervallo: str, prese: set[str]) -> str:
+    base = (intervallo or "").strip()[:ETICHETTA_MAX_CHAR] or "intervallo"
+    nome = base
+    n = 1
+    while etichetta_normalizzata(nome) in prese:
+        n += 1
+        candidato = (base + (_ETICHETTA_INVISIBILE * n))[:ETICHETTA_MAX_CHAR]
+        if etichetta_normalizzata(candidato) == etichetta_normalizzata(nome):
+            candidato = _etichetta_con_suffisso(base, str(n))
+        nome = candidato
+    prese.add(etichetta_normalizzata(nome))
+    return nome
+
+
+def _figlio_incerti(
+    stato: _Stato, padre: AncoraTemporaleProposta
+) -> AncoraTemporaleProposta | None:
+    expr = _espressione_incerti(padre)
+    for figlio in _figli(stato.ancore, padre):
+        if (figlio.espressione or "") == expr:
+            return figlio
+    return None
+
+
+def _contenitore_incerti(
+    stato: _Stato,
+    intervallo: AncoraTemporaleProposta,
+    *,
+    documento: str,
+) -> AncoraTemporaleProposta:
+    esistente = _figlio_incerti(stato, intervallo)
+    if esistente is not None:
+        return esistente
+    prese = {_chiave(a) for a in stato.ancore if _chiave(a)}
+    etichetta = _etichetta_incerti(_testo(intervallo.etichetta), prese)
+    expr = _espressione_incerti(intervallo)
+    ancora_temporale_id(
+        documento,
+        "esplicita",
+        "vaga",
+        inizio=None,
+        fine=None,
+        chiave=expr,
+    )
+    nuova = AncoraTemporaleProposta(
+        etichetta=etichetta,
+        natura="esplicita",
+        tipo="vaga",
+        stimato=True,
+        padre=_testo(intervallo.etichetta),
+        espressione=expr,
+        posizione_doc_min=intervallo.posizione_doc_min,
+    )
+    figli = _figli(stato.ancore, intervallo)
+    if figli:
+        minimo = min(stato.ordine.get(_chiave(c), 0.0) for c in figli)
+        ordine = minimo - 1.0
+    else:
+        ordine = stato.ordine.get(_chiave(intervallo), 0.0) + 0.1
+    return stato.aggiungi(nuova, ordine=ordine)
+
+
+def _assicura_foglia_collocazione(
+    stato: _Stato,
+    ancora: AncoraTemporaleProposta | None,
+    *,
+    documento: str,
+) -> AncoraTemporaleProposta | None:
+    if ancora is None:
+        return None
+    if _e_incerti(ancora):
+        return ancora
+    if ancora_precisa(ancora) and _is_leaf(stato.ancore, ancora):
+        return ancora
+    return _contenitore_incerti(stato, ancora, documento=documento)
+
+
 def _crea_aperta(
     stato: _Stato,
     bersaglio: AncoraTemporaleProposta,
@@ -814,7 +1063,7 @@ def _crea_aperta(
     ancora_temporale_id(
         documento,
         "aperta",
-        "relativa",
+        "vaga",
         inizio=None,
         fine=None,
         chiave=chiave_id,
@@ -822,7 +1071,7 @@ def _crea_aperta(
     aperta = AncoraTemporaleProposta(
         etichetta=etichetta,
         natura="aperta",
-        tipo="relativa",
+        tipo="vaga",
         stimato=True,
         padre=bersaglio.padre,
         espressione=chiave_id,
@@ -912,6 +1161,7 @@ async def smista_eventi(
     eventi: Sequence[EventoRisolto] | None,
     *,
     zone: Sequence[Zona] | None = None,
+    menzioni: Mapping[str, MenzioneRisolta] | Sequence[MenzioneRisolta] | None = None,
     job_id: str | None = None,
     call_structured: Any = None,
     documento: str = "",
@@ -926,6 +1176,7 @@ async def smista_eventi(
         linea_in = LineaAncore(ancore=ancore0)
     items = [e for e in _come_eventi(eventi) if not _e_fuso(e)]
     zone_ok = _come_zone(zone)
+    menzioni_ok = _come_menzioni(menzioni)
     doc = documento if isinstance(documento, str) else ""
     if not doc:
         for evento in items:
@@ -948,15 +1199,26 @@ async def smista_eventi(
         if not evento.id:
             restanti.append(evento)
             continue
-        istante = _istante_evento(evento)
-        if istante is None:
-            restanti.append(evento)
-            continue
-        foglia = _foglia_contenente(stato.ancore, istante, evento)
+        foglia = _foglia_per_tempo(stato.ancore, _forme_tempo(evento, menzioni_ok), evento)
+        base = "tempo"
+        if foglia is None:
+            istante = _istante_evento(evento)
+            if istante is None:
+                restanti.append(evento)
+                continue
+            foglia = _foglia_contenente(stato.ancore, istante, evento)
+            if foglia is None:
+                restanti.append(evento)
+                continue
+            base = "tempo_assoluto"
+            n_datati += 1
+        else:
+            n_datati += 1
+        foglia = _aggancia_intervallo(stato.ancore, foglia, evento)
+        foglia = _assicura_foglia_collocazione(stato, foglia, documento=doc)
         if foglia is None:
             restanti.append(evento)
             continue
-        n_datati += 1
         appartenenze.append(
             _assegna(
                 stato,
@@ -964,7 +1226,7 @@ async def smista_eventi(
                 foglia,
                 confidenza=1.0,
                 stimato=False,
-                base="tempo_assoluto",
+                base=base,
             )
         )
         collocati.add(evento.id)
@@ -1020,6 +1282,8 @@ async def smista_eventi(
                 confidenza = segnale.confidenza
                 stimato = bool(segnale.stimato)
                 base = segnale.base or "llm"
+        foglia = _aggancia_intervallo(stato.ancore, foglia, evento)
+        foglia = _assicura_foglia_collocazione(stato, foglia, documento=doc)
         if foglia is None:
             continue
         appartenenze.append(
@@ -1079,6 +1343,7 @@ esegui_ancore_smistamento = smista_eventi
 
 
 __all__ = [
+    "ESPRESSIONE_INCERTI_PREFIX",
     "EVENTO",
     "EVENTO_FINESTRA",
     "MAX_EVENTI_FINESTRA",
@@ -1086,6 +1351,7 @@ __all__ = [
     "SYSTEM_SMISTAMENTO",
     "AppartenenzaAncora",
     "SmistamentoAncore",
+    "ancora_precisa",
     "esegui_ancore_smistamento",
     "scarta_contenitori_sterili",
     "smista_eventi",

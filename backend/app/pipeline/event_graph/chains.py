@@ -1,4 +1,4 @@
-"""§11 — chain properties on :Evento, heads, bifurcation.
+"""§11 — chain properties on :Fatto, heads, bifurcation.
 
 STESSO_EVENTO / AGGIORNA / CONTRADDICE are node traits, not :Relation arcs.
 """
@@ -22,7 +22,7 @@ CHAIN_TIPI = frozenset({"STESSO_EVENTO", "AGGIORNA", "CONTRADDICE"})
 REGOLA = "chains.applica"
 
 _FUSIONE_CYPHER = (
-    "MATCH (a:Evento {id: $id_a}), (b:Evento {id: $id_b}) "
+    "MATCH (a:Fatto {id: $id_a}), (b:Fatto {id: $id_b}) "
     "WITH a, b, "
     "CASE "
     "WHEN coalesce(a.posizione_doc, 0) < coalesce(b.posizione_doc, 0) THEN a "
@@ -40,8 +40,8 @@ _FUSIONE_CYPHER = (
 )
 
 _CATENA_SET_CYPHER = (
-    "MATCH (old:Evento {id: $old_id}) "
-    "MATCH (new:Evento {id: $new_id}) "
+    "MATCH (old:Fatto {id: $old_id}) "
+    "MATCH (new:Fatto {id: $new_id}) "
     "SET new.catena_id = coalesce(old.catena_id, $catena_id), "
     "new.catena_ruolo = $ruolo, "
     "new.catena_precedente_id = old.id, "

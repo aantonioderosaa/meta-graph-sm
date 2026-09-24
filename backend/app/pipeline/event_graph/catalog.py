@@ -11,6 +11,7 @@ import json
 from typing import Any, get_args
 
 from app.models.event_graph import (
+    EntitaKernelCategoria,
     GRANULARITA_TEMPORALI,
     Fattualita,
     Modalita,
@@ -43,25 +44,25 @@ _STRUTTURA = (
     "CONTIENE",
 )
 
-_DIR_EVENTO_MENZIONE = "Evento→Menzione"
-_DIR_EVENTO_EVENTO = "Evento→Evento"
-_DIR_EVENTO_ANCORA = "Evento→AncoraTemporale"
+_DIR_EVENTO_MENZIONE = "Fatto→Menzione"
+_DIR_EVENTO_EVENTO = "Fatto→Fatto"
+_DIR_EVENTO_ANCORA = "Fatto→AncoraTemporale"
 _DIR_ANCORA_ANCORA = "AncoraTemporale→AncoraTemporale"
 _DIR_ZONA_ZONA = "Zona→Zona"
 
-# Unique types ``grafo()`` (vista=tutto) can return: Evento/Menzione/Quarantena
+# Unique types ``grafo()`` (vista=tutto) can return: Fatto/Menzione/Quarantena
 # endpoints only, chain types excluded. APPARTIENE_A and SUCCESSIONE_ZONA
 # target labels this view never queries.
-_TUTTO_NODI = ("Evento", "Menzione", "Quarantena")
+_TUTTO_NODI = ("Fatto", "Menzione", "Quarantena")
 _TUTTO_ARCHI = (
     *_ARGOMENTALI,
     *_DIZIONARIO,
     *_PLACEHOLDER,
     "SATELLITE_DI",
 )
-_ORDINE_NODI = ("Zona", "Evento")
+_ORDINE_NODI = ("Zona", "Fatto")
 _ORDINE_ARCHI = ("SUCCESSIONE_ZONA", "SEQUENZA", "COLLEGATO")
-_TEMPORALE_NODI = ("AncoraTemporale", "Evento")
+_TEMPORALE_NODI = ("AncoraTemporale", "Fatto")
 # APPARTIENE_A / CONTIENE assign data.parent; grafo_livello2 does not draw
 # them. They still belong in the vista legend (same as the v2 note).
 # SUCCESSIONE_ANCORA is drawn between sibling ancore.
@@ -70,7 +71,7 @@ _TEMPORALE_ARCHI = (
     "APPARTIENE_A",
     "CONTIENE",
 )
-_RELAZIONI_NODI = ("Evento",)
+_RELAZIONI_NODI = ("Fatto",)
 _RELAZIONI_ARCHI = tuple(get_args(TipoRelazioneLibera))
 
 _SIGNIFICATO: dict[tuple[str, str], str] = {
@@ -131,7 +132,7 @@ def _viste() -> dict[str, dict[str, Any]]:
             "nodi": list(_TUTTO_NODI),
             "archi": list(_TUTTO_ARCHI),
             "significato": (
-                "Vista completa: Evento, Menzione e Quarantena con tutti gli "
+                "Vista completa: Fatto, Menzione e Quarantena con tutti gli "
                 "archi micro (argomentali, dizionario, COLLEGATO, "
                 "SATELLITE_DI). Nessun arco temporale fra eventi. "
                 "Nessuna Zona né AncoraTemporale; "
@@ -142,7 +143,7 @@ def _viste() -> dict[str, dict[str, Any]]:
             "nodi": list(_ORDINE_NODI),
             "archi": list(_ORDINE_ARCHI),
             "significato": (
-                "Livello 1: Zona + Evento (compound, parent=zona). "
+                "Livello 1: Zona + Fatto (compound, parent=zona). "
                 "SUCCESSIONE_ZONA (successione narrativa fra zone espanse) "
                 "e SEQUENZA/COLLEGATO intra-zona. Nessun CAUSA/CONTRASTO/…"
             ),
@@ -151,7 +152,7 @@ def _viste() -> dict[str, dict[str, Any]]:
             "nodi": list(_TEMPORALE_NODI),
             "archi": list(_TEMPORALE_ARCHI),
             "significato": (
-                "Livello 2: AncoraTemporale + Evento (compound, parent=ancora). "
+                "Livello 2: AncoraTemporale + Fatto (compound, parent=ancora). "
                 "Arco visibile SUCCESSIONE_ANCORA "
                 "(AncoraTemporale→AncoraTemporale, fratelli consecutivi). "
                 "APPARTIENE_A (evento appartenente a un'ancora temporale) e "
@@ -166,11 +167,25 @@ def _viste() -> dict[str, dict[str, Any]]:
             "nodi": list(_RELAZIONI_NODI),
             "archi": list(_RELAZIONI_ARCHI),
             "significato": (
-                "Relazioni: ogni Evento non fuso del documento e le "
+                "Relazioni: ogni Fatto non fuso del documento e le "
                 "TipoRelazioneLibera di significato (CAUSA, CONDIZIONE, "
                 "SCOPO, CONCESSIONE, CONTRASTO, LIMITE, CONTENUTO) da grammatica "
                 "e livello 3. Nessun arco SEQUENZA: il livello 3 legge il testo "
-                "e la lista eventi, non l'ordine di esposizione."
+                "e la lista eventi, non l'ordine di esposizione. "
+                "Vicinanza senza nulla in comune non basta; "
+                "con qualcosa in comune non è una penalità."
+            ),
+        },
+        "entita": {
+            "nodi": ["KernelCategoria", "Menzione", "Fatto"],
+            "archi": [],
+            "significato": (
+                "Vista entità: 10 nodi gruppo sintetici (uno per EntitaKernelCategoria) "
+                "e i nodi Menzione/Fatto con kernel_category valorizzata come figli "
+                "(SOGG/OGG classificati da LLM, TEMPO assegnato a 'Temporale' senza LLM, "
+                "Fatto assegnato automaticamente a 'Fatti'). "
+                "Nessun arco. I nodi gruppo sintetici hanno id stabile 'kernel:<categoria>' "
+                "e sono presenti anche se vuoti."
             ),
         },
     }
@@ -180,7 +195,7 @@ def catalogo() -> dict:
     """nodes, traits, arches grouped for the legend."""
     return {
         "nodes": [
-            {"id": "Evento", "label": "Evento", "shape": "pieno"},
+            {"id": "Fatto", "label": "Fatto", "shape": "pieno"},
             {"id": "Menzione", "label": "Menzione", "shape": "ovale"},
             {"id": "Quarantena", "label": "Quarantena", "shape": "tratteggiato"},
             {"id": "Zona", "label": "Zona", "shape": "round-rectangle"},
@@ -383,7 +398,7 @@ async def _single(session: Any, query: str, parameters: dict[str, Any] | None = 
 
 async def stats(session) -> dict:
     """Live counts: nodi / archi / tratti.piano. FakeSession-friendly."""
-    n_evento = _first_int(await _single(session, "MATCH (e:Evento) RETURN count(e)"))
+    n_evento = _first_int(await _single(session, "MATCH (e:Fatto) RETURN count(e)"))
     n_menzione = _first_int(await _single(session, "MATCH (m:Menzione) RETURN count(m)"))
     n_quarantena = _first_int(
         await _single(session, "MATCH (q:Quarantena) RETURN count(q)")
@@ -399,7 +414,7 @@ async def stats(session) -> dict:
         archi[str(tipo)] = _first_int(mapping)
     piano = {nome: 0 for nome in get_args(PianoNarrativo)}
     for row in await _rows(
-        session, "MATCH (e:Evento) RETURN e.piano AS p, count(*) AS n"
+        session, "MATCH (e:Fatto) RETURN e.piano AS p, count(*) AS n"
     ):
         mapping = _as_mapping(row)
         key = mapping.get("p") or mapping.get("e.piano")
@@ -408,7 +423,7 @@ async def stats(session) -> dict:
         piano[str(key)] = _first_int(mapping)
     return {
         "nodi": {
-            "Evento": n_evento,
+            "Fatto": n_evento,
             "Menzione": n_menzione,
             "Quarantena": n_quarantena,
         },
@@ -418,44 +433,47 @@ async def stats(session) -> dict:
 
 
 _NODES_CYPHER = (
-    "MATCH (e:Evento) "
+    "MATCH (e:Fatto) "
     "WHERE (e.fuso_in IS NULL OR e.fuso_in = '') "
     "AND ($documento IS NULL OR e.documento = $documento) "
     "AND ($piano IS NULL OR e.piano = $piano) "
     "AND ($lemma IS NULL OR e.lemma = $lemma) "
-    "RETURN e.id AS id, e.lemma AS label, 'Evento' AS tipo, e.piano AS piano, "
+    "RETURN e.id AS id, e.lemma AS label, 'Fatto' AS tipo, e.piano AS piano, "
     "e.fattualita AS fattualita, e.documento AS documento, e.fuso_in AS fuso_in, "
     "e.posizione_doc AS posizione_doc, e.posizione_chunk AS posizione_chunk, "
-    "e.offset_inizio AS offset_inizio "
+    "e.offset_inizio AS offset_inizio, "
+    "null AS descrizione, null AS occorrenze, null AS riassunti "
     "UNION ALL "
     "MATCH (m:Menzione) "
     "WHERE ($documento IS NULL OR m.documento = $documento) "
     "RETURN m.id AS id, coalesce(m.forma, m.forma_canonica, m.id) AS label, "
     "'Menzione' AS tipo, null AS piano, null AS fattualita, "
     "m.documento AS documento, null AS fuso_in, "
-    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio "
+    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio, "
+    "m.summary AS descrizione, m.occorrenze AS occorrenze, m.riassunti AS riassunti "
     "UNION ALL "
     "MATCH (q:Quarantena) "
     "WHERE ($documento IS NULL OR q.ancora_doc = $documento) "
     "RETURN q.id AS id, coalesce(q.frammento, q.id) AS label, "
     "'Quarantena' AS tipo, null AS piano, null AS fattualita, "
     "q.ancora_doc AS documento, null AS fuso_in, "
-    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio"
+    "null AS posizione_doc, null AS posizione_chunk, null AS offset_inizio, "
+    "null AS descrizione, null AS occorrenze, null AS riassunti"
 )
 
 _EDGES_CYPHER = (
     "MATCH (a)-[r]->(b) "
     # Both endpoints must be one of the labels _NODES_CYPHER returns
-    # (Evento/Menzione/Quarantena). Without this, any edge whose endpoints
+    # (Fatto/Menzione/Quarantena). Without this, any edge whose endpoints
     # are a label this view doesn't query for (e.g. :Zona<->:Zona macro arcs,
     # Addendum 2 M2) still comes back here with a source/target id that has
     # no matching node in the nodes list — Cytoscape then refuses to mount
     # ("nonexistant source"). This view is the MICRO event graph only; macro
     # zone arcs belong to GET /zone, not here.
-    "WHERE (a:Evento OR a:Menzione OR a:Quarantena) "
-    "AND (b:Evento OR b:Menzione OR b:Quarantena) "
-    "AND (NOT a:Evento OR a.fuso_in IS NULL OR a.fuso_in = '') "
-    "AND (NOT b:Evento OR b.fuso_in IS NULL OR b.fuso_in = '') "
+    "WHERE (a:Fatto OR a:Menzione OR a:Quarantena) "
+    "AND (b:Fatto OR b:Menzione OR b:Quarantena) "
+    "AND (NOT a:Fatto OR a.fuso_in IS NULL OR a.fuso_in = '') "
+    "AND (NOT b:Fatto OR b.fuso_in IS NULL OR b.fuso_in = '') "
     "AND ($documento IS NULL OR a.documento = $documento "
     "OR b.documento = $documento) "
     "AND ($piano IS NULL OR a.piano = $piano OR b.piano = $piano) "
@@ -477,11 +495,24 @@ def _node_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
     data: dict[str, Any] = {
         "id": str(node_id),
         "label": mapping.get("label") or str(node_id),
-        "tipo": mapping.get("tipo") or "Evento",
+        "tipo": mapping.get("tipo") or "Fatto",
         "piano": mapping.get("piano"),
         "fattualita": mapping.get("fattualita"),
         "documento": mapping.get("documento"),
     }
+    riassunti = _as_str_list(mapping.get("riassunti"))
+    if riassunti:
+        data["riassunti"] = riassunti
+    if mapping.get("descrizione"):
+        data["descrizione"] = mapping.get("descrizione")
+    elif riassunti:
+        data["descrizione"] = riassunti[-1]
+    occorrenze = mapping.get("occorrenze")
+    if occorrenze is not None and occorrenze != "":
+        try:
+            data["occorrenze"] = int(occorrenze)
+        except (TypeError, ValueError):
+            pass
     _attach_posizione(data, mapping)
     return {"data": data}
 
@@ -549,6 +580,12 @@ async def grafo(
             continue
         seen_edges.add(edge_id)
         edges.append(element)
+    
+    # Aggiungi eventi_collegati per i nodi Menzione nella vista "entita"
+    # (questo è solo per la vista entita, che si basa su questa funzione)
+    if params.get("vista") == "entita":
+        nodes = await _aggiungi_eventi_collegati(session, nodes, seen_nodes)
+    
     return {"elements": {"nodes": nodes, "edges": edges}}
 
 
@@ -568,12 +605,12 @@ _L1_ZONES_CYPHER = (
 _L1_EVENTS_CYPHER = (
     "/* grafo_livello1_eventi */ "
     "MATCH (z:Zona) "
-    "MATCH (e:Evento) "
+    "MATCH (e:Fatto) "
     "WHERE e.chunk_id = z.id "
     "AND (e.fuso_in IS NULL OR e.fuso_in = '') "
     "AND ($documento IS NULL OR z.documento = $documento) "
     "RETURN e.id AS id, e.lemma AS label, e.chunk_id AS parent, "
-    "e.documento AS documento, 'Evento' AS tipo, e.fuso_in AS fuso_in, "
+    "e.documento AS documento, 'Fatto' AS tipo, e.fuso_in AS fuso_in, "
     "e.posizione_doc AS posizione_doc, e.posizione_chunk AS posizione_chunk, "
     "e.offset_inizio AS offset_inizio "
     "ORDER BY z.ordinale, e.posizione_doc, e.posizione_chunk, e.offset_inizio"
@@ -590,7 +627,7 @@ _L1_SUCCESSIONE_CYPHER = (
 
 _L1_ORDER_EDGES_CYPHER = (
     "/* grafo_livello1_ordine_eventi */ "
-    "MATCH (a:Evento)-[r]->(b:Evento) "
+    "MATCH (a:Fatto)-[r]->(b:Fatto) "
     "WHERE type(r) IN ['SEQUENZA','COLLEGATO'] "
     "AND a.chunk_id = b.chunk_id "
     "AND (a.fuso_in IS NULL OR a.fuso_in = '') "
@@ -635,7 +672,7 @@ def _l1_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
     if _is_edge_row(mapping) or _is_fused(mapping):
         return None
     tipo = mapping.get("tipo")
-    if tipo and tipo != "Evento":
+    if tipo and tipo != "Fatto":
         return None
     node_id = mapping.get("id")
     if not node_id:
@@ -646,7 +683,7 @@ def _l1_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
     data: dict[str, Any] = {
         "id": str(node_id),
         "label": mapping.get("label") or mapping.get("lemma") or str(node_id),
-        "tipo": "Evento",
+        "tipo": "Fatto",
         "parent": str(parent),
         "documento": mapping.get("documento"),
     }
@@ -678,7 +715,7 @@ def _l1_edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | Non
 async def grafo_livello1(session, documento: str | None = None) -> dict:
     """Livello 1 (ordine): Zona hubs + intra-zone SEQUENZA/COLLEGATO.
 
-    Compound Cytoscape nodes: Evento ``data.parent`` = Zona.id. No Menzione,
+    Compound Cytoscape nodes: Fatto ``data.parent`` = Zona.id. No Menzione,
     Quarantena, or AncoraTemporale. No CAUSA/CONTRASTO/… edges.
     """
     params = {"documento": documento}
@@ -757,6 +794,7 @@ _L2_CLUSTER_CYPHER = (
     "a.posizione_doc_min AS posizione_doc_min, "
     "a.stimato AS stimato, a.confidenza AS confidenza, "
     "a.natura AS natura, a.ordinale AS ordinale, "
+    "a.occorrenze AS occorrenze, "
     "p.id AS parent, 'AncoraTemporale' AS tipo "
     # MT5 guarantees at most one active parent; the sort only makes the
     # first-wins dedupe below deterministic if that guarantee ever breaks.
@@ -765,13 +803,13 @@ _L2_CLUSTER_CYPHER = (
 
 _L2_EVENTS_CYPHER = (
     "/* grafo_livello2_eventi */ "
-    "MATCH (e:Evento) "
+    "MATCH (e:Fatto) "
     "WHERE (e.fuso_in IS NULL OR e.fuso_in = '') "
     "AND ($documento IS NULL OR e.documento = $documento) "
     "OPTIONAL MATCH (e)-[ra:APPARTIENE_A]->(a:AncoraTemporale) "
     "WHERE coalesce(ra.attivo, true) "
     "RETURN e.id AS id, e.lemma AS label, a.id AS parent, "
-    "e.documento AS documento, 'Evento' AS tipo, e.fuso_in AS fuso_in, "
+    "e.documento AS documento, 'Fatto' AS tipo, e.fuso_in AS fuso_in, "
     "e.posizione_doc AS posizione_doc, "
     "e.posizione_chunk AS posizione_chunk, "
     "e.offset_inizio AS offset_inizio, "
@@ -818,6 +856,7 @@ def _l2_cluster_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | 
         "fine": mapping.get("fine"),
         "natura": mapping.get("natura"),
         "ordinale": _as_int(mapping.get("ordinale")),
+        "occorrenze": _as_int(mapping.get("occorrenze")),
         # Verbatim: an ancora written without a calendar signal has neither,
         # and the view never invents a time for it. Only ``ordine_vista``
         # is resolved.
@@ -836,7 +875,7 @@ def _l2_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
     if _is_edge_row(mapping) or _is_fused(mapping):
         return None
     tipo = mapping.get("tipo")
-    if tipo and tipo != "Evento":
+    if tipo and tipo != "Fatto":
         return None
     node_id = mapping.get("id")
     if not node_id:
@@ -844,7 +883,7 @@ def _l2_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
     data: dict[str, Any] = {
         "id": str(node_id),
         "label": mapping.get("label") or mapping.get("lemma") or str(node_id),
-        "tipo": "Evento",
+        "tipo": "Fatto",
         "documento": mapping.get("documento"),
         "posizione_doc": _as_int(mapping.get("posizione_doc")),
         "posizione_chunk": _as_int(mapping.get("posizione_chunk")),
@@ -1032,10 +1071,10 @@ def _l2_edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | Non
 
 
 async def grafo_livello2(session, documento: str | None = None) -> dict:
-    """Livello 2 (tempo): AncoraTemporale + Evento + SUCCESSIONE_ANCORA.
+    """Livello 2 (tempo): AncoraTemporale + Fatto + SUCCESSIONE_ANCORA.
 
     Compound Cytoscape nodes on two levels: an AncoraTemporale ``data.parent``
-    is the active ``CONTIENE`` parent, an Evento ``data.parent`` is its active
+    is the active ``CONTIENE`` parent, a Fatto ``data.parent`` is its active
     ``APPARTIENE_A`` leaf ancora. Neither ``CONTIENE`` nor ``APPARTIENE_A`` is
     a drawn edge: they assign the parent. Drawn edges are ``SUCCESSIONE_ANCORA``
     only (sibling ancore). Events inside a box are unordered: no event-to-event
@@ -1150,18 +1189,18 @@ _L3_EDGE_TIPI_CYPHER = ",".join(f"'{tipo}'" for tipo in get_args(TipoRelazioneLi
 # grafo() / grafo_livello1 / grafo_livello2 Cypher.
 _L3_EVENTS_CYPHER = (
     "/* grafo_livello3_eventi */ "
-    "MATCH (e:Evento) "
+    "MATCH (e:Fatto) "
     "WHERE (e.fuso_in IS NULL OR e.fuso_in = '') "
     "AND ($documento IS NULL OR e.documento = $documento) "
     "RETURN e.id AS id, e.lemma AS label, e.documento AS documento, "
-    "'Evento' AS tipo, e.fuso_in AS fuso_in, "
+    "'Fatto' AS tipo, e.fuso_in AS fuso_in, "
     "e.posizione_doc AS posizione_doc, e.posizione_chunk AS posizione_chunk, "
     "e.offset_inizio AS offset_inizio"
 )
 
 _L3_EDGES_CYPHER = (
     "/* grafo_livello3_archi */ "
-    "MATCH (a:Evento)-[r]->(b:Evento) "
+    "MATCH (a:Fatto)-[r]->(b:Fatto) "
     f"WHERE type(r) IN [{_L3_EDGE_TIPI_CYPHER}] "
     "AND (a.fuso_in IS NULL OR a.fuso_in = '') "
     "AND (b.fuso_in IS NULL OR b.fuso_in = '') "
@@ -1177,7 +1216,7 @@ def _l3_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
     if _is_edge_row(mapping) or _is_fused(mapping):
         return None
     tipo = mapping.get("tipo")
-    if tipo and tipo != "Evento":
+    if tipo and tipo != "Fatto":
         return None
     node_id = mapping.get("id")
     if not node_id:
@@ -1185,7 +1224,7 @@ def _l3_evento_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | N
     data: dict[str, Any] = {
         "id": str(node_id),
         "label": mapping.get("label") or mapping.get("lemma") or str(node_id),
-        "tipo": "Evento",
+        "tipo": "Fatto",
         "documento": mapping.get("documento"),
     }
     _attach_posizione(data, mapping)
@@ -1216,7 +1255,7 @@ def _l3_edge_element(mapping: dict[str, Any]) -> dict[str, dict[str, Any]] | Non
 
 
 async def grafo_livello3(session, documento: str | None = None) -> dict:
-    """Vista relazioni: every non-fused ``:Evento`` plus TipoRelazioneLibera
+    """Vista relazioni: every non-fused ``:Fatto`` plus TipoRelazioneLibera
     (grammar and document-level L3). No SEQUENZA: L3 reads document text and
     the event list, not exposition order.
 
@@ -1253,8 +1292,8 @@ async def grafo_livello3(session, documento: str | None = None) -> dict:
 _NODO_CYPHER = "MATCH (n {id: $id}) RETURN properties(n) AS props, labels(n) AS labels"
 
 _CATENA_OCCORRENZE_CYPHER = (
-    "MATCH (e:Evento {id: $id}) "
-    "MATCH (o:Evento {catena_id: e.catena_id}) "
+    "MATCH (e:Fatto {id: $id}) "
+    "MATCH (o:Fatto {catena_id: e.catena_id}) "
     "OPTIONAL MATCH (o)-[:SOGG]->(m:Menzione) "
     "RETURN o, m.forma AS sogg_forma "
     "ORDER BY o.posizione_doc, o.posizione_chunk"
@@ -1331,7 +1370,7 @@ async def dettaglio_nodo(session, node_id: str) -> dict[str, Any] | None:
     offset_inizio, ...) show up here automatically, no projection to keep in
     sync. ``None`` if no node carries this id.
 
-    For ``:Evento`` with ``catena_id``, also rebuilds the live ``catena``
+    For ``:Fatto`` with ``catena_id``, also rebuilds the live ``catena``
     payload (occurrences old→new).
     """
     mapping = _as_mapping(await _single(session, _NODO_CYPHER, {"id": node_id}))
@@ -1344,7 +1383,7 @@ async def dettaglio_nodo(session, node_id: str) -> dict[str, Any] | None:
         "labels": labels,
         "proprieta": proprieta,
     }
-    if "Evento" in labels and proprieta.get("catena_id"):
+    if "Fatto" in labels and proprieta.get("catena_id"):
         payload["catena"] = await _catena_payload(session, node_id, str(proprieta["catena_id"]))
     return payload
 
@@ -1411,6 +1450,127 @@ def _arco_payload(mapping: dict[str, Any], arco_id: str) -> dict[str, Any] | Non
     }
 
 
+async def grafo_entita(session, documento: str | None = None) -> dict:
+    """Vista entità: 10 nodi gruppo sintetici (uno per EntitaKernelCategoria)
+    e i nodi Menzione/Fatto con kernel_category valorizzata come figli.
+
+    Nessun arco (relazioni fuori scope). I nodi gruppo sintetici hanno id
+    stabile "kernel:<categoria>", tipo "KernelCategoria" (contratto atteso dal
+    frontend: layout-entita.ts::isKernelCategoriaNode, encoding.ts) e sono
+    presenti anche se vuoti.
+    
+    Aggiunge i :Fatto collegati alle Menzioni nella vista "entita".
+    """
+    classifiche_query = (
+        "MATCH (m:Menzione) "
+        "WHERE m.kernel_category IS NOT NULL "
+        "AND ($documento IS NULL OR m.documento = $documento) "
+        "RETURN m.id AS entita_id, coalesce(m.forma, m.forma_canonica, m.id) AS label, "
+        "'Menzione' AS tipo, m.kernel_category AS categoria "
+        "UNION ALL "
+        "MATCH (e:Fatto) "
+        "WHERE e.kernel_category IS NOT NULL "
+        "AND (e.fuso_in IS NULL OR e.fuso_in = '') "
+        "AND ($documento IS NULL OR e.documento = $documento) "
+        "RETURN e.id AS entita_id, e.lemma AS label, "
+        "'Fatto' AS tipo, e.kernel_category AS categoria"
+    )
+
+    params = {"documento": documento}
+    classifiche_rows = await _rows(session, classifiche_query, params)
+
+    conteggi: dict[str, int] = {}
+    nodi_membri = []
+    for row in classifiche_rows:
+        mapping = _as_mapping(row)
+        entita_id = mapping.get("entita_id")
+        categoria = mapping.get("categoria")
+        if not entita_id or not categoria:
+            continue
+        conteggi[categoria] = conteggi.get(categoria, 0) + 1
+        nodi_membri.append(
+            {
+                "data": {
+                    "id": f"entita:{entita_id}",
+                    "label": mapping.get("label") or entita_id,
+                    "tipo": mapping.get("tipo") or "Menzione",
+                    "parent": f"kernel:{categoria}",
+                    "categoria": categoria,
+                }
+            }
+        )
+
+    # Genera i 10 gruppi sintetici, anche quelli vuoti. `ordinale` fissa
+    # l'ordine orizzontale letto da layout-entita.ts::positionsEntita.
+    nodi_gruppo = [
+        {
+            "data": {
+                "id": f"kernel:{categoria.value}",
+                "label": categoria.value,
+                "tipo": "KernelCategoria",
+                "categoria": categoria.value,
+                "ordinale": indice,
+                "count": conteggi.get(categoria.value, 0),
+            }
+        }
+        for indice, categoria in enumerate(EntitaKernelCategoria)
+    ]
+
+    # Aggiungi eventi collegati ai nodi Menzione
+    # Questo passaggio è importante per il frontend che mostra i Fatti collegati a ogni Menzione
+    menzioni_con_fatti = []
+    
+    # Prima estrai tutti gli ID delle Menzioni membro
+    menzione_ids = [n["data"]["id"].replace("entita:", "") for n in nodi_membri if n["data"]["tipo"] == "Menzione"]
+    
+    if menzione_ids:
+        # Query per trovare i Fatti collegati alle Menzioni
+        fact_query = """
+        MATCH (f:Fatto)-[r]->(m:Menzione)
+        WHERE m.id IN $menzione_ids
+        AND type(r) IN ['SOGG', 'OGG', 'OBL', 'TEMPO', 'LUOGO', 'MODO']
+        RETURN m.id AS menzione_id, f.id AS fatto_id, f.lemma AS summary
+        ORDER BY f.id
+        """
+        
+        try:
+            fact_rows = await _rows(session, fact_query, {"menzione_ids": menzione_ids})
+            
+            # Costruisci un dizionario per mappare i nodi Menzione ai loro Fatti collegati
+            menzione_fatti_map = {}
+            for row in fact_rows:
+                mapping = _as_mapping(row)
+                menzione_id = mapping.get("menzione_id")
+                fatto_id = mapping.get("fatto_id")
+                summary = mapping.get("summary", "")
+                
+                if menzione_id not in menzione_fatti_map:
+                    menzione_fatti_map[menzione_id] = []
+                    
+                menzione_fatti_map[menzione_id].append({
+                    "fatto_id": fatto_id,
+                    "summary": summary
+                })
+            
+            # Aggiungi i eventi_collegati ai nodi Menzione corrispondenti
+            for node in nodi_membri:
+                if node["data"]["tipo"] == "Menzione":
+                    menzione_id = node["data"]["id"].replace("entita:", "")  # Rimuovi il prefisso "entita:"
+                    if menzione_id in menzione_fatti_map:
+                        node["data"]["eventi_collegati"] = menzione_fatti_map[menzione_id]
+                    else:
+                        node["data"]["eventi_collegati"] = []
+            
+        except Exception as e:
+            # In caso di errore, continua senza eventi collegati
+            print(f"Errore nella raccolta degli eventi collegati: {e}")
+            for node in nodi_membri:
+                if node["data"]["tipo"] == "Menzione":
+                    node["data"]["eventi_collegati"] = []
+    
+    return {"elements": {"nodes": nodi_gruppo + nodi_membri, "edges": []}}
+
+
 async def dettaglio_arco(session, arco_id: str) -> dict[str, Any] | None:
     """Every property of one relationship, for the selection dashboard.
 
@@ -1447,5 +1607,6 @@ __all__ = [
     "grafo_livello1",
     "grafo_livello2",
     "grafo_livello3",
+    "grafo_entita",
     "stats",
 ]

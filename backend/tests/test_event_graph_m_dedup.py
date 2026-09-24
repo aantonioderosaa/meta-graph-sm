@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models.event_graph import ArgomentoGrezzo, EventoGrezzo, FraseFactsheet
+from app.models.event_graph import EventEntityExtractionResult, EventEntityParticipation
 from app.pipeline.event_graph.dedup import (
     STAGE_ORDER,
     STAGES_FINO_DEDUP,
@@ -22,43 +22,6 @@ SEGMENTATION_PATH = PACKAGE_DIR / "segmentation.py"
 MODELS_PATH = Path(__file__).resolve().parents[1] / "app" / "models" / "event_graph.py"
 
 _FORBIDDEN_PAIR = ("sentence_pair_linking", "zona_edges")
-
-
-def _sogg(forma: str = "Marco") -> ArgomentoGrezzo:
-    return ArgomentoGrezzo(
-        ruolo="SOGG",
-        forma=forma,
-        tipo_superficiale="nome_proprio",
-        span=forma,
-    )
-
-
-def _grezzo(indice: int = 0, **overrides) -> EventoGrezzo:
-    payload = {
-        "indice": indice,
-        "lemma": "arrivare",
-        "span": "arrivò",
-        "tempo": "passato",
-        "segmentazione": "principale_finita",
-        "polarita_negata": False,
-        "modalizzato": False,
-        "iterativo": False,
-        "ruolo_se": "nessuno",
-        "completiva_di": None,
-        "classe_verbo_reggente": "nessuna",
-        "finale": False,
-        "frase_tipo": "dichiarativa",
-        "marca_dialogo": False,
-        "frase_indice": 0,
-        "avverbio_temporale_esplicito": False,
-        "connettivo_sequenziale_esplicito": False,
-        "argomenti": [_sogg("Marco")],
-        "sogg_speciale": "nessuno",
-        "e_testa": True,
-        "modalita": "fattuale",
-    }
-    payload.update(overrides)
-    return EventoGrezzo(**payload)
 
 
 def _zona(
@@ -77,20 +40,13 @@ def _zona(
     )
 
 
-def _install_stub(monkeypatch, handler):
-    async def stub(
-        system_prompt,
-        user_prompt,
-        response_model,
-        temperature=0,
-        job_id=None,
-    ):
-        return await handler(
-            system_prompt, user_prompt, response_model, temperature, job_id
-        )
-
-    monkeypatch.setattr(
-        "app.pipeline.event_graph.extraction.call_structured", stub
+async def _due_marco_arrivo(_chunk_text, job_id=None):
+    del _chunk_text, job_id
+    return EventEntityExtractionResult(
+        participations=[
+            EventEntityParticipation(event="Marco arrivò.", entities=["Marco"]),
+            EventEntityParticipation(event="Marco arrivò.", entities=["Marco"]),
+        ]
     )
 
 
@@ -131,23 +87,13 @@ def _is_forbidden_import(module: str) -> bool:
 
 
 @pytest.mark.asyncio
-async def test_same_lemma_same_sogg_fuses_or_chains(monkeypatch):
-    async def handler(system_prompt, user_prompt, response_model, temperature, job_id):
-        assert temperature == 0
-        assert response_model is FraseFactsheet
-        return FraseFactsheet(
-            eventi=[_grezzo(lemma="arrivare", argomenti=[_sogg("Marco")])],
-            archi=[],
-            quarantena=[],
-        )
-
-    _install_stub(monkeypatch, handler)
-    result = await espandi_zona_fino_dedup(_zona())
+async def test_same_lemma_same_sogg_fuses_or_chains():
+    result = await espandi_zona_fino_dedup(_zona(), estrai_frase=_due_marco_arrivo)
     assert isinstance(result, DedupResult)
     narrativa = [unit for unit in result.unita if unit.tipo == "narrativa"]
     assert len(narrativa) == 2
     assert len(result.sotto.eventi) == 2
-    assert {event.lemma for event in result.sotto.eventi} == {"arrivare"}
+    assert {event.lemma for event in result.sotto.eventi} == {"Marco arrivò."}
     assert result.esiti
     kinds = {esito.kind for esito in result.esiti}
     assert kinds <= {"Fusione", "Successione", "Catena"}
@@ -177,15 +123,7 @@ async def test_sentence_two_classifies_against_nonempty_pool(monkeypatch):
         "app.pipeline.event_graph.event_coref.classifica", wrapped
     )
 
-    async def handler(*args, **kwargs):
-        return FraseFactsheet(
-            eventi=[_grezzo(lemma="arrivare", argomenti=[_sogg("Marco")])],
-            archi=[],
-            quarantena=[],
-        )
-
-    _install_stub(monkeypatch, handler)
-    result = await espandi_zona_fino_dedup(_zona())
+    result = await espandi_zona_fino_dedup(_zona(), estrai_frase=_due_marco_arrivo)
     assert len(result.sotto.eventi) == 2
     nonempty = [row for row in recorded if row["pool"]]
     assert nonempty, "sentence 2 must be classified against a non-empty pool"

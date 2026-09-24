@@ -32,9 +32,14 @@ SYSTEM_LIVELLO_RELAZIONI = """Ricevi il TESTO del documento, la LISTA degli even
 (id | frase) e i tipi di relazione ammessi. Non ricevi l'ordine di esposizione.
 Non ricostruirlo e non copiarlo come relazione.
 
-Collega due eventi solo quando la grammatica o il significato del TESTO
-marcano un nesso. Non collegarli solo perché compaiono vicini nella lista
-o uno dopo l'altro nel racconto.
+Collega due eventi quando la grammatica o il significato del TESTO
+marcano un nesso, oppure quando condividono un partecipante, una
+situazione o un oggetto su cui quel nesso si appoggia.
+
+Due eventi diversi e vicini NON vanno collegati se non hanno nulla
+in comune: la vicinanza da sola non è un nesso.
+Se invece hanno qualcosa in comune, il fatto che siano vicini o
+consecutivi non è una penalità e non è motivo per omettere la relazione.
 
 Usa ESCLUSIVAMENTE questi tipi:
 
@@ -51,8 +56,9 @@ Usa ESCLUSIVAMENTE questi tipi:
 - CONTENUTO: un evento è ciò che viene detto/pensato/deciso nell'altro
   (l'altro è un atto di dire/pensare/decidere che ha il primo come oggetto).
 
-Non inventare relazioni deboli o di sola co-presenza/successione.
-Ogni relazione richiede una spiegazione breve.
+Non inventare un tipo se manca sia il nesso sia qualsiasi elemento
+in comune. La sola successione di eventi senza nulla in comune non
+è una relazione. Ogni relazione richiede una spiegazione breve.
 Usa solo gli id della lista eventi, mai inventarne.
 Italiano o inglese. Temperatura 0."""
 
@@ -117,7 +123,9 @@ def user_livello_relazioni(
         f"{INTESTAZIONE_TIPI}\n\n{tipi}\n\n"
         f"{INTESTAZIONE_TABELLA}\n\n"
         "Compila la tabella delle relazioni di significato. "
-        "Usa solo gli id elencati. La lista eventi non è un ordine da copiare."
+        "Usa solo gli id elencati. La lista eventi non è un ordine da copiare. "
+        "Vicinanza senza nulla in comune: non collegare. "
+        "Vicinanza con qualcosa in comune: non è una penalità."
     )
 
 

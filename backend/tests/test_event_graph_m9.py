@@ -404,7 +404,7 @@ async def test_persistente_candidati_and_applica_persistente():
     assert [event.id for event in found] == ["ev-old"]
     assert session.runs
     query, params = session.runs[0]
-    assert "Evento" in query
+    assert "Fatto" in query
     assert "SOGG" in query and "OGG" in query
     assert "DELETE" not in query.upper()
     assert params["lemma"] == "arrivare"

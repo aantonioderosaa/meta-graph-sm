@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ElementInspector } from "@/components/event-graph/ElementInspector";
 import { EventIngestPanel } from "@/components/event-graph/EventIngestPanel";
@@ -10,6 +10,7 @@ import { EventPipelineMonitor } from "@/components/event-graph/EventPipelineMoni
 import { EventQueryPanel } from "@/components/event-graph/EventQueryPanel";
 import { fetchCatalog, fetchGraph, fetchStats } from "@/lib/event-graph/api";
 import type { HighlightKind } from "@/lib/event-graph/highlight";
+import { filterEntitaElements } from "@/lib/event-graph/layout-entita";
 import {
   filterOrdineElements,
   zonaDisplayLabel,
@@ -20,6 +21,11 @@ import {
   isAncoraTemporaleNode,
 } from "@/lib/event-graph/layout-temporale";
 import { EMPTY_STATS, type LegendFilter } from "@/lib/event-graph/legend";
+import {
+  LIVE_GRAPH_POLL_MS,
+  LIVE_GRAPH_REFRESH_DEBOUNCE_MS,
+  graphFingerprint,
+} from "@/lib/event-graph/live-graph";
 import type {
   ElementSelection,
   EventGraphCatalog,
@@ -33,6 +39,7 @@ type VistaGraph = NonNullable<GraphFilters["vista"]>;
 
 const VISTA_BUTTONS: { id: VistaGraph; label: string }[] = [
   { id: "tutto", label: "Tutto" },
+  { id: "entita", label: "Entità" },
   { id: "ordine", label: "Ordine" },
   { id: "temporale", label: "Temporale" },
   { id: "relazioni", label: "Relazioni" },
@@ -40,6 +47,7 @@ const VISTA_BUTTONS: { id: VistaGraph; label: string }[] = [
 
 const LAYOUT_BY_VISTA = {
   tutto: "dagre",
+  entita: "entita",
   ordine: "ordine",
   temporale: "temporale",
   relazioni: "cose",
@@ -66,14 +74,25 @@ export function EventGraphShell() {
   const [selection, setSelection] = useState<ElementSelection | null>(null);
   const [vista, setVista] = useState<VistaGraph>("tutto");
   const [focusedZonaId, setFocusedZonaId] = useState<string | null>(null);
+  const [focusedCategoriaId, setFocusedCategoriaId] = useState<string | null>(
+    null,
+  );
   const [ancoraPath, setAncoraPath] = useState<string[]>([]);
+  const [kbEpoch, setKbEpoch] = useState(0);
+  const [graphLive, setGraphLive] = useState(false);
+  const fingerprintRef = useRef("");
+  const refreshTimerRef = useRef<number | null>(null);
 
   const loadGraph = useCallback(async () => {
     try {
       const graph = await fetchGraph(
         vista === "tutto" ? {} : { vista },
       );
-      setElements(graph.elements);
+      const fingerprint = `${vista}|${graphFingerprint(graph.elements)}`;
+      if (fingerprint !== fingerprintRef.current) {
+        fingerprintRef.current = fingerprint;
+        setElements(graph.elements);
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Grafo non disponibile");
@@ -95,7 +114,28 @@ export function EventGraphShell() {
   }, [loadGraph]);
 
   useEffect(() => {
+    if (!graphLive) return;
+    const timer = window.setInterval(() => {
+      void loadGraph();
+    }, LIVE_GRAPH_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [graphLive, loadGraph]);
+
+  const scheduleGraphRefresh = useCallback(() => {
+    if (refreshTimerRef.current != null) return;
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void loadGraph();
+    }, LIVE_GRAPH_REFRESH_DEBOUNCE_MS);
+  }, [loadGraph]);
+
+  const handleLiveChange = useCallback((live: boolean) => {
+    setGraphLive(live);
+  }, []);
+
+  useEffect(() => {
     setFocusedZonaId(null);
+    setFocusedCategoriaId(null);
     setAncoraPath([]);
   }, [vista]);
 
@@ -104,8 +144,11 @@ export function EventGraphShell() {
     if (vista === "temporale") {
       return filterTemporaleElements(elements, ancoraPath);
     }
+    if (vista === "entita") {
+      return filterEntitaElements(elements, focusedCategoriaId);
+    }
     return elements;
-  }, [vista, elements, focusedZonaId, ancoraPath]);
+  }, [vista, elements, focusedZonaId, ancoraPath, focusedCategoriaId]);
 
   const focusedZona = useMemo(() => {
     if (!focusedZonaId || !elements) return null;
@@ -145,9 +188,31 @@ export function EventGraphShell() {
           return [...prev, sel.id];
         });
       }
+      if (vista === "entita" && String(tipo ?? "") === "KernelCategoria") {
+        setFocusedCategoriaId(sel.id);
+        return;
+      }
     },
     [vista, elements],
   );
+
+  const handleWiped = useCallback(() => {
+    fingerprintRef.current = "";
+    setElements({ nodes: [], edges: [] });
+    setCatalog(null);
+    setStats(EMPTY_STATS);
+    setHighlights({});
+    setLegendFilter(null);
+    setSelection(null);
+    setJobId(null);
+    setError(null);
+    setFocusedZonaId(null);
+    setFocusedCategoriaId(null);
+    setAncoraPath([]);
+    setGraphLive(false);
+    setKbEpoch((epoch) => epoch + 1);
+    void loadGraph();
+  }, [loadGraph]);
 
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
@@ -262,6 +327,7 @@ export function EventGraphShell() {
                 highlights={highlights}
                 legendFilter={legendFilter}
                 layout={LAYOUT_BY_VISTA[vista]}
+                live={graphLive}
                 onSelect={handleSelect}
                 className="h-full"
               />
@@ -280,9 +346,22 @@ export function EventGraphShell() {
             filter={legendFilter}
             onFilterChange={setLegendFilter}
           />
-          <EventQueryPanel onHighlightsChange={setHighlights} />
-          <EventIngestPanel onJobStarted={setJobId} />
-          <EventPipelineMonitor jobId={jobId} onDone={loadGraph} />
+          <EventQueryPanel
+            key={`query-${kbEpoch}`}
+            onHighlightsChange={setHighlights}
+          />
+          <EventIngestPanel
+            onJobStarted={setJobId}
+            onWiped={handleWiped}
+            ingestionInCorso={graphLive}
+          />
+          <EventPipelineMonitor
+            key={`pipeline-${kbEpoch}`}
+            jobId={jobId}
+            onDone={loadGraph}
+            onProgress={scheduleGraphRefresh}
+            onLiveChange={handleLiveChange}
+          />
         </aside>
       </div>
     </div>

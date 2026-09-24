@@ -11,6 +11,7 @@ from app.pipeline.event_graph import (
     RULESET_VERSION,
     chains,
     event_coref,
+    livello_entita,
     mention_coref,
     persistence,
 )
@@ -310,6 +311,18 @@ async def estrai_zona(
             )
             await persistence.persisti_zona(persist_session, zona)
             await persistence.persisti(persist_session, dedup.sotto, job_id=job_id)
+    if job_id:
+        n_eventi = sum(
+            1
+            for event in dedup.sotto.eventi
+            if event.chunk_id == zona.id and not event.fuso_in
+        )
+        await publish(
+            job_id,
+            "espansione",
+            "zona_extracted",
+            {"zona_id": zona.id, "eventi": n_eventi},
+        )
     return EspansioneZona(zona=zona, sotto=dedup.sotto, unita=list(dedup.unita))
 
 
@@ -427,14 +440,18 @@ async def esegui_livello_ancore(
     *,
     call_structured=None,
 ) -> SmistamentoAncore:
-    """Sole temporal path: extract → identity → line → assign → persist.
+    """Sole temporal path: TEMPO mentions → identity → line → assign → persist.
 
     Failures propagate (SSE already published by each module). Does not import
     or call ``livello_temporale`` / ``temporal_placement``. Does not derive
-    event-to-event PRECEDE / CONTEMPORANEO.
+    event-to-event PRECEDE / CONTEMPORANEO. Dates are not re-extracted here.
     """
     estrazione = await estrai_ancore(
-        zone, job_id=job_id, call_structured=call_structured
+        zone,
+        job_id=job_id,
+        call_structured=call_structured,
+        eventi=sotto.eventi,
+        menzioni=sotto.menzioni,
     )
     ancore = await esegui_ancore_identita(
         estrazione.livello, documento=doc_id, job_id=job_id
@@ -444,6 +461,7 @@ async def esegui_livello_ancore(
         linea,
         sotto.eventi,
         zone=zone,
+        menzioni=sotto.menzioni,
         documento=doc_id,
         job_id=job_id,
         call_structured=call_structured,
@@ -461,6 +479,7 @@ async def esegui_livello_ancore(
 
 
 async def _run_fase_b(session, sotto: SottoGrafo, job_id: str, doc_id: str) -> None:
+    await publish(job_id, "riconciliazione", "reconcile_start", {"doc_id": doc_id})
     mention_coref.risolvi_intra(sotto.eventi, None, sotto)
     await mention_coref.fondi_referenziali_vs_persistente(session, sotto)
     await persistence.persisti(session, sotto, job_id=job_id)
@@ -522,6 +541,7 @@ async def run_event_graph_ingestion(
 ) -> IngestionOutcome:
     """MACRO (M0-M3) then MICRO expansion according to FLASH_MODE."""
     try:
+        await publish(job_id, "macro", "macro_start", {"doc_id": doc_id})
         await _ensure_schema(driver)
         sotto = SottoGrafo()
         llm_calls = 0
@@ -577,7 +597,7 @@ async def run_event_graph_ingestion(
             if job_id:
                 await publish(
                     job_id,
-                    "estrazione",
+                    "espansione",
                     "buchi_done",
                     {"n": len(aggiunti_buchi)},
                 )
@@ -612,6 +632,23 @@ async def run_event_graph_ingestion(
             except Exception:
                 pass
         try:
+            mancanti = [
+                item
+                for item in zone
+                if item.espansa and not (item.riassunto or "").strip()
+            ]
+            if mancanti:
+                recuperate = await riassumi_zone(
+                    mancanti, job_id=job_id, session=session
+                )
+                by_id = {item.id: item for item in recuperate}
+                zone = [by_id.get(item.id, item) for item in zone]
+                async with _maybe_session(session) as persist_session:
+                    if persist_session is not None:
+                        await persistence.persisti_zone(persist_session, zone)
+        except Exception:
+            pass
+        try:
             transizioni = await genera_transizioni_zona(zone, job_id=job_id)
         except Exception:
             transizioni = {}
@@ -627,6 +664,12 @@ async def run_event_graph_ingestion(
             await esegui_livello_ancore(zone, sotto, doc_id, job_id, session)
         # Flag false: no LLM temporal, no AncoraTemporale writes, no
         # temporal_placement, no ClusterTemporale path (dead, not re-enabled).
+        await publish(
+            job_id,
+            "relazioni",
+            "relazioni_start",
+            {"n_eventi": len(sotto.eventi)},
+        )
         try:
             livello_rel = await estrai_livello_relazioni(
                 sotto.eventi,
@@ -644,7 +687,32 @@ async def run_event_graph_ingestion(
                     )
         except Exception:
             pass
+        await publish(
+            job_id,
+            "relazioni",
+            "relazioni_done",
+            {"ok": livello_rel is not None},
+        )
 
+        # Livello entità (classificazione) dopo Fase B e coref eventi/persist
+        try:
+            result_entita = await livello_entita.estrai_livello_entita(
+                sotto.eventi,
+                sotto.menzioni,
+                job_id=job_id,
+                call_structured=None,  # Usiamo la funzione standard di LLM
+            )
+            
+            async with _maybe_session(session) as persist_session:
+                if persist_session is not None:
+                    await persistence.persisti_livello_entita(
+                        persist_session, result_entita, doc_id
+                    )
+                    
+        except Exception as e:
+            # Fallimento step non bloccante pipeline_complete
+            print(f"Errore durante il livello entità: {e}")
+        
         await _fase_b_if_available(session, sotto, job_id, doc_id)
         stats = {
             "doc_id": doc_id,

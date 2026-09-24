@@ -6,7 +6,7 @@ import type {
   NodoDettaglio,
 } from "./types";
 
-const NODE_OMIT = new Set(["id", "label", "tipo"]);
+const NODE_OMIT = new Set(["id", "label", "tipo", "eventi_collegati"]);
 const EDGE_OMIT = new Set(["id", "source", "target", "tipo", "label"]);
 
 function proprietaFrom(
@@ -70,5 +70,8 @@ export function dettaglioNodoFromElements(
     id,
     labels,
     proprieta: proprietaFrom(node as Record<string, unknown>, NODE_OMIT),
+    eventi_collegati: Array.isArray(node.eventi_collegati)
+      ? node.eventi_collegati
+      : undefined,
   };
 }

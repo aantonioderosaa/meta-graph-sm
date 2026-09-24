@@ -12,15 +12,19 @@ from app.models.event_graph import (
     NATURA_ANCORE,
     TIPI_ANCORA,
     AncoraTemporaleProposta,
+    ArgomentoRisolto,
     EventoRisolto,
     LivelloAncoreResult,
+    MenzioneRisolta,
     SegnaleAncoraEvento,
 )
 from app.pipeline.event_graph import ancore_smistamento as smistamento_mod
 from app.pipeline.event_graph.ancore_linea import LineaAncore, costruisci_linea
 from app.pipeline.event_graph.ancore_smistamento import (
+    ESPRESSIONE_INCERTI_PREFIX,
     EVENTO,
     STAGE,
+    ancora_precisa,
     scarta_contenitori_sterili,
     smista_eventi,
     user_smistamento_finestra,
@@ -115,6 +119,17 @@ def _per_etichetta(ancore: list[AncoraTemporaleProposta]) -> dict[str, AncoraTem
 def _foglie(ancore: list[AncoraTemporaleProposta]) -> set[str]:
     figli = {a.padre for a in ancore if a.padre}
     return {a.etichetta for a in ancore if a.etichetta not in figli}
+
+
+def _figlio_incerti(
+    ancore: list[AncoraTemporaleProposta], padre: str
+) -> AncoraTemporaleProposta:
+    return next(
+        a
+        for a in ancore
+        if a.padre == padre
+        and (a.espressione or "").startswith(ESPRESSIONE_INCERTI_PREFIX)
+    )
 
 
 def _membership(esito) -> dict[str, str]:
@@ -223,10 +238,14 @@ async def test_evento_datato_nella_foglia_intervallo_fra_due_giorni():
     )
     esito = await smista_eventi(linea, [evento], call_structured=_boom_se_chiamato)
     per = _per_etichetta(esito.linea.ancore)
-    assert _membership(esito)["e-gap"] == intervallo.etichetta
+    intervallo_vivo = per[intervallo.etichetta]
+    incerti = _figlio_incerti(esito.linea.ancore, intervallo.etichetta)
+    assert _membership(esito)["e-gap"] == incerti.etichetta
     assert intervallo.etichetta in per
-    assert per[intervallo.etichetta].natura == "intervallo"
-    assert "e-gap" in per[intervallo.etichetta].eventi
+    assert intervallo_vivo.natura == "intervallo"
+    assert intervallo_vivo.eventi == []
+    assert "e-gap" in incerti.eventi
+    assert incerti.padre == intervallo.etichetta
     assert "24 dic" not in per
     assert "26 dic" not in per
     assert "1843" in per
@@ -323,10 +342,13 @@ async def test_llm_prima_di_24_dic_crea_foglia_aperta():
     aperta = aperte[0]
     assert aperta.etichetta.startswith("prima")
     assert aperta.padre == "1843"
-    assert _membership(esito)["e-prima"] == aperta.etichetta
-    assert "e-prima" in aperta.eventi
+    incerti = _figlio_incerti(esito.linea.ancore, aperta.etichetta)
+    assert _membership(esito)["e-prima"] == incerti.etichetta
+    assert "e-prima" in incerti.eventi
+    assert aperta.eventi == []
     foglie = _foglie(esito.linea.ancore)
-    assert aperta.etichetta in foglie
+    assert incerti.etichetta in foglie
+    assert aperta.etichetta not in foglie
     assert aperta.etichetta not in _ETICHETTE_VIETATE
     _assert_copertura(esito, [evento])
 
@@ -351,6 +373,42 @@ async def test_eccezione_llm_lascia_evento_senza_appartenenza_e_pubblica():
         assert esito.n_llm_fail >= 1
         assert esito.n_non_collocati == 1
         assert all(a.etichetta not in _ETICHETTE_VIETATE for a in esito.linea.ancore)
+
+
+@pytest.mark.asyncio
+async def test_tempo_mention_colloca_senza_llm():
+    linea = costruisci_linea(
+        [
+            _ancora(
+                etichetta="12 marzo 1987",
+                espressione="12 marzo 1987",
+                inizio="1987-03-12",
+                granularita="giorno",
+            )
+        ],
+        documento="doc-1",
+    )
+    menzione = MenzioneRisolta(id="m-data", forma="12 marzo 1987")
+    evento = EventoRisolto(
+        id="e-mecc",
+        lemma="trovare",
+        span="Un meccanico trova un'auto",
+        argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-data")],
+    )
+    esito = await smista_eventi(
+        linea,
+        [evento],
+        menzioni=[menzione],
+        call_structured=_boom_se_chiamato,
+    )
+    per = _per_etichetta(esito.linea.ancore)
+    incerti = _figlio_incerti(esito.linea.ancore, "12 marzo 1987")
+    assert _membership(esito)["e-mecc"] == incerti.etichetta
+    assert "e-mecc" in incerti.eventi
+    assert per["12 marzo 1987"].eventi == []
+    assert incerti.padre == "12 marzo 1987"
+    assert esito.n_datati == 1
+    assert esito.appartenenze[0].base == "tempo"
         eventi = []
         while True:
             try:
@@ -532,6 +590,37 @@ async def test_ogni_evento_non_fuso_ha_esattamente_una_foglia():
     assert all(a.etichetta not in _ETICHETTE_VIETATE for a in esito.linea.ancore)
 
 
+@pytest.mark.asyncio
+async def test_tempo_mention_colloca_senza_llm():
+    linea = costruisci_linea(
+        [
+            _ancora(
+                etichetta="12 marzo 1987",
+                espressione="12 marzo 1987",
+                inizio="1987-03-12",
+                granularita="giorno",
+            )
+        ],
+        documento="doc-1",
+    )
+    menzione = MenzioneRisolta(id="m-data", forma="12 marzo 1987")
+    evento = EventoRisolto(
+        id="e-mecc",
+        lemma="trovare",
+        span="Un meccanico trova un'auto",
+        argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-data")],
+    )
+    esito = await smista_eventi(
+        linea,
+        [evento],
+        menzioni=[menzione],
+        call_structured=_boom_se_chiamato,
+    )
+    assert _membership(esito)["e-mecc"] == "12 marzo 1987"
+    assert esito.n_datati == 1
+    assert esito.appartenenze[0].base == "tempo"
+
+
 def test_prompt_finestra_non_include_testo_lungo():
     ancore = [_ancora(etichetta="1843", inizio="1843", granularita="anno")]
     eventi = [_evento("e-1", lemma="andare", span="andò", posizione_doc=1)]
@@ -540,6 +629,293 @@ def test_prompt_finestra_non_include_testo_lungo():
     assert "e-1" in prompt
     assert "andare" in prompt
     assert "MARLEY" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_evento_vago_nell_intervallo_va_nel_primo_contenitore_verticale():
+    linea = _linea_intervallo()
+    evento_anno = _evento(
+        "e-anno",
+        lemma="accadere",
+        span="nel 1843 accadde questo",
+        posizione_doc=0,
+        tempo_assoluto="1843",
+    )
+    evento_giorno = _evento(
+        "e-vigilia",
+        lemma="chiudere",
+        span="chiuse il 24",
+        posizione_doc=10,
+        tempo_assoluto="1843-12-24",
+    )
+    esito = await smista_eventi(
+        linea,
+        [evento_anno, evento_giorno],
+        call_structured=_boom_se_chiamato,
+    )
+    per = _per_etichetta(esito.linea.ancore)
+    figli_1843 = [a for a in esito.linea.ancore if a.padre == "1843"]
+    assert figli_1843
+    incerti = next(
+        a
+        for a in figli_1843
+        if (a.espressione or "").startswith(ESPRESSIONE_INCERTI_PREFIX)
+    )
+    assert incerti.tipo == "vaga"
+    assert incerti.stimato is True
+    assert incerti.etichetta.replace("\u2060", "") == "1843"
+    assert figli_1843[0].etichetta == incerti.etichetta
+    assert _membership(esito)["e-anno"] == incerti.etichetta
+    assert "e-anno" in per[incerti.etichetta].eventi
+    incerti_giorno = _figlio_incerti(esito.linea.ancore, "24 dic")
+    assert _membership(esito)["e-vigilia"] == incerti_giorno.etichetta
+    assert "e-vigilia" in incerti_giorno.eventi
+    assert per["24 dic"].eventi == []
+    assert "e-anno" not in per["24 dic"].eventi
+    _assert_copertura(esito, [evento_anno, evento_giorno])
+
+
+def test_ancora_precisa_solo_con_data_e_orario():
+    assert ancora_precisa(
+        _ancora(
+            etichetta="sera",
+            inizio="1843-12-24T18",
+            granularita="ora",
+            tipo="ora",
+        )
+    )
+    assert ancora_precisa(
+        _ancora(
+            etichetta="12 marzo 1987, 08:15",
+            inizio="1987-03-12T08:15",
+            granularita="minuto",
+        )
+    )
+    assert not ancora_precisa(
+        _ancora(etichetta="1843", inizio="1843", granularita="anno")
+    )
+    assert not ancora_precisa(
+        _ancora(
+            etichetta="12 marzo 1987",
+            inizio="1987-03-12",
+            granularita="giorno",
+        )
+    )
+    assert not ancora_precisa(_ancora(etichetta="ore 8", tipo="ora", granularita="ora"))
+    assert not ancora_precisa(
+        _ancora(
+            etichetta="entro due giorni",
+            tipo="scadenza",
+            espressione="entro due giorni",
+        )
+    )
+    assert not ancora_precisa(
+        _ancora(
+            etichetta="1843",
+            inizio="1843-12-24T18",
+            granularita="anno",
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_orario_senza_data_espande_in_verticale():
+    linea = costruisci_linea(
+        [_ancora(etichetta="ore 8", tipo="ora", granularita="ora")],
+        documento="doc-1",
+    )
+    menzione = MenzioneRisolta(id="m-ora", forma="ore 8")
+    evento = EventoRisolto(
+        id="e-ora",
+        lemma="aprire",
+        span="alle ore 8 aprì",
+        argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-ora")],
+    )
+    esito = await smista_eventi(
+        linea,
+        [evento],
+        menzioni=[menzione],
+        call_structured=_boom_se_chiamato,
+    )
+    per = _per_etichetta(esito.linea.ancore)
+    incerti = _figlio_incerti(esito.linea.ancore, "ore 8")
+    assert per["ore 8"].padre is None
+    assert per["ore 8"].eventi == []
+    assert incerti.padre == "ore 8"
+    assert _membership(esito)["e-ora"] == incerti.etichetta
+    _assert_copertura(esito, [evento])
+
+
+@pytest.mark.asyncio
+async def test_orario_senza_data_va_vago_all_inizio_dell_intervallo():
+    linea = costruisci_linea(
+        [
+            _ancora(
+                etichetta="1843",
+                inizio="1843",
+                granularita="anno",
+                posizione_doc_min=0,
+                offset_inizio=0,
+            ),
+            _ancora(
+                etichetta="24 dic",
+                inizio="1843-12-24",
+                granularita="giorno",
+                padre="1843",
+                posizione_doc_min=10,
+                offset_inizio=10,
+            ),
+            _ancora(
+                etichetta="ore 8",
+                tipo="ora",
+                granularita="ora",
+                posizione_doc_min=20,
+                offset_inizio=20,
+            ),
+        ],
+        documento="doc-1",
+    )
+    menzione = MenzioneRisolta(id="m-ora", forma="ore 8")
+    evento = EventoRisolto(
+        id="e-ora",
+        lemma="aprire",
+        span="alle ore 8 aprì",
+        posizione_doc=20,
+        offset_inizio=20,
+        offset_fine=26,
+        argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-ora")],
+        documento="doc-1",
+    )
+    esito = await smista_eventi(
+        linea,
+        [evento],
+        menzioni=[menzione],
+        call_structured=_boom_se_chiamato,
+    )
+    per = _per_etichetta(esito.linea.ancore)
+    incerti = _figlio_incerti(esito.linea.ancore, "24 dic")
+    assert "ore 8" not in per
+    assert per["24 dic"].padre == "1843"
+    assert per["24 dic"].eventi == []
+    assert incerti.padre == "24 dic"
+    assert _membership(esito)["e-ora"] == incerti.etichetta
+    assert "e-ora" in incerti.eventi
+    assert "e-ora" not in per["1843"].eventi
+    _assert_copertura(esito, [evento])
+
+
+@pytest.mark.asyncio
+async def test_data_e_orario_resta_sulla_foglia_di_linea():
+    linea = costruisci_linea(
+        [
+            _ancora(
+                etichetta="12 marzo 1987, 08:15",
+                espressione="12 marzo 1987, ore 08:15",
+                inizio="1987-03-12T08:15",
+                granularita="minuto",
+            )
+        ],
+        documento="doc-1",
+    )
+    evento = _evento(
+        "e-punto",
+        lemma="trovare",
+        span="alle 08:15 del 12 marzo",
+        tempo_assoluto="1987-03-12T08:15",
+    )
+    esito = await smista_eventi(linea, [evento], call_structured=_boom_se_chiamato)
+    per = _per_etichetta(esito.linea.ancore)
+    assert _membership(esito)["e-punto"] == "12 marzo 1987, 08:15"
+    assert "e-punto" in per["12 marzo 1987, 08:15"].eventi
+    assert per["12 marzo 1987, 08:15"].padre is None
+    assert not any(
+        (a.espressione or "").startswith(ESPRESSIONE_INCERTI_PREFIX)
+        for a in esito.linea.ancore
+    )
+    _assert_copertura(esito, [evento])
+
+
+@pytest.mark.asyncio
+async def test_orologio_non_matcha_data_che_contiene_la_stessa_ora():
+    linea = costruisci_linea(
+        [
+            _ancora(
+                etichetta="14 aprile 2018, ore 20:15",
+                espressione="14 aprile 2018, ore 20:15",
+                inizio="2018-04-14T20:15",
+                granularita="minuto",
+                offset_inizio=0,
+                posizione_doc_min=0,
+            ),
+            _ancora(
+                etichetta="ore 20:15",
+                espressione="ore 20:15",
+                tipo="ora",
+                inizio="1995-03-18T20:15",
+                granularita="minuto",
+                offset_inizio=100,
+                posizione_doc_min=100,
+            ),
+        ],
+        documento="doc-1",
+    )
+    menzione = MenzioneRisolta(id="m-ora", forma="ore 20:15")
+    evento = EventoRisolto(
+        id="e-sfilata",
+        lemma="raggiungere",
+        offset_inizio=100,
+        posizione_doc=100,
+        argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-ora")],
+    )
+    esito = await smista_eventi(
+        linea,
+        [evento],
+        menzioni=[menzione],
+        call_structured=_boom_se_chiamato,
+    )
+    assert _membership(esito)["e-sfilata"] == "ore 20:15"
+
+
+@pytest.mark.asyncio
+async def test_due_orologi_uguali_vanno_all_occorrenza_piu_vicina():
+    linea = costruisci_linea(
+        [
+            _ancora(
+                etichetta="ore 16:30",
+                espressione="ore 16:30",
+                tipo="ora",
+                inizio="1998-05-05T16:30",
+                granularita="minuto",
+                offset_inizio=10,
+                posizione_doc_min=10,
+            ),
+            _ancora(
+                etichetta="ore 16:30 (1978-09-16T16:30)",
+                espressione="ore 16:30",
+                tipo="ora",
+                inizio="1978-09-16T16:30",
+                granularita="minuto",
+                offset_inizio=200,
+                posizione_doc_min=200,
+            ),
+        ],
+        documento="doc-1",
+    )
+    menzione = MenzioneRisolta(id="m-ora", forma="ore 16:30")
+    evento = EventoRisolto(
+        id="e-partita",
+        lemma="terminare",
+        offset_inizio=200,
+        posizione_doc=200,
+        argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-ora")],
+    )
+    esito = await smista_eventi(
+        linea,
+        [evento],
+        menzioni=[menzione],
+        call_structured=_boom_se_chiamato,
+    )
+    assert _membership(esito)["e-partita"] == "ore 16:30 (1978-09-16T16:30)"
 
 
 def test_isolamento_d6():

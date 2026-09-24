@@ -319,8 +319,8 @@ async def test_invented_evento_id_non_scrive_appartiene():
     )
     session = await _persisti(payload, _eventi())
     blob = _blob(session)
-    assert "MERGE (e:Evento" not in blob
-    assert "MERGE (:Evento" not in blob
+    assert "MERGE (e:Fatto" not in blob
+    assert "MERGE (:Fatto" not in blob
     e_ids = {params.get("e_id") for params in _con(session, MERGE_APPARTIENE)}
     assert "ev-invented" not in e_ids
     assert not any(

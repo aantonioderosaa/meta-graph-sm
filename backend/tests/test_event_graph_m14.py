@@ -230,7 +230,7 @@ def _plane(eventi: list[EventoRisolto], base: str | None = "passato"):
 def _merge_evento_ids(session: FakeSession) -> set[str]:
     ids: set[str] = set()
     for query, params in session.runs:
-        if "MERGE (e:Evento" in query and "id" in params:
+        if "MERGE (e:Fatto" in query and "id" in params:
             ids.add(str(params["id"]))
     return ids
 
@@ -1146,7 +1146,7 @@ async def test_ruleset_version_written_on_persist_and_outcome(monkeypatch):
     session = FakeSession()
     outcome = await run_event_graph_ingestion(doc_id, testo, "job-ver", session=session)
     assert isinstance(outcome.sotto.quarantena, list)
-    evento_runs = [(q, p) for q, p in session.runs if "MERGE (e:Evento" in q]
+    evento_runs = [(q, p) for q, p in session.runs if "MERGE (e:Fatto" in q]
     assert evento_runs
     assert all(p.get("versione_regole") == RULESET_VERSION for _, p in evento_runs)
     for event in outcome.sotto.eventi:

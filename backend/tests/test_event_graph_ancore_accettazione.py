@@ -13,7 +13,9 @@ import pytest
 from app.models.event_graph import (
     NATURA_ANCORE,
     TIPI_ANCORA,
+    ArgomentoRisolto,
     EventoRisolto,
+    MenzioneRisolta,
     SottoGrafo,
     TipoRelazione,
 )
@@ -76,50 +78,64 @@ def _zona(testo: str, *, documento: str, zona_id: str = "z-1") -> Zona:
     )
 
 
-def _eventi_datati(documento: str) -> list[EventoRisolto]:
+def _eventi_datati(documento: str) -> tuple[list[EventoRisolto], list[MenzioneRisolta]]:
     off_chiuse = TESTO_DATATO.find("chiuse")
     off_visita = TESTO_DATATO.find("ricevette")
-    return [
-        EventoRisolto(
-            id="ev-chiuse",
-            lemma="chiudere",
-            span="Scrooge chiuse il negozio",
-            posizione_doc=0,
-            tempo_assoluto="1843",
-            documento=documento,
-            chunk_id="z-1",
-            offset_inizio=off_chiuse,
-            offset_fine=off_chiuse + len("chiuse"),
-        ),
-        EventoRisolto(
-            id="ev-visita",
-            lemma="ricevere",
-            span="Quella sera ricevette una visita",
-            posizione_doc=1,
-            documento=documento,
-            chunk_id="z-1",
-            offset_inizio=off_visita,
-            offset_fine=off_visita + len("ricevette"),
-        ),
-        EventoRisolto(
-            id="ev-fuso",
-            lemma="dire",
-            posizione_doc=2,
-            fuso_in="ev-chiuse",
-            documento=documento,
-            chunk_id="z-1",
-            offset_inizio=off_chiuse,
-        ),
-    ]
+    menzione = MenzioneRisolta(
+        id="m-1843",
+        forma="1843",
+        documento=documento,
+        chunk_id="z-1",
+    )
+    return (
+        [
+            EventoRisolto(
+                id="ev-chiuse",
+                lemma="chiudere",
+                span="Scrooge chiuse il negozio",
+                posizione_doc=0,
+                tempo_assoluto="1843",
+                tempo_assoluto_grezzo="1843",
+                documento=documento,
+                chunk_id="z-1",
+                offset_inizio=off_chiuse,
+                offset_fine=off_chiuse + len("chiuse"),
+                argomenti=[ArgomentoRisolto(ruolo="TEMPO", menzione_id="m-1843")],
+            ),
+            EventoRisolto(
+                id="ev-visita",
+                lemma="ricevere",
+                span="Quella sera ricevette una visita",
+                posizione_doc=1,
+                documento=documento,
+                chunk_id="z-1",
+                offset_inizio=off_visita,
+                offset_fine=off_visita + len("ricevette"),
+            ),
+            EventoRisolto(
+                id="ev-fuso",
+                lemma="dire",
+                posizione_doc=2,
+                fuso_in="ev-chiuse",
+                documento=documento,
+                chunk_id="z-1",
+                offset_inizio=off_chiuse,
+            ),
+        ],
+        [menzione],
+    )
 
 
 def _vivi(eventi: list[EventoRisolto]) -> list[EventoRisolto]:
     return [e for e in eventi if e.id and not (e.fuso_in or "").strip()]
 
 
-def _sotto(eventi: list[EventoRisolto]) -> SottoGrafo:
+def _sotto(
+    eventi: list[EventoRisolto],
+    menzioni: list[MenzioneRisolta] | None = None,
+) -> SottoGrafo:
     grafo = SottoGrafo()
-    grafo.aggiungi(eventi=eventi)
+    grafo.aggiungi(eventi=eventi, menzioni=menzioni)
     return grafo
 
 
@@ -259,11 +275,12 @@ async def _esegui(
     documento: str,
     job_id: str,
     session: FakeSession | None = None,
+    menzioni: list[MenzioneRisolta] | None = None,
 ) -> tuple[SmistamentoAncore, FakeSession]:
     session = session or FakeSession()
     smistamento = await esegui_livello_ancore(
         zone,
-        _sotto(eventi),
+        _sotto(eventi, menzioni),
         documento,
         job_id,
         session,
@@ -275,9 +292,13 @@ async def _esegui(
 @pytest.mark.asyncio
 async def test_accettazione_testo_datato_invarianti():
     zone = [_zona(TESTO_DATATO, documento=DOC_DATATO)]
-    eventi = _eventi_datati(DOC_DATATO)
+    eventi, menzioni = _eventi_datati(DOC_DATATO)
     smistamento, session = await _esegui(
-        zone, eventi, documento=DOC_DATATO, job_id="job-acc-datato"
+        zone,
+        eventi,
+        documento=DOC_DATATO,
+        job_id="job-acc-datato",
+        menzioni=menzioni,
     )
     _assert_invarianti(smistamento, session, eventi, documento=DOC_DATATO)
     esplicite = [
@@ -295,9 +316,21 @@ async def test_accettazione_testo_datato_invarianti():
 @pytest.mark.asyncio
 async def test_accettazione_stabilita_due_ingestioni():
     zone = [_zona(TESTO_DATATO, documento=DOC_DATATO)]
-    eventi = _eventi_datati(DOC_DATATO)
-    prima, _ = await _esegui(zone, eventi, documento=DOC_DATATO, job_id="job-st-1")
-    seconda, _ = await _esegui(zone, eventi, documento=DOC_DATATO, job_id="job-st-2")
+    eventi, menzioni = _eventi_datati(DOC_DATATO)
+    prima, _ = await _esegui(
+        zone,
+        eventi,
+        documento=DOC_DATATO,
+        job_id="job-st-1",
+        menzioni=menzioni,
+    )
+    seconda, _ = await _esegui(
+        zone,
+        eventi,
+        documento=DOC_DATATO,
+        job_id="job-st-2",
+        menzioni=menzioni,
+    )
     assert _ids_ancore(prima, DOC_DATATO) == _ids_ancore(seconda, DOC_DATATO)
 
 
@@ -346,19 +379,19 @@ def test_accettazione_catalogo_viste_tutto_ordine_relazioni_invariate():
     assert "PRECEDE" not in tipi
     assert "CONTEMPORANEO" not in tipi
     viste = catalogo()["viste"]
-    assert set(viste["tutto"]["nodi"]) == {"Evento", "Menzione", "Quarantena"}
+    assert set(viste["tutto"]["nodi"]) == {"Fatto", "Menzione", "Quarantena"}
     assert "SUCCESSIONE_ZONA" not in viste["tutto"]["archi"]
     assert "APPARTIENE_A" not in viste["tutto"]["archi"]
     assert "CONTIENE" not in viste["tutto"]["archi"]
     assert "CONTEMPORANEO" not in viste["tutto"]["archi"]
     assert "PRECEDE" not in viste["tutto"]["archi"]
-    assert set(viste["ordine"]["nodi"]) == {"Zona", "Evento"}
+    assert set(viste["ordine"]["nodi"]) == {"Zona", "Fatto"}
     assert set(viste["ordine"]["archi"]) == {
         "SUCCESSIONE_ZONA",
         "SEQUENZA",
         "COLLEGATO",
     }
-    assert viste["relazioni"]["nodi"] == ["Evento"]
+    assert viste["relazioni"]["nodi"] == ["Fatto"]
     assert set(viste["relazioni"]["archi"]) == {
         "CAUSA",
         "CONDIZIONE",

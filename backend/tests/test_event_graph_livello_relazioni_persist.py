@@ -126,11 +126,11 @@ async def test_persist_causa_contrasto_livello_3_match_evento():
     assert "spiegazione" in blob
     assert "CAUSA" in blob
     assert "CONTRASTO" in blob
-    assert "MATCH (da:Evento" in blob
-    assert "MATCH (a:Evento" in blob
-    assert "MERGE (e:Evento" not in blob
-    assert "MERGE (da:Evento" not in blob
-    assert "MERGE (:Evento" not in blob
+    assert "MATCH (da:Fatto" in blob
+    assert "MATCH (a:Fatto" in blob
+    assert "MERGE (e:Fatto" not in blob
+    assert "MERGE (da:Fatto" not in blob
+    assert "MERGE (:Fatto" not in blob
     assert any(params.get("spiegazione") for _, params in session.runs)
     _assert_no_delete(session)
 

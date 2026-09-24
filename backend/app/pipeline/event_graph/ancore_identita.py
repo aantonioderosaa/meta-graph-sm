@@ -1,11 +1,14 @@
 """MT3 — identity and normalisation of temporal anchors.
 
 Pure functions. No LLM, no Neo4j, no I/O in the core path. Relative
-expressions (ieri/oggi/domani, hours/minutes/weeks/months, past and future)
-are resolved against a dated reference when one exists; without one they
-stay without ``inizio``. Ancore that denote the same collocazione
-are fused via ``tempo_iso.normalizza`` (or canonical etichetta when undated);
-display labels are shortened and made unique within the document.
+expressions (ieri/oggi/domani, hours/minutes/weeks/months) and clock-of-day
+spans without a date (ore 11:20) are resolved against a dated reference when
+one exists; without one they stay without ``inizio``. A clock inherits the
+calendar day of the previous dated ancora in the document — that date is
+already in the graph, it is not invented. Ancore that denote the same
+collocazione are fused via ``tempo_iso.normalizza`` (or canonical etichetta
+when undated); display labels are shortened and made unique within the
+document.
 
 Isolation D6: ``app.pipeline.event_graph.*`` and ``app.models.event_graph``
 only. Invalid input is skipped like ``tempo_iso`` (None / empty), never
@@ -33,9 +36,12 @@ from app.pipeline.event_graph.tempo_iso import (
     TempoISO,
     analizza,
     chiave_ordine,
+    collocazione_da_espressione,
     normalizza,
+    orario_dettaglio_da_espressione,
     rango_granularita,
 )
+from app.pipeline.event_graph.tempo_parole import intero_da_parole
 
 ETICHETTA_MAX_CHAR: Final[int] = 40
 STAGE: Final[str] = "collocazione_temporale"
@@ -54,9 +60,10 @@ _TIPO_RANGO: Final[dict[str, int]] = {
     "data": 0,
     "ora": 1,
     "scadenza": 2,
+    "vaga": 3,
     "epoca": 3,
-    "simbolica": 4,
-    "relativa": 5,
+    "simbolica": 3,
+    "relativa": 3,
 }
 
 _NATURA_RANGO: Final[dict[str, int]] = {
@@ -135,10 +142,7 @@ _DIREZIONE_PASSATO: Final[frozenset[str]] = frozenset(
     }
 )
 
-_PAROLA_NUMERO_ALT: Final[str] = (
-    r"un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|"
-    r"one|two|three|four|five|six|seven|eight|nine|ten|a|an"
-)
+_PAROLA_NUMERO_ALT: Final[str] = r"[A-Za-zÀ-ÿ]+"
 _UNITA_ALT: Final[str] = (
     r"minuti|minuto|minutes|minute|ore|ora|hours|hour|"
     r"giorni|giorno|days|day|settimane|settimana|weeks|week|"
@@ -365,7 +369,7 @@ def _offset_da_match(
             except ValueError:
                 return None
         else:
-            quantita = _PAROLE_NUMERO.get((match.group("parola") or "").casefold())
+            quantita = intero_da_parole(match.group("parola") or "")
         if quantita is None:
             return None
     token = direzione if direzione is not None else match.groupdict().get("direzione")
@@ -474,6 +478,45 @@ def _applica_offset(tempo: TempoISO, offset: _OffsetRelativo) -> TempoISO | None
     return analizza(_iso_a_precisione(spostato, effettiva))
 
 
+def _orario_da_ancora(
+    ancora: AncoraTemporaleProposta,
+) -> tuple[int, int, int, str] | None:
+    blob = " ".join(
+        parte for parte in (_testo(ancora.espressione), _testo(ancora.etichetta)) if parte
+    )
+    if not blob or collocazione_da_espressione(blob) is not None:
+        return None
+    dettaglio = orario_dettaglio_da_espressione(blob)
+    if dettaglio is None:
+        return None
+    return dettaglio.ora, dettaglio.minuto, dettaglio.secondo, dettaglio.precisione
+
+
+def _applica_orario(
+    tempo: TempoISO, orario: tuple[int, int, int, str]
+) -> TempoISO | None:
+    if tempo.precisione not in _PRECISIONE_ALMENO_GIORNO:
+        return None
+    ora, minuto, secondo, precisione = orario
+    try:
+        base = datetime(tempo.anno, tempo.mese, tempo.giorno, ora, minuto, secondo)
+        riferimento = datetime(
+            tempo.anno,
+            tempo.mese,
+            tempo.giorno,
+            tempo.ora,
+            tempo.minuto,
+            tempo.secondo,
+        )
+        if base < riferimento:
+            base = base + timedelta(days=1)
+    except (ValueError, OverflowError):
+        return None
+    if not 1 <= base.year <= 9999:
+        return None
+    return analizza(_iso_a_precisione(base, precisione))
+
+
 def _riferimento_precedente(
     pos: tuple[int, int, int],
     datate: list[tuple[tuple[int, int, int], TempoISO]],
@@ -489,11 +532,11 @@ def _risolvi_relative(
     *,
     riferimento: str | None,
 ) -> tuple[list[AncoraTemporaleProposta], int]:
-    """Place relative expressions on a dated reference.
+    """Place relative expressions and undated clocks on a dated reference.
 
-    Without a dated reference ancora the relative expression stays without
-    ``inizio`` and lives only as an ordered ancora on the chain, never as a
-    dated ancora. A date is never invented.
+    Without a dated reference ancora the expression stays without ``inizio``.
+    A date is never invented: a clock-of-day reuses the calendar day already
+    stated by the previous dated ancora in the document.
     """
     fallback = _tempo_riferimento_usabile(riferimento)
     indicizzate = list(enumerate(ancore))
@@ -517,11 +560,24 @@ def _risolvi_relative(
                     }
                 )
                 n_resolved += 1
+        if analizza(copia.inizio) is None:
+            orario = _orario_da_ancora(copia)
+            if orario is not None:
+                ref = _riferimento_precedente(pos, datate) or fallback
+                risolto = _applica_orario(ref, orario) if ref is not None else None
+                if risolto is not None:
+                    copia = copia.model_copy(
+                        update={
+                            "inizio": risolto.canonico,
+                            "stimato": True,
+                            "granularita": risolto.precisione,
+                        }
+                    )
+                    n_resolved += 1
         per_indice[indice] = copia
-        if not copia.stimato:
-            tempo = _tempo_riferimento_usabile(copia.inizio)
-            if tempo is not None:
-                datate.append((pos, tempo))
+        tempo = _tempo_riferimento_usabile(copia.inizio)
+        if tempo is not None:
+            datate.append((pos, tempo))
     return [per_indice[i] for i in range(len(ancore))], n_resolved
 
 
@@ -635,20 +691,33 @@ def _scegli_span(
     return scelto.offset_inizio, scelto.offset_fine, espressione
 
 
+def _unisci_descrizioni_ancora(prima: object, seconda: object) -> str | None:
+    parti: list[str] = []
+    for valore in (prima, seconda):
+        testo = valore.strip() if isinstance(valore, str) else ""
+        if testo and testo not in parti:
+            parti.append(testo)
+    return " | ".join(parti) if parti else None
+
+
 def _fondi_coppia(
     prima: AncoraTemporaleProposta, seconda: AncoraTemporaleProposta
 ) -> AncoraTemporaleProposta:
     etichetta = _etichette_fuse(prima.etichetta, seconda.etichetta) or prima.etichetta
     inizio, stimato = _scegli_inizio(prima, seconda)
     off_i, off_f, espressione = _scegli_span(prima, seconda)
-    descrizione = prima.descrizione or seconda.descrizione
+    eventi = _unisci_eventi(prima, seconda)
+    occorrenze = (prima.occorrenze or 0) + (seconda.occorrenze or 0)
+    if occorrenze <= 0:
+        occorrenze = len(eventi)
     return prima.model_copy(
         update={
             "etichetta": etichetta,
             "natura": _preferisci_natura(prima.natura, seconda.natura),
             "tipo": _preferisci_tipo(prima.tipo, seconda.tipo),
-            "eventi": _unisci_eventi(prima, seconda),
-            "descrizione": descrizione,
+            "eventi": eventi,
+            "descrizione": _unisci_descrizioni_ancora(prima.descrizione, seconda.descrizione),
+            "occorrenze": occorrenze,
             "granularita": _piu_fine(prima.granularita, seconda.granularita)
             or prima.granularita
             or seconda.granularita,

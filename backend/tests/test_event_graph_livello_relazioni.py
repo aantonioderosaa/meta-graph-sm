@@ -104,7 +104,10 @@ async def test_c_u1_causa_cross_zone(monkeypatch):
         assert response_model is LivelloRelazioniResult
         assert "non ricevi l'ordine di esposizione" in system_prompt.casefold()
         assert "numerati" not in system_prompt.casefold()
-        assert "anche fra eventi consecutivi" not in system_prompt.casefold()
+        folded = system_prompt.casefold()
+        assert "nulla in comune" in folded
+        assert "non è una penalità" in folded
+        assert "vicinanza da sola non è un nesso" in folded
         assert "il vento spezzò il ramo" in user_prompt
         assert INTESTAZIONE_TESTO in user_prompt
         assert INTESTAZIONE_EVENTI in user_prompt
@@ -367,6 +370,8 @@ def test_user_prompt_is_text_events_types_not_exposition():
     assert "arrivò|nel bosco" in prompt
     assert "CAUSA" in prompt
     assert "ghost" not in prompt
+    assert "nulla in comune" in prompt
+    assert "non è una penalità" in prompt
 
 
 def test_user_prompt_ignores_sequenza_arcs_and_does_not_number_events():

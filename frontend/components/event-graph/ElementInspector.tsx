@@ -197,6 +197,7 @@ export function ElementInspector({
   className,
 }: ElementInspectorProps) {
   const [state, setState] = useState<LoadState>({ status: "empty" });
+  const [fattoIndex, setFattoIndex] = useState(0);
 
   useEffect(() => {
     if (!selection) {
@@ -252,6 +253,11 @@ export function ElementInspector({
     };
   }, [selection, elements]);
 
+  // Reset index when selection changes
+  useEffect(() => {
+    setFattoIndex(0);
+  }, [selection?.id]);
+
   return (
     <Card className={className}>
       <CardHeader className="pb-2">
@@ -287,9 +293,36 @@ export function ElementInspector({
             <p className="break-all font-mono text-[10px] text-muted-foreground">
               {state.data.id}
             </p>
+            
+            {/* Display navigation controls if there are multiple linked facts */}
+            {Array.isArray(state.data.eventi_collegati) && 
+             state.data.eventi_collegati.length > 1 ? (
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  onClick={() => setFattoIndex(prev => Math.max(0, prev - 1))}
+                  disabled={fattoIndex === 0}
+                  className="rounded p-1 hover:bg-muted disabled:opacity-50"
+                >
+                  &lt;
+                </button>
+                
+                <span className="text-xs">
+                  {fattoIndex + 1} di {state.data.eventi_collegati.length}
+                </span>
+                
+                <button
+                  onClick={() => setFattoIndex(prev => Math.min(state.data.eventi_collegati!.length - 1, prev + 1))}
+                  disabled={fattoIndex === state.data.eventi_collegati!.length - 1}
+                  className="rounded p-1 hover:bg-muted disabled:opacity-50"
+                >
+                  &gt;
+                </button>
+              </div>
+            ) : null}
+            
             <PropertyTable proprieta={state.data.proprieta} />
             <CatenaSection
-              isEvento={state.data.labels.includes("Evento")}
+              isEvento={state.data.labels.includes("Fatto")}
               catena={state.data.catena}
               currentId={state.data.id}
               onSelect={onSelectRelated}

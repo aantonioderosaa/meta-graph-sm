@@ -23,7 +23,7 @@ CatenaTipo = Literal["STESSO_EVENTO", "AGGIORNA", "CONTRADDICE"]
 _ARG_RUOLI = frozenset({"SOGG", "OGG", "OBL", "TEMPO", "LUOGO", "MODO"})
 
 _CANDIDATI_QUERY = (
-    "MATCH (e:Evento) "
+    "MATCH (e:Fatto) "
     "WHERE toLower(trim(coalesce(e.lemma, ''))) = $lemma "
     "AND e.id <> $id "
     "AND (e.fuso_in IS NULL OR e.fuso_in = '') "
@@ -105,7 +105,7 @@ def classifica(
 
 
 async def persistente_candidati(session: Any, evento: EventoRisolto) -> list[EventoRisolto]:
-    """Same candidate rule against persisted :Evento rows."""
+    """Same candidate rule against persisted :Fatto rows."""
     params = {
         "id": evento.id,
         "lemma": _lemma_norm(evento.lemma),

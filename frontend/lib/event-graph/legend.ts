@@ -39,7 +39,7 @@ export const ARC_FAMIGLIE: CatalogArcFamiglia[] = [
 ];
 
 export const EMPTY_STATS: EventGraphStats = {
-  nodi: { Evento: 0, Menzione: 0, Quarantena: 0 },
+  nodi: { Fatto: 0, Menzione: 0, Quarantena: 0 },
   archi: {},
   tratti: { piano: {} },
 };
@@ -127,7 +127,7 @@ export function swatchForNode(id: string): string {
   return encodeNode({
     id,
     label: id,
-    tipo: id || "Evento",
+    tipo: id || "Fatto",
     piano: "PRIMO_PIANO",
     fattualita: "FATTUALE",
   }).color;
@@ -141,7 +141,7 @@ export function swatchForTrait(key: string, value: string): string {
     return encodeNode({
       id: "trait",
       label: "trait",
-      tipo: "Evento",
+      tipo: "Fatto",
       piano: "PRIMO_PIANO",
       fattualita: value,
     }).color;

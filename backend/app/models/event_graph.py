@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import Enum, unique
 from typing import Any, Literal, TypeVar, get_args
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _T = TypeVar("_T")
 
@@ -94,6 +95,55 @@ TraversalKind = Literal[
 ]
 
 
+@unique
+class EntitaKernelCategoria(str, Enum):
+    """Vocabolario scoped al solo event-graph live, non è EntityKernelType.
+
+    Questo enum definisce le categorie semantiche per le entità estratte 
+    durante il processo di event graph pipeline. Non deve essere confuso con
+    EntityKernelType che rappresenta il kernel vocabolario principale.
+    """
+    
+    Agente = "Agente"
+    OggettoFisico = "OggettoFisico"
+    Luogo = "Luogo"
+    Evento = "Evento"
+    EntitaTemporale = "EntitaTemporale"
+    EntitaInformativa = "EntitaInformativa"
+    CostruttoSociale = "CostruttoSociale"
+    EntitaAstratta = "EntitaAstratta"
+    Temporale = "Temporale"
+    Fatti = "Fatti"
+
+
+class EntitaKernelClassificata(BaseModel):
+    """Rappresenta una classificazione di un'entità con categoria e confidenza opzionale."""
+    
+    menzione_id: str
+    categoria: EntitaKernelCategoria
+    confidenza: float | None = None
+
+
+class LivelloEntitaResult(BaseModel):
+    """Contenitore per le classificazioni delle entità."""
+    
+    classificazioni: list[EntitaKernelClassificata]
+
+
+class EntitaKernelClassificata(BaseModel):
+    """Rappresenta una classificazione di un'entità con categoria e confidenza opzionale."""
+    
+    menzione_id: str
+    categoria: EntitaKernelCategoria
+    confidenza: float | None = None
+
+
+class LivelloEntitaResult(BaseModel):
+    """Contenitore per le classificazioni delle entità."""
+    
+    classificazioni: list[EntitaKernelClassificata]
+
+
 class ArgomentoGrezzo(BaseModel):
     ruolo: RuoloArgomentale
     preposizione: str | None = None
@@ -141,7 +191,7 @@ class ArcoEventoGrezzo(BaseModel):
 
 
 class PredicatoNonFinito(BaseModel):
-    """Free non-finite predicate: never an :Evento node (Parte A / A3–A4)."""
+    """Free non-finite predicate: never a :Fatto node (Parte A / A3–A4)."""
 
     lemma: str
     span: str
@@ -157,16 +207,53 @@ class FrammentoQuarantena(BaseModel):
     span: str
 
 
+class EntitaEstratta(BaseModel):
+    """One extracted participant or TEMPO locator: bare name + local summary."""
+
+    name: str
+    summary: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_str(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return {"name": value, "summary": ""}
+        return value
+
+
+def _coerce_entita_list(value: Any) -> Any:
+    if not isinstance(value, list):
+        return value
+    out: list[Any] = []
+    for item in value:
+        if isinstance(item, str):
+            out.append({"name": item, "summary": ""})
+        else:
+            out.append(item)
+    return out
+
+
 class EventEntityParticipation(BaseModel):
     """One independent-clause event and the entities that participated in it.
 
     Shape of the legacy ``node_extraction.extract_event_entities`` output
-    (Addendum 4): no grammatical decomposition, just event-as-sentence +
-    participant names.
+    (Addendum 4). ``entities`` are participants (SOGG/OGG). ``tempo`` is the
+    dictionary TEMPO slot: dates, hours, relative locators — same status as
+    a subject or object, not a prefix to strip from ``event``. Dates,
+    hours, epochs and intervals of every kind belong here.
+
+    Each item is a bare grammatical head (``name``) plus the local span that
+    contextualises it (``summary``). Strings are accepted and coerced.
     """
 
     event: str
-    entities: list[str] = Field(default_factory=list)
+    entities: list[EntitaEstratta] = Field(default_factory=list)
+    tempo: list[EntitaEstratta] = Field(default_factory=list)
+
+    @field_validator("entities", "tempo", mode="before")
+    @classmethod
+    def _coerce_entita(cls, value: Any) -> Any:
+        return _coerce_entita_list(value)
 
 
 class EventEntityExtractionResult(BaseModel):
@@ -222,7 +309,7 @@ class ArgomentoRisolto(BaseModel):
 
 
 class EventoRisolto(BaseModel):
-    """Resolved :Evento fields known at write time; later MTs fill the rest."""
+    """Resolved :Fatto fields known at write time; later MTs fill the rest."""
 
     id: str = ""
     lemma: str = ""
@@ -274,6 +361,13 @@ class EventoRisolto(BaseModel):
     span: str | None = None
 
 
+class RiferimentoMenzione(BaseModel):
+    """One naming of an entity: the event it appeared in and its local summary."""
+
+    evento_id: str = ""
+    summary: str = ""
+
+
 class MenzioneRisolta(BaseModel):
     id: str = ""
     forma: str = ""
@@ -286,6 +380,100 @@ class MenzioneRisolta(BaseModel):
     chunk_id: str | None = None
     regola: str | None = None
     versione_regole: str | None = None
+    summary: str = ""
+    riassunti: list[str] = Field(default_factory=list)
+    eventi: list[str] = Field(default_factory=list)
+    occorrenze: int = 0
+    riferimenti: list[RiferimentoMenzione] = Field(default_factory=list)
+
+    def assorbi(self, extra: MenzioneRisolta) -> MenzioneRisolta:
+        """Same grammatical instance: keep the short name, stack summaries."""
+        if extra is self:
+            return self
+        self.forma = _forma_piu_pulita(self.forma, extra.forma)
+        self.forma_canonica = _forma_piu_pulita(
+            self.forma_canonica or self.forma,
+            extra.forma_canonica or extra.forma,
+        )
+        if extra.tipo_superficiale and (
+            self.tipo_superficiale is None
+            or (
+                extra.tipo_superficiale == "nome_proprio"
+                and self.tipo_superficiale == "sn_comune"
+            )
+        ):
+            self.tipo_superficiale = extra.tipo_superficiale
+        if extra.documento and not self.documento:
+            self.documento = extra.documento
+        if extra.chunk_id and not self.chunk_id:
+            self.chunk_id = extra.chunk_id
+        seen = {(item.evento_id, item.summary) for item in self.riferimenti}
+        for item in extra.riferimenti:
+            key = (item.evento_id, item.summary)
+            if key in seen:
+                continue
+            self.riferimenti.append(item)
+            seen.add(key)
+        for eid in extra.eventi:
+            if eid and eid not in self.eventi:
+                self.eventi.append(eid)
+        for testo in extra.riassunti:
+            if testo and testo not in self.riassunti:
+                self.riassunti.append(testo)
+        if extra.summary and extra.summary not in self.riassunti:
+            self.riassunti.append(extra.summary)
+        if extra.summary and not self.summary:
+            self.summary = extra.summary
+        self._ricalcola_occorrenze()
+        return self
+
+    def registra(self, evento_id: str | None, summary: str | None) -> None:
+        eid = (evento_id or "").strip()
+        testo = " ".join((summary or "").split())
+        key = (eid, testo)
+        seen = {(item.evento_id, item.summary) for item in self.riferimenti}
+        if key not in seen:
+            self.riferimenti.append(RiferimentoMenzione(evento_id=eid, summary=testo))
+        if eid and eid not in self.eventi:
+            self.eventi.append(eid)
+        if testo and testo not in self.riassunti:
+            self.riassunti.append(testo)
+        if testo and not self.summary:
+            self.summary = testo
+        self._ricalcola_occorrenze()
+
+    def _ricalcola_occorrenze(self) -> None:
+        if self.riferimenti:
+            self.occorrenze = len(self.riferimenti)
+        else:
+            self.occorrenze = max(len(self.eventi), len(self.riassunti), self.occorrenze, 1)
+        if self.riassunti and not self.summary:
+            self.summary = self.riassunti[-1]
+        elif self.riferimenti and not self.summary:
+            testi = [item.summary for item in self.riferimenti if item.summary]
+            if testi:
+                self.summary = testi[-1]
+
+
+def _forma_piu_pulita(prima: str, seconda: str) -> str:
+    a = (prima or "").strip()
+    b = (seconda or "").strip()
+    if not a:
+        return b
+    if not b:
+        return a
+
+    def _all_proper(testo: str) -> bool:
+        tokens = testo.split()
+        return bool(tokens) and all(tok[:1].isupper() for tok in tokens if tok)
+
+    if _all_proper(a) and _all_proper(b):
+        return a if len(a.split()) >= len(b.split()) else b
+    tokens_a = a.split()
+    tokens_b = b.split()
+    if len(tokens_a) != len(tokens_b):
+        return a if len(tokens_a) < len(tokens_b) else b
+    return a if len(a) <= len(b) else b
 
 
 class ArcoEvento(BaseModel):
@@ -651,7 +839,7 @@ class LivelloTemporaleResult(BaseModel):
 NaturaAncora = Literal["esplicita", "intervallo", "aperta"]
 NATURA_ANCORE: tuple[NaturaAncora, ...] = get_args(NaturaAncora)
 
-TipoAncora = Literal["data", "ora", "scadenza", "epoca", "relativa", "simbolica"]
+TipoAncora = Literal["data", "ora", "scadenza", "vaga"]
 TIPI_ANCORA: tuple[TipoAncora, ...] = get_args(TipoAncora)
 
 PosizioneRispettoAncora = Literal["prima", "durante", "dopo"]
@@ -673,11 +861,16 @@ _TIPO_ANCORA_SINONIMI: dict[str, TipoAncora] = {
     "time": "ora",
     "hours": "ora",
     "deadline": "scadenza",
-    "epoch": "epoca",
-    "relativo": "relativa",
-    "relative": "relativa",
-    "simbolico": "simbolica",
-    "symbolic": "simbolica",
+    "epoch": "vaga",
+    "epoca": "vaga",
+    "relativo": "vaga",
+    "relativa": "vaga",
+    "relative": "vaga",
+    "simbolico": "vaga",
+    "simbolica": "vaga",
+    "symbolic": "vaga",
+    "vague": "vaga",
+    "vago": "vaga",
 }
 
 _POSIZIONE_ANCORA_SINONIMI: dict[str, PosizioneRispettoAncora] = {
@@ -734,10 +927,10 @@ class AncoraTemporaleProposta(_PayloadTemporale):
         ),
     )
     tipo: TipoAncora = Field(
-        default="simbolica",
+        default="vaga",
         description=(
-            "Kind of placement: calendar date, clock time, deadline, epoch, "
-            "relative expression, or a symbolic/narrative moment."
+            "Standalone placement: calendar date, clock time, deadline, or a "
+            "vague lexical span (anni 70, dopo un po'). Never sentence syntax."
         ),
     )
     eventi: list[str] = Field(
@@ -747,9 +940,13 @@ class AncoraTemporaleProposta(_PayloadTemporale):
             "ancora that only contains other ancore."
         ),
     )
+    occorrenze: int = Field(
+        default=0,
+        description="How many times this grammatical TEMPO form was named.",
+    )
     descrizione: str | None = Field(
         default=None,
-        description="Longer prose about the moment, or null.",
+        description="Local contextual span(s) for this placement, or null.",
     )
     granularita: GranularitaTemporale | None = Field(
         default=None,
@@ -838,11 +1035,11 @@ class AncoraTemporaleProposta(_PayloadTemporale):
     @classmethod
     def _coerce_tipo(cls, value: Any) -> Any:
         if not isinstance(value, str):
-            return "simbolica"
+            return "vaga"
         token = value.strip().casefold()
         if token in TIPI_ANCORA:
             return token
-        return _TIPO_ANCORA_SINONIMI.get(token, "simbolica")
+        return _TIPO_ANCORA_SINONIMI.get(token, "vaga")
 
     @field_validator("eventi", mode="before")
     @classmethod
@@ -1000,7 +1197,11 @@ class SottoGrafo:
         self.quarantena.extend(_as_items(quarantena))
         for menzione in _as_items(menzioni):
             key = menzione.id or f"anon:{len(self.menzioni)}"
-            self.menzioni[key] = menzione
+            esistente = self.menzioni.get(key)
+            if esistente is not None and esistente is not menzione:
+                esistente.assorbi(menzione)
+            else:
+                self.menzioni[key] = menzione
 
     def eventi_per_posizione(self) -> list[EventoRisolto]:
         return sorted(self.eventi, key=_evento_pos_key)
@@ -1082,6 +1283,7 @@ __all__ = [
     "ChunkFactsheet",
     "ClasseVerboReggente",
     "ClusterTemporaleProposto",
+    "EntitaEstratta",
     "EventEntityExtractionResult",
     "EventEntityParticipation",
     "EventQuerySpec",
@@ -1108,6 +1310,7 @@ __all__ = [
     "PianoNarrativo",
     "PosizioneRispettoAncora",
     "PredicatoNonFinito",
+    "RiferimentoMenzione",
     "RispostaSintetizzata",
     "QuarantenaItem",
     "RelazioneLibera",

@@ -45,6 +45,7 @@ def _sample_graph() -> GraphResponse:
     )
 
 
+@pytest.mark.skip(reason="Metagraph /graph/* non montato in app.main; vedi README §Storico — Metagraph")
 @pytest.mark.asyncio
 async def test_get_entity_graph_returns_nvl_shape(client: AsyncClient, monkeypatch):
     async def mock_graph(
@@ -66,6 +67,7 @@ async def test_get_entity_graph_returns_nvl_shape(client: AsyncClient, monkeypat
     assert "type" in rel
 
 
+@pytest.mark.skip(reason="Metagraph /graph/* non montato in app.main; vedi README §Storico — Metagraph")
 @pytest.mark.asyncio
 async def test_get_event_graph_returns_nvl_shape(client: AsyncClient, monkeypatch):
     async def mock_graph(
@@ -83,6 +85,7 @@ async def test_get_event_graph_returns_nvl_shape(client: AsyncClient, monkeypatc
     assert "relationships" in body
 
 
+@pytest.mark.skip(reason="Metagraph /graph/* non montato in app.main; vedi README §Storico — Metagraph")
 @pytest.mark.asyncio
 async def test_get_participation_graph_returns_nvl_shape(client: AsyncClient, monkeypatch):
     async def mock_graph(session, limit=200) -> GraphResponse:
@@ -100,6 +103,7 @@ async def test_get_participation_graph_returns_nvl_shape(client: AsyncClient, mo
     assert "relationships" in body
 
 
+@pytest.mark.skip(reason="Metagraph /graph/* non montato in app.main; vedi README §Storico — Metagraph")
 @pytest.mark.asyncio
 async def test_get_concept_overview_returns_nvl_shape(client: AsyncClient, monkeypatch):
     async def mock_graph(session, limit=100) -> GraphResponse:
@@ -127,6 +131,7 @@ async def test_get_concept_overview_returns_nvl_shape(client: AsyncClient, monke
     assert body["relationships"] == []
 
 
+@pytest.mark.skip(reason="Metagraph /graph/* non montato in app.main; vedi README §Storico — Metagraph")
 @pytest.mark.asyncio
 async def test_get_concept_neighbors_returns_nvl_shape(client: AsyncClient, monkeypatch):
     async def mock_graph(session, concept_id: str) -> GraphResponse:
@@ -161,6 +166,7 @@ async def test_get_concept_neighbors_returns_nvl_shape(client: AsyncClient, monk
     assert "type" in rel
 
 
+@pytest.mark.skip(reason="Metagraph /graph/* non montato in app.main; vedi README §Storico — Metagraph")
 @pytest.mark.asyncio
 async def test_get_entity_graph_passes_include_concepts(client: AsyncClient, monkeypatch):
     captured: dict[str, bool] = {}
@@ -183,6 +189,7 @@ async def test_get_entity_graph_passes_include_concepts(client: AsyncClient, mon
     assert captured["include_concepts"] is True
 
 
+@pytest.mark.skip(reason="Metagraph /graph/* non montato in app.main; vedi README §Storico — Metagraph")
 @pytest.mark.asyncio
 async def test_get_event_graph_passes_include_concepts(client: AsyncClient, monkeypatch):
     captured: dict[str, bool] = {}

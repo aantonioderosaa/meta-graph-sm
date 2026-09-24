@@ -104,7 +104,12 @@ def _strip_one_determiner(text: str) -> str:
 
 
 def _normalize_referential(forma: str) -> str:
-    """Identity key for named mentions: NFC, quote fold, casefold, one determiner."""
+    """Identity key: cleaned grammatical head (no articles, adjectives, adverbs)."""
+    from app.pipeline.event_graph.entita_forma import forma_identita
+
+    chiave = forma_identita(forma)
+    if chiave:
+        return chiave
     folded = fold_text(forma or "").casefold()
     for mark in (",", ";", ":", "!", "?"):
         folded = folded.replace(mark, " ")

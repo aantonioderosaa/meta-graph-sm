@@ -1,9 +1,9 @@
-"""MT2 — extract explicit temporal anchors from each zone's text.
+"""MT2 — temporal anchors from MICRO TEMPO mentions.
 
-One structured LLM call per zona, on ``zona.testo`` only — never the full
-document. A deterministic regex prepass plus ``zona.ancore_temporali`` seeds
-the proposals so obvious years, ISO dates and clock times do not depend on
-the model. LLM failure is logged and published; prepass+seed still return.
+The dictionary TEMPO slot is filled when subjects and objects are extracted.
+This module turns those mentions into ancore. It does not re-read zone text
+with a second LLM. A legacy regex+LLM path remains only when ``eventi`` is
+omitted (unit tests of the old prepass).
 
 Isolation D6: ``app.pipeline.event_graph.*`` and ``app.models.event_graph``
 only. LLM exclusively via ``infra.llm.call_structured``.
@@ -14,7 +14,7 @@ from __future__ import annotations
 import inspect
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,12 +22,23 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.models.event_graph import (
     AncoraTemporaleProposta,
+    EventoRisolto,
     LivelloAncoreResult,
+    MenzioneRisolta,
     TipoAncora,
 )
 from app.pipeline.event_graph.infra.bus import publish
 from app.pipeline.event_graph.infra.llm import call_structured as _call_structured
-from app.pipeline.event_graph.tempo_iso import analizza
+from app.pipeline.event_graph.tempo_entita import (
+    classifica_entita_temporale,
+    tipo_entita_temporale,
+)
+from app.pipeline.event_graph.entita_forma import pulisci_forma
+from app.pipeline.event_graph.tempo_iso import (
+    analizza,
+    collocazione_da_espressione,
+    intervallo_da_espressione,
+)
 from app.pipeline.event_graph.zona_segmentation import Zona
 
 logger = logging.getLogger(__name__)
@@ -51,35 +62,36 @@ _ALLE_ORA = re.compile(
     r"\b(?:alle|all['’]|ore)\s+\d{1,2}(?::\d{2}(?::\d{2})?)?\b",
     re.IGNORECASE,
 )
-_RELATIVE = frozenset(
-    {
-        "ieri",
-        "oggi",
-        "domani",
-        "yesterday",
-        "today",
-        "tomorrow",
-    }
-)
 
 SYSTEM_ANCORE_ESTRAZIONE = """\
 You extract temporal anchors from ONE lexical zone of Italian or English text.
 
 Return structured output only. Temperature is 0. Never call tools.
 
-For every temporal expression in THIS zone text (dates, years, clock times,
-deadlines, epochs, relative words like ieri/domani, symbolic moments like
-Natale), emit one ancora:
+For every standalone temporal entity in THIS zone text emit one ancora.
+Allowed kinds only:
 
-- espressione: the literal span as written
+- orari (alle 18, alle otto, 18:30, ore 08:15, mezzogiorno)
+- date (1843, 24 dicembre, dodici marzo millenovecentottantasette,
+  1843-12-24, dal 12 al 15 marzo)
+- scadenze (entro il 31 marzo, deadline 2024-12-01, tra 20 minuti)
+- vaga: lexical vague spans that contextualise (anni 70, dopo un po',
+  ieri, 10 giorni fa, vigilia, Natale, quell'estate)
+
+Never mint an entity from sentence syntax. Forbidden examples:
+\"dopo circa 3 ore\", \"tre ore dopo\", \"prima di due giorni\".
+Those are placement offsets, not nodes.
+
+- espressione: the standalone span (the date/time/deadline/vague word),
+  not the wrapping clause
 - offset_inizio / offset_fine: 0-based character offsets into the zone text
   provided below (NOT into the full document). offset_fine is exclusive.
 - inizio: ISO 8601 at variable precision ONLY if that ISO string is written
   in the span or zone text (1843, 1843-12-24, 1843-12-24T18:30). Do not
   invent a year, month, day, or clock. Natale does not become 1843.
 - granularita: secondo→secolo, only when justified by the written form
-- tipo: data | ora | scadenza | epoca | relativa | simbolica
-- etichetta: short, at most 40 characters
+- tipo: data | ora | scadenza | vaga
+- etichetta: short, at most 40 characters, the standalone name
 - natura: esplicita
 - stimato: false
 - eventi: always empty (do not assign events)
@@ -122,8 +134,17 @@ def _tronca(testo: str, massimo: int) -> str:
 
 
 def _etichetta(espressione: str) -> str:
-    testo = " ".join((espressione or "").split())
+    testo = pulisci_forma(espressione, temporale=True) or " ".join((espressione or "").split())
     return testo[:40] if testo else "ancora"
+
+
+def _unisci_descrizioni(prima: object, seconda: object) -> str | None:
+    parti: list[str] = []
+    for valore in (prima, seconda):
+        testo = valore.strip() if isinstance(valore, str) else ""
+        if testo and testo not in parti:
+            parti.append(testo)
+    return " | ".join(parti) if parti else None
 
 
 def _inizio_se_iso(span: str | None) -> tuple[str | None, str | None]:
@@ -152,15 +173,23 @@ def _inizio_giustificato(espressione: str | None, candidato: str | None) -> str 
 
 
 def _tipo_da_span(span: str) -> TipoAncora:
-    token = (span or "").strip().casefold()
-    if token in _RELATIVE:
-        return "relativa"
-    if _ALLE_ORA.fullmatch(span.strip() if span else "") or ":" in (span or ""):
+    tipo = tipo_entita_temporale(span)
+    if tipo is not None:
+        return tipo
+    if intervallo_da_espressione(span) is not None:
+        return "data"
+    if _ALLE_ORA.fullmatch(span.strip() if span else "") or (
+        ":" in (span or "") and collocazione_da_espressione(span) is None
+    ):
         return "ora"
     data_numerica = _DATA_NUMERICA.fullmatch(span.strip() if span else "")
-    if _inizio_se_iso(span)[0] is not None or data_numerica:
+    if (
+        _inizio_se_iso(span)[0] is not None
+        or data_numerica
+        or collocazione_da_espressione(span) is not None
+    ):
         return "data"
-    return "simbolica"
+    return "vaga"
 
 
 def _orario_valido(span: str) -> bool:
@@ -199,6 +228,7 @@ def _proposta(
         offset_fine=offset_fine,
         stimato=False,
         posizione_doc_min=offset_inizio,
+        occorrenze=1,
     )
 
 
@@ -302,6 +332,10 @@ def proposte_da_semi(
         espressione = grezzo.strip()
         if not espressione:
             continue
+        classificato = classifica_entita_temporale(espressione)
+        if classificato.tipo is None:
+            continue
+        espressione = classificato.forma or espressione
         chiave = espressione.casefold()
         if chiave in visti:
             continue
@@ -318,7 +352,7 @@ def proposte_da_semi(
                     else espressione,
                     offset_inizio=offset_documento + idx,
                     offset_fine=offset_documento + idx + len(espressione),
-                    tipo=_tipo_da_span(espressione),
+                    tipo=classificato.tipo,
                     inizio=inizio,
                     granularita=gran,
                 )
@@ -330,7 +364,7 @@ def proposte_da_semi(
                     espressione=espressione,
                     offset_inizio=None,
                     offset_fine=None,
-                    tipo=_tipo_da_span(espressione),
+                    tipo=classificato.tipo,
                     inizio=inizio,
                     granularita=gran,
                 )
@@ -371,15 +405,24 @@ def _unisci_due(
                 espressione = extra.espressione
 
     inizio = _inizio_giustificato(espressione, base.inizio or extra.inizio)
-    if extra.tipo in ("data", "ora") and base.tipo not in ("data", "ora"):
+    if inizio is None:
+        parsed = collocazione_da_espressione(espressione)
+        inizio = parsed.canonico if parsed is not None else (base.inizio or extra.inizio)
+    if extra.tipo in ("data", "ora", "scadenza") and base.tipo not in (
+        "data",
+        "ora",
+        "scadenza",
+    ):
         tipo: TipoAncora = extra.tipo
-    elif base.tipo in ("data", "ora"):
+    elif base.tipo in ("data", "ora", "scadenza"):
         tipo = base.tipo
         span = espressione or ""
         if extra.tipo == "ora" and (":" in span or _ALLE_ORA.search(span)):
             tipo = "ora"
+        if extra.tipo == "scadenza":
+            tipo = "scadenza"
     else:
-        tipo = extra.tipo if extra.tipo != "simbolica" else base.tipo
+        tipo = extra.tipo if extra.tipo != "vaga" else base.tipo
 
     etichetta = extra.etichetta or base.etichetta or _etichetta(espressione or "")
     granularita = base.granularita or extra.granularita
@@ -389,12 +432,25 @@ def _unisci_due(
             granularita = tempo.precisione
 
     fine = _inizio_giustificato(espressione, base.fine or extra.fine)
+    if fine is None:
+        intervallo = intervallo_da_espressione(espressione)
+        if intervallo is not None:
+            fine = intervallo[1].canonico
+        else:
+            fine = base.fine or extra.fine
+    eventi: list[str] = []
+    visti: set[str] = set()
+    for eid in list(base.eventi or []) + list(extra.eventi or []):
+        if isinstance(eid, str) and eid and eid not in visti:
+            visti.add(eid)
+            eventi.append(eid)
     return AncoraTemporaleProposta(
         etichetta=etichetta,
         natura="esplicita",
         tipo=tipo,
-        eventi=[],
-        descrizione=base.descrizione or extra.descrizione,
+        eventi=eventi,
+        descrizione=_unisci_descrizioni(base.descrizione, extra.descrizione),
+        occorrenze=(base.occorrenze or 0) + (extra.occorrenze or 0) or len(eventi),
         granularita=granularita,
         inizio=inizio,
         fine=fine,
@@ -526,14 +582,19 @@ def _sanifica_llm(
     )
     if off_i is not None and off_f is not None and off_i < zona.offset_inizio:
         off_i, off_f = None, None
+    classificato = classifica_entita_temporale(espressione)
+    if classificato.tipo is None:
+        return None
+    if classificato.forma and classificato.forma != espressione:
+        espressione = classificato.forma
     tipo: TipoAncora = grezza.tipo if grezza.tipo in (
         "data",
         "ora",
         "scadenza",
-        "epoca",
-        "relativa",
-        "simbolica",
-    ) else _tipo_da_span(espressione)
+        "vaga",
+    ) else classificato.tipo
+    if tipo not in ("data", "ora", "scadenza", "vaga"):
+        tipo = classificato.tipo
     inizio = _inizio_giustificato(espressione, grezza.inizio)
     return AncoraTemporaleProposta(
         etichetta=grezza.etichetta or _etichetta(espressione),
@@ -541,6 +602,7 @@ def _sanifica_llm(
         tipo=tipo,
         eventi=[],
         descrizione=grezza.descrizione,
+        occorrenze=grezza.occorrenze or 1,
         granularita=grezza.granularita if inizio else None,
         inizio=inizio,
         fine=_inizio_giustificato(espressione, grezza.fine),
@@ -602,6 +664,158 @@ async def _chiama_zona(
     return sane, False
 
 
+def _come_menzioni(
+    menzioni: Mapping[str, MenzioneRisolta] | Sequence[MenzioneRisolta] | None,
+) -> dict[str, MenzioneRisolta]:
+    if menzioni is None:
+        return {}
+    if isinstance(menzioni, Mapping):
+        return {
+            key: value
+            for key, value in menzioni.items()
+            if isinstance(key, str) and isinstance(value, MenzioneRisolta)
+        }
+    fuori: dict[str, MenzioneRisolta] = {}
+    for item in menzioni:
+        if isinstance(item, MenzioneRisolta) and item.id:
+            fuori[item.id] = item
+    return fuori
+
+
+def _forme_tempo(
+    evento: EventoRisolto, menzioni: Mapping[str, MenzioneRisolta]
+) -> list[tuple[str, str]]:
+    forme: list[tuple[str, str]] = []
+    visti: set[str] = set()
+    for arg in evento.argomenti or []:
+        if getattr(arg, "ruolo", None) != "TEMPO":
+            continue
+        menzione = menzioni.get(arg.menzione_id or "")
+        nome = (menzione.forma if menzione is not None else "") or ""
+        summary = ""
+        if menzione is not None:
+            summary = menzione.summary or ""
+            if not summary and menzione.riassunti:
+                summary = menzione.riassunti[-1]
+        chiave = nome.strip().casefold()
+        if not nome.strip() or chiave in visti:
+            continue
+        visti.add(chiave)
+        forme.append((nome.strip(), summary.strip()))
+    grezzo = (evento.tempo_assoluto_grezzo or "").strip()
+    if grezzo and grezzo.casefold() not in visti:
+        forme.append((grezzo, grezzo))
+    return forme
+
+
+def _zona_evento(
+    evento: EventoRisolto, zone: Sequence[Zona]
+) -> Zona | None:
+    by_id = {zona.id: zona for zona in zone if zona.id}
+    if evento.chunk_id and evento.chunk_id in by_id:
+        return by_id[evento.chunk_id]
+    if evento.offset_inizio is None:
+        return zone[0] if zone else None
+    for zona in zone:
+        if zona.offset_inizio <= evento.offset_inizio < zona.offset_fine:
+            return zona
+    return zone[0] if zone else None
+
+
+def _offset_forma(
+    forma: str, evento: EventoRisolto, zona: Zona | None
+) -> tuple[int | None, int | None]:
+    if zona is None or not forma:
+        return None, None
+    testo = zona.testo or ""
+    if not testo:
+        return None, None
+    local_from = 0
+    if evento.offset_inizio is not None:
+        local_from = max(0, evento.offset_inizio - (zona.offset_inizio or 0))
+    idx = testo.find(forma, local_from)
+    if idx < 0:
+        idx = testo.find(forma)
+    if idx < 0:
+        idx = testo.casefold().find(forma.casefold())
+    if idx < 0:
+        return None, None
+    start = (zona.offset_inizio or 0) + idx
+    return start, start + len(forma)
+
+
+def _collocazione_ancora(espressione: str) -> tuple[str | None, str | None, str | None]:
+    """inizio, fine, granularita from an already extracted TEMPO string."""
+    intervallo = intervallo_da_espressione(espressione)
+    if intervallo is not None:
+        sinistra, destra = intervallo
+        return sinistra.canonico, destra.canonico, sinistra.precisione
+    parsed = collocazione_da_espressione(espressione)
+    if parsed is not None:
+        return parsed.canonico, None, parsed.precisione
+    iso, gran = _inizio_se_iso(espressione)
+    return iso, None, gran
+
+
+def proposte_da_menzioni_tempo(
+    eventi: Sequence[EventoRisolto] | None,
+    menzioni: Mapping[str, MenzioneRisolta] | Sequence[MenzioneRisolta] | None,
+    zone: Sequence[Zona] | None,
+) -> list[AncoraTemporaleProposta]:
+    """One ancora per TEMPO occurrence (form + document offset), not per string."""
+    zone_ok = [zona for zona in list(zone or []) if isinstance(zona, Zona)]
+    menzioni_ok = _come_menzioni(menzioni)
+    per_chiave: dict[tuple[str, str | int], AncoraTemporaleProposta] = {}
+    ordine: list[tuple[str, str | int]] = []
+    for evento in eventi or []:
+        if not isinstance(evento, EventoRisolto) or not evento.id:
+            continue
+        if evento.fuso_in:
+            continue
+        zona = _zona_evento(evento, zone_ok)
+        for forma, summary in _forme_tempo(evento, menzioni_ok):
+            classificato = classifica_entita_temporale(forma)
+            if classificato.tipo is None:
+                continue
+            forma_ok = pulisci_forma(classificato.forma or forma, temporale=True) or (
+                classificato.forma or forma
+            )
+            off_i, off_f = _offset_forma(forma_ok, evento, zona)
+            if off_i is None:
+                off_i, off_f = _offset_forma(forma, evento, zona)
+            if off_i is None and classificato.forma:
+                off_i, off_f = _offset_forma(classificato.forma, evento, zona)
+            inizio, fine, gran = _collocazione_ancora(forma_ok)
+            proposta = AncoraTemporaleProposta(
+                etichetta=_etichetta(forma_ok),
+                natura="esplicita",
+                tipo=classificato.tipo,
+                eventi=[evento.id],
+                descrizione=summary or None,
+                occorrenze=1,
+                granularita=gran,  # type: ignore[arg-type]
+                inizio=inizio,
+                fine=fine,
+                espressione=forma_ok,
+                offset_inizio=off_i,
+                offset_fine=off_f,
+                stimato=False,
+                posizione_doc_min=off_i if off_i is not None else evento.offset_inizio,
+            )
+            occorrenza: str | int
+            if off_i is not None:
+                occorrenza = off_i
+            else:
+                occorrenza = evento.id
+            chiave = (forma_ok.casefold(), occorrenza)
+            if chiave not in per_chiave:
+                per_chiave[chiave] = proposta
+                ordine.append(chiave)
+            else:
+                per_chiave[chiave] = _unisci_due(per_chiave[chiave], proposta)
+    return [per_chiave[chiave] for chiave in ordine]
+
+
 async def _pubblica(
     job_id: str | None,
     event: str,
@@ -617,15 +831,63 @@ async def estrai_ancore(
     *,
     job_id: str | None = None,
     call_structured: Any = None,
+    eventi: Sequence[EventoRisolto] | None = None,
+    menzioni: Mapping[str, MenzioneRisolta] | Sequence[MenzioneRisolta] | None = None,
 ) -> EstrazioneAncoreResult:
-    """One LLM call per zona on that zona's text. Never returns None."""
-    llm = call_structured if call_structured is not None else _call_structured
+    """Ancore from MICRO TEMPO mentions when ``eventi`` is passed; else legacy LLM."""
     try:
         items = list(zone or [])
     except TypeError:
         items = []
 
-    tutte: list[AncoraTemporaleProposta] = []
+    if eventi is not None:
+        tutte = proposte_da_menzioni_tempo(eventi, menzioni, items)
+        n_zone_vuote = 0
+        for zona in items:
+            locali = [
+                ancora
+                for ancora in tutte
+                if ancora.offset_inizio is not None
+                and zona.offset_inizio <= ancora.offset_inizio < zona.offset_fine
+            ]
+            if not locali:
+                n_zone_vuote += 1
+            await _pubblica(
+                job_id,
+                EVENTO_ZONA,
+                {
+                    "zona_id": zona.id,
+                    "extracted": len(locali),
+                    "from_regex": 0,
+                    "from_seed": 0,
+                    "from_llm": 0,
+                    "from_tempo": len(locali),
+                    "failed": False,
+                },
+            )
+        livello = LivelloAncoreResult(segnali=[], ancore=tutte)
+        esito = EstrazioneAncoreResult(
+            livello=livello,
+            n_zone=len(items),
+            n_ancore=len(tutte),
+            n_llm_failures=0,
+            n_zone_vuote=n_zone_vuote,
+        )
+        await _pubblica(
+            job_id,
+            EVENTO_DOCUMENTO,
+            {
+                "n_zone": esito.n_zone,
+                "n_ancore": esito.n_ancore,
+                "n_llm_failures": esito.n_llm_failures,
+                "n_zone_vuote": esito.n_zone_vuote,
+                "from_tempo": esito.n_ancore,
+            },
+        )
+        return esito
+
+    llm = call_structured if call_structured is not None else _call_structured
+    tutte = []
     n_llm_failures = 0
     n_zone_vuote = 0
 
@@ -692,6 +954,7 @@ __all__ = [
     "SYSTEM_ANCORE_ESTRAZIONE",
     "estrai_ancore",
     "prepass_regex",
+    "proposte_da_menzioni_tempo",
     "proposte_da_semi",
     "unisci_proposte",
     "user_ancore_zona",

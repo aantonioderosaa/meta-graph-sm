@@ -132,7 +132,7 @@ def _evento_row(
         "label": label or eid,
         "parent": parent,
         "documento": "doc-1",
-        "tipo": "Evento",
+        "tipo": "Fatto",
         "posizione_doc": posizione_doc,
         "posizione_chunk": posizione_chunk,
         "offset_inizio": offset_inizio,
@@ -415,7 +415,7 @@ async def test_eventi_stesso_box_per_offset_inizio_non_id():
     event_ids = [
         node["data"]["id"]
         for node in body["elements"]["nodes"]
-        if node["data"].get("tipo") == "Evento"
+        if node["data"].get("tipo") == "Fatto"
     ]
     assert event_ids == ["aaa-early", "zzz-late"]
     by_id = _by_id(body)
@@ -492,7 +492,7 @@ async def test_grafo_tutto_invariato_su_fakesession():
             {
                 "id": "ev-1",
                 "label": "arrivare",
-                "tipo": "Evento",
+                "tipo": "Fatto",
                 "piano": "PRIMO_PIANO",
                 "fattualita": "FATTUALE",
                 "documento": "doc-1",
@@ -539,7 +539,7 @@ async def test_vista_best_effort_su_dati_parziali():
         eventi=[
             {
                 "id": "ev-rotto",
-                "tipo": "Evento",
+                "tipo": "Fatto",
                 "parent": "cl-rotto",
                 "posizione_doc": "x",
             }
