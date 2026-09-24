@@ -24,6 +24,7 @@ PIPELINE_STAGES = (
 _subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
 _history: dict[str, list[dict[str, Any]]] = {}
 _job_order: list[str] = []
+_active_tasks: dict[str, asyncio.Task] = {}
 
 
 def _now_iso() -> str:
@@ -168,6 +169,11 @@ async def run_tracked_job(job_id: str, coro: Awaitable[Any]) -> None:
     """Run a background job; publish ``failed`` if it raises unhandled."""
     try:
         await coro
+    except asyncio.CancelledError:
+        # Handle cancelled tasks gracefully - this is expected behavior for cancellation
+        logger.debug("job_id=%s was cancelled", job_id)
+        # Don't publish failed event for intentional cancellations
+        raise  # Re-raise to properly handle the cancellation
     except Exception as exc:
         logger.exception("job_id=%s failed with an unhandled exception", job_id)
         await publish(job_id, "failed", "pipeline_failed", {"error": str(exc)})
@@ -180,8 +186,50 @@ def subscriber_count(job_id: str | None = None) -> int:
     return sum(len(queues) for queues in _subscribers.values())
 
 
+def has_running_job() -> str | None:
+    """Return the job_id of a running job, or None if no jobs are running.
+    
+    Uses the same logic as job_status to determine if a job is running.
+    """
+    for job_id in reversed(_job_order):
+        events = list(_history.get(job_id, []))
+        status = job_status(events)
+        if status == "running":
+            return job_id
+    return None
+
+
+async def cancel_job(job_id: str) -> None:
+    """Cancel a running job by its ID.
+    
+    If the task exists and is not already completed/failed, it will be cancelled.
+    No-op if no such task exists or if it's already finished.
+    """
+    task = _active_tasks.get(job_id)
+    if task and not task.done():
+        # Cancel the task properly
+        task.cancel()
+        try:
+            # Wait for the cancellation to complete with a timeout
+            await asyncio.wait_for(task, timeout=1.0)  # 1 second timeout
+        except asyncio.TimeoutError:
+            pass  # Task didn't finish in time but was cancelled
+        except asyncio.CancelledError:
+            pass  # Expected when task is cancelled
+
+
+def register_running_task(job_id: str, task: asyncio.Task) -> None:
+    """Register a running task for tracking.
+    
+    This should be called immediately after creating an asyncio task
+    that is part of an ingest job.
+    """
+    _active_tasks[job_id] = task
+
+
 def reset_event_bus() -> None:
     """Clear subscribers and job history (wipe / tests)."""
     _subscribers.clear()
     _history.clear()
     _job_order.clear()
+    _active_tasks.clear()

@@ -7,6 +7,7 @@ import {
   HIGHLIGHT_COLORS,
   type HighlightKind,
 } from "@/lib/event-graph/highlight";
+import { positionsEntita } from "@/lib/event-graph/layout-entita";
 import {
   positionsOrdine,
   zonaDisplayLabel,
@@ -42,7 +43,7 @@ const EMPTY_EDGE_ELEMENTS: EventGraphEdgeElement[] = [];
 
 let dagreRegistered = false;
 
-export type EventGraphLayout = "dagre" | "ordine" | "temporale" | "cose";
+export type EventGraphLayout = "dagre" | "ordine" | "temporale" | "cose" | "entita";
 
 type EventGraphPanelProps = {
   elements?: EventGraphElements | null;
@@ -110,12 +111,14 @@ function prepareNodeData(
   const useOrdine = layout === "ordine";
   const useCose = layout === "cose";
   const useTemporale = layout === "temporale";
+  const useEntita = layout === "entita";
   if (useOrdine && next.parent) {
     next.zona_id = next.parent;
   }
   if (
     useOrdine ||
     useCose ||
+    useEntita ||
     next.parent == null ||
     next.parent === "" ||
     (useTemporale && !displayedIds.has(String(next.parent)))
@@ -168,7 +171,7 @@ export function EventGraphPanel({
     const nodeData = {
       id: String(ele.id()),
       label: String(ele.data("label") ?? ele.id()),
-      tipo: String(ele.data("tipo") ?? "Evento"),
+      tipo: String(ele.data("tipo") ?? "Fatto"),
       piano: ele.data("piano"),
       fattualita: ele.data("fattualita"),
       tempo: ele.data("tempo"),
@@ -186,6 +189,8 @@ export function EventGraphPanel({
       stimato: ele.data("stimato"),
       occorrenze: ele.data("occorrenze"),
       riassunti: ele.data("riassunti"),
+      categoria: ele.data("categoria"),
+      count: ele.data("count"),
     };
     const style = encodeNode(nodeData as EventGraphNodeData);
     const highlight = highlightsRef.current?.[String(ele.id())];
@@ -408,8 +413,8 @@ export function EventGraphPanel({
           },
           {
             selector: useOrdine
-              ? 'node:parent, node[tipo = "AncoraTemporale"], node[tipo = "ClusterTemporale"]'
-              : 'node:parent, node[tipo = "Zona"], node[tipo = "AncoraTemporale"], node[tipo = "ClusterTemporale"]',
+              ? 'node:parent, node[tipo = "AncoraTemporale"], node[tipo = "ClusterTemporale"], node[tipo = "KernelCategoria"]'
+              : 'node:parent, node[tipo = "Zona"], node[tipo = "AncoraTemporale"], node[tipo = "ClusterTemporale"], node[tipo = "KernelCategoria"]',
             style: {
               shape: "round-rectangle",
               "background-opacity": 0.18,
@@ -554,6 +559,7 @@ export function EventGraphPanel({
     const useOrdine = layout === "ordine";
     const useCose = layout === "cose";
     const useTemporale = layout === "temporale";
+    const useEntita = layout === "entita";
     const useNamedEdges = !useOrdine && !useTemporale;
     const displayedIds = new Set(nodes.map((node) => node.data.id));
     const hasSuccessioneAncora = edges.some(
@@ -563,7 +569,11 @@ export function EventGraphPanel({
       useTemporale && !hasSuccessioneAncora
         ? [...edges, ...timelineRankEdges(nodes)]
         : edges;
-    const presetPositions = useOrdine ? positionsOrdine({ nodes, edges }) : null;
+    const presetPositions = useOrdine
+      ? positionsOrdine({ nodes, edges })
+      : useEntita
+        ? positionsEntita({ nodes, edges })
+        : null;
 
     const currentNodeIds: string[] = [];
     cy.nodes().forEach((ele) => currentNodeIds.push(String(ele.id())));
@@ -584,7 +594,7 @@ export function EventGraphPanel({
       removeNodeObjs.length === nodeDiff.remove.length
         ? removeNodeObjs
         : nodeDiff.remove.map((id) => ({
-            data: { id, label: id, tipo: "Evento" },
+            data: { id, label: id, tipo: "Fatto" },
           })),
     );
     const addNodeObjs = sortNodesParentsFirst(

@@ -17,7 +17,7 @@ function evento(
     data: {
       id,
       label: extra.label ?? id,
-      tipo: "Evento" as const,
+      tipo: "Fatto" as const,
       posizione_doc: extra.posizione_doc,
     },
   };

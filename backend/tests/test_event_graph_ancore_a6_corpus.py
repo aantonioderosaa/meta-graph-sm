@@ -400,7 +400,7 @@ async def test_a6_vista_livello2_eventi_per_offset_non_id():
     event_ids = [
         node["data"]["id"]
         for node in body["elements"]["nodes"]
-        if node["data"].get("tipo") == "Evento"
+        if node["data"].get("tipo") == "Fatto"
     ]
     assert event_ids == ["zzz-early", "aaa-late"]
 
@@ -410,16 +410,16 @@ def test_a6_viste_tutto_ordine_relazioni_invariate_senza_precede():
     assert "PRECEDE" not in tipi
     assert "CONTEMPORANEO" not in tipi
     viste = catalogo()["viste"]
-    assert set(viste["tutto"]["nodi"]) == {"Evento", "Menzione", "Quarantena"}
+    assert set(viste["tutto"]["nodi"]) == {"Fatto", "Menzione", "Quarantena"}
     assert "PRECEDE" not in viste["tutto"]["archi"]
     assert "CONTEMPORANEO" not in viste["tutto"]["archi"]
-    assert set(viste["ordine"]["nodi"]) == {"Zona", "Evento"}
+    assert set(viste["ordine"]["nodi"]) == {"Zona", "Fatto"}
     assert set(viste["ordine"]["archi"]) == {
         "SUCCESSIONE_ZONA",
         "SEQUENZA",
         "COLLEGATO",
     }
-    assert viste["relazioni"]["nodi"] == ["Evento"]
+    assert viste["relazioni"]["nodi"] == ["Fatto"]
     assert set(viste["relazioni"]["archi"]) == {
         "CAUSA",
         "CONDIZIONE",

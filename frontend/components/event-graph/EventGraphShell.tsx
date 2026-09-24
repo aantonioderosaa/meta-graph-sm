@@ -10,6 +10,7 @@ import { EventPipelineMonitor } from "@/components/event-graph/EventPipelineMoni
 import { EventQueryPanel } from "@/components/event-graph/EventQueryPanel";
 import { fetchCatalog, fetchGraph, fetchStats } from "@/lib/event-graph/api";
 import type { HighlightKind } from "@/lib/event-graph/highlight";
+import { filterEntitaElements } from "@/lib/event-graph/layout-entita";
 import {
   filterOrdineElements,
   zonaDisplayLabel,
@@ -38,6 +39,7 @@ type VistaGraph = NonNullable<GraphFilters["vista"]>;
 
 const VISTA_BUTTONS: { id: VistaGraph; label: string }[] = [
   { id: "tutto", label: "Tutto" },
+  { id: "entita", label: "Entità" },
   { id: "ordine", label: "Ordine" },
   { id: "temporale", label: "Temporale" },
   { id: "relazioni", label: "Relazioni" },
@@ -45,6 +47,7 @@ const VISTA_BUTTONS: { id: VistaGraph; label: string }[] = [
 
 const LAYOUT_BY_VISTA = {
   tutto: "dagre",
+  entita: "entita",
   ordine: "ordine",
   temporale: "temporale",
   relazioni: "cose",
@@ -71,6 +74,9 @@ export function EventGraphShell() {
   const [selection, setSelection] = useState<ElementSelection | null>(null);
   const [vista, setVista] = useState<VistaGraph>("tutto");
   const [focusedZonaId, setFocusedZonaId] = useState<string | null>(null);
+  const [focusedCategoriaId, setFocusedCategoriaId] = useState<string | null>(
+    null,
+  );
   const [ancoraPath, setAncoraPath] = useState<string[]>([]);
   const [kbEpoch, setKbEpoch] = useState(0);
   const [graphLive, setGraphLive] = useState(false);
@@ -129,6 +135,7 @@ export function EventGraphShell() {
 
   useEffect(() => {
     setFocusedZonaId(null);
+    setFocusedCategoriaId(null);
     setAncoraPath([]);
   }, [vista]);
 
@@ -137,8 +144,11 @@ export function EventGraphShell() {
     if (vista === "temporale") {
       return filterTemporaleElements(elements, ancoraPath);
     }
+    if (vista === "entita") {
+      return filterEntitaElements(elements, focusedCategoriaId);
+    }
     return elements;
-  }, [vista, elements, focusedZonaId, ancoraPath]);
+  }, [vista, elements, focusedZonaId, ancoraPath, focusedCategoriaId]);
 
   const focusedZona = useMemo(() => {
     if (!focusedZonaId || !elements) return null;
@@ -178,6 +188,10 @@ export function EventGraphShell() {
           return [...prev, sel.id];
         });
       }
+      if (vista === "entita" && String(tipo ?? "") === "KernelCategoria") {
+        setFocusedCategoriaId(sel.id);
+        return;
+      }
     },
     [vista, elements],
   );
@@ -193,6 +207,7 @@ export function EventGraphShell() {
     setJobId(null);
     setError(null);
     setFocusedZonaId(null);
+    setFocusedCategoriaId(null);
     setAncoraPath([]);
     setGraphLive(false);
     setKbEpoch((epoch) => epoch + 1);
@@ -338,6 +353,7 @@ export function EventGraphShell() {
           <EventIngestPanel
             onJobStarted={setJobId}
             onWiped={handleWiped}
+            ingestionInCorso={graphLive}
           />
           <EventPipelineMonitor
             key={`pipeline-${kbEpoch}`}

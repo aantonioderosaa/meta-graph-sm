@@ -5,12 +5,13 @@ export type PianoNarrativo = "PRIMO_PIANO" | "SFONDO" | "FUORI_LINEA";
 export type Fattualita = "FATTUALE" | "NON_FATTUALE" | "IPOTETICO";
 
 export type EventGraphNodeTipo =
-  | "Evento"
+  | "Fatto"
   | "Menzione"
   | "Quarantena"
   | "Zona"
   | "AncoraTemporale"
-  | "ClusterTemporale";
+  | "ClusterTemporale"
+  | "KernelCategoria";
 
 export type PipelineStage =
   | "macro"
@@ -56,6 +57,12 @@ export type EventGraphNodeData = {
   confidenza?: number | null;
   occorrenze?: number | null;
   riassunti?: string[] | string | null;
+  /** Vista "entita" only: EntitaKernelCategoria value on a group or member node. */
+  categoria?: string | null;
+  /** Vista "entita" only: member count on a KernelCategoria group node. */
+  count?: number | null;
+  /** Vista "entita" only: linked Fatto nodes for Menzione members, as [fatto_id, summary]. */
+  eventi_collegati?: { fatto_id: string; summary: string }[] | null;
 };
 
 export type EventGraphEdgeData = {
@@ -132,7 +139,7 @@ export type GraphFilters = {
   documento?: string;
   piano?: string;
   lemma?: string;
-  vista?: "tutto" | "ordine" | "temporale" | "relazioni";
+  vista?: "tutto" | "entita" | "ordine" | "temporale" | "relazioni";
 };
 
 export type TempoVerbale =
@@ -329,6 +336,8 @@ export type NodoDettaglio = {
   labels: string[];
   proprieta: Record<string, unknown>;
   catena?: CatenaNodo;
+  /** Vista "entita" only: fatti collegati a una Menzione, per riferimento. */
+  eventi_collegati?: { fatto_id: string; summary: string }[];
 };
 
 export type ArcoEndpoint = {

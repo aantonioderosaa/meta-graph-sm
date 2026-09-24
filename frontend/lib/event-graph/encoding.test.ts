@@ -22,7 +22,7 @@ const evento = (
 ) => ({
   id,
   label: id,
-  tipo: "Evento" as const,
+  tipo: "Fatto" as const,
   piano,
   fattualita,
 });
@@ -54,7 +54,7 @@ describe("event-graph visual encoding", () => {
     expect(ipotetico.color).not.toBe(PIANO_COLORS.PRIMO_PIANO);
   });
 
-  it("encodes Zona as a distinct round-rectangle hub, not Evento piano colors", () => {
+  it("encodes Zona as a distinct round-rectangle hub, not Fatto piano colors", () => {
     const zona = encodeNode({
       id: "z0",
       label: "zona 0",
@@ -144,11 +144,11 @@ describe("event-graph visual encoding", () => {
     expect(leftover.borderStyle).toBe("dashed");
   });
 
-  it("encodes Evento filled, Menzione ellipse/thin, Quarantena dashed", () => {
+  it("encodes Fatto filled, Menzione ellipse/thin, Quarantena dashed", () => {
     const ev = encodeNode({
       id: "e",
       label: "arrivare",
-      tipo: "Evento",
+      tipo: "Fatto",
       piano: "PRIMO_PIANO",
       fattualita: "FATTUALE",
     });

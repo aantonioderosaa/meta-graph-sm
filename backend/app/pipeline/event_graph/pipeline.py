@@ -11,6 +11,7 @@ from app.pipeline.event_graph import (
     RULESET_VERSION,
     chains,
     event_coref,
+    livello_entita,
     mention_coref,
     persistence,
 )
@@ -693,6 +694,25 @@ async def run_event_graph_ingestion(
             {"ok": livello_rel is not None},
         )
 
+        # Livello entità (classificazione) dopo Fase B e coref eventi/persist
+        try:
+            result_entita = await livello_entita.estrai_livello_entita(
+                sotto.eventi,
+                sotto.menzioni,
+                job_id=job_id,
+                call_structured=None,  # Usiamo la funzione standard di LLM
+            )
+            
+            async with _maybe_session(session) as persist_session:
+                if persist_session is not None:
+                    await persistence.persisti_livello_entita(
+                        persist_session, result_entita, doc_id
+                    )
+                    
+        except Exception as e:
+            # Fallimento step non bloccante pipeline_complete
+            print(f"Errore durante il livello entità: {e}")
+        
         await _fase_b_if_available(session, sotto, job_id, doc_id)
         stats = {
             "doc_id": doc_id,

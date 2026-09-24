@@ -94,7 +94,7 @@ _RELATIVE_RE = re.compile(
 )
 
 _PERSISTED_QUERY = (
-    "MATCH (e:Evento) "
+    "MATCH (e:Fatto) "
     "WHERE e.fuso_in IS NULL OR e.fuso_in = '' "
     "OPTIONAL MATCH (e)-[rel:SOGG|OGG|OBL|TEMPO|LUOGO|MODO]->(m:Menzione) "
     "WITH e, collect(DISTINCT {ruolo: type(rel), menzione_id: m.id}) AS argomenti "
@@ -1103,8 +1103,8 @@ def _queue_set_catena(
     if session is None:
         return
     query = (
-        "MATCH (old:Evento {id: $old_id}) "
-        "MATCH (new:Evento {id: $new_id}) "
+        "MATCH (old:Fatto {id: $old_id}) "
+        "MATCH (new:Fatto {id: $new_id}) "
         "SET new.catena_id = coalesce(old.catena_id, $catena_id), "
         "new.catena_ruolo = $ruolo, "
         "new.catena_precedente_id = old.id, "
@@ -1140,8 +1140,8 @@ def _queue_merge(session: Any, tipo: str, arco: ArcoEvento) -> None:
         set_extra = f", r.{extra_key} = ${extra_key}"
         params[extra_key] = extra_val
     query = (
-        f"MATCH (da:Evento {{id: $da_id}}) "
-        f"MATCH (a:Evento {{id: $a_id}}) "
+        f"MATCH (da:Fatto {{id: $da_id}}) "
+        f"MATCH (a:Fatto {{id: $a_id}}) "
         f"MERGE (da)-[r:{tipo} {{id: $rel_id}}]->(a) "
         f"SET r.run_id = $run_id, r.regola = $regola, "
         f"r.versione_regole = $versione_regole{set_extra}"
@@ -1154,7 +1154,7 @@ def _queue_set_superato(session: Any, arco: ArcoEvento, precede_id: str) -> None
     if session is None:
         return
     query = (
-        "MATCH (da:Evento {id: $da_id})-[r:COLLEGATO]->(a:Evento {id: $a_id}) "
+        "MATCH (da:Fatto {id: $da_id})-[r:COLLEGATO]->(a:Fatto {id: $a_id}) "
         "SET r.superato_da = $superato_da, r.conflitto = $conflitto"
     )
     params = {

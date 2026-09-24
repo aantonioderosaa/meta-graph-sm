@@ -24,15 +24,18 @@ import {
 } from "@/lib/event-graph/api";
 import { formatPeso } from "@/lib/event-graph/documents";
 import type { EventGraphDocument } from "@/lib/event-graph/types";
+import { EventGraphApiError } from "@/lib/event-graph/api";
 
 type EventIngestPanelProps = {
   onJobStarted?: (jobId: string) => void;
   onWiped?: () => void;
+  ingestionInCorso?: boolean;
 };
 
 export function EventIngestPanel({
   onJobStarted,
   onWiped,
+  ingestionInCorso = false,
 }: EventIngestPanelProps) {
   const [docId, setDocId] = useState("doc-1");
   const [text, setText] = useState("");
@@ -59,7 +62,13 @@ export function EventIngestPanel({
       setJobId(result.job_id);
       onJobStarted?.(result.job_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ingestione fallita");
+      // Handle 409 Conflict error
+      if (err instanceof EventGraphApiError && err.status === 409) {
+        const activeJobId = (err as any).body?.job_id;
+        setError(`Ingestione già in corso per il job ${activeJobId}.`);
+      } else {
+        setError(err instanceof Error ? err.message : "Ingestione fallita");
+      }
     } finally {
       setBusy(false);
     }
@@ -129,9 +138,9 @@ export function EventIngestPanel({
             <Button
               type="submit"
               size="sm"
-              disabled={busy || wiping || !text.trim() || !docId.trim()}
+              disabled={busy || wiping || ingestionInCorso || !text.trim() || !docId.trim()}
             >
-              {busy ? "Invio…" : "Ingerisci"}
+              {busy ? "Invio…" : ingestionInCorso ? "Ingestione in corso…" : "Ingerisci"}
             </Button>
             <Button
               type="button"

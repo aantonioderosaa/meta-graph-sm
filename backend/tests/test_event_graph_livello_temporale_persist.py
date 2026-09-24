@@ -118,7 +118,7 @@ async def test_persist_cluster_appartiene_contemporaneo_tempo():
     assert "APPARTIENE_A" in blob
     assert "CONTEMPORANEO" in blob
     assert "tempo_assoluto" in blob
-    assert "MERGE (e:Evento" not in blob
+    assert "MERGE (e:Fatto" not in blob
     assert blob.upper().count("CONTEMPORANEO") == 1
     _assert_no_delete(session)
     assert "CONTEMPORANEO" not in EVENT_EVENT_TIPI
@@ -172,8 +172,8 @@ async def test_invented_evento_id_does_not_merge_evento():
         eventi=[EventoRisolto(id="ev-1", lemma="arrivare")],
     )
     blob = _blob(session)
-    assert "MERGE (e:Evento" not in blob
-    assert "MERGE (:Evento" not in blob
+    assert "MERGE (e:Fatto" not in blob
+    assert "MERGE (:Fatto" not in blob
     assert ":ClusterTemporale" in blob
     assert "APPARTIENE_A" in blob
     invented_params = [
@@ -185,7 +185,7 @@ async def test_invented_evento_id_does_not_merge_evento():
     evento_match = [
         (query, params)
         for query, params in session.runs
-        if "MATCH (e:Evento" in query
+        if "MATCH (e:Fatto" in query
     ]
     assert evento_match
     assert all(params.get("e_id") == "ev-1" for _, params in evento_match)
@@ -200,11 +200,11 @@ MERGE_CLUSTER = "MERGE (c:ClusterTemporale {id: $id})"
 MERGE_CONTIENE = "MERGE (p)-[r:CONTIENE]->(f)"
 MERGE_APPARTIENE = "MERGE (e)-[r:APPARTIENE_A]->(c)"
 SPEGNI_CONTIENE = "MATCH (p:ClusterTemporale)-[r:CONTIENE]->"
-SPEGNI_APPARTIENE = "MATCH (e:Evento {id: $e_id})-[r:APPARTIENE_A]->"
+SPEGNI_APPARTIENE = "MATCH (e:Fatto {id: $e_id})-[r:APPARTIENE_A]->"
 
 CYPHER_CONTEMPORANEO = (
-    "MATCH (da:Evento {id: $da}) "
-    "MATCH (a:Evento {id: $a}) "
+    "MATCH (da:Fatto {id: $da}) "
+    "MATCH (a:Fatto {id: $a}) "
     "MERGE (da)-[r:CONTEMPORANEO]->(a) "
     "SET r.regola = $regola, r.versione_regole = $versione_regole"
 )

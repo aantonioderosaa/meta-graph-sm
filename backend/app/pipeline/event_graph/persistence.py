@@ -40,6 +40,7 @@ from app.pipeline.event_graph.livello_relazioni import relazioni_causa_ciclo
 from app.pipeline.event_graph.zona_edges import SUCCESSIONE_ZONA, ArcoZona
 from app.pipeline.event_graph.zona_segmentation import Zona
 from app.pipeline.event_graph.zona_transizioni import REGOLA as REGOLA_SUCCESSIONE_ZONA
+from app.pipeline.event_graph.livello_entita import persist_livello_entita
 
 REGOLA = "persistence.persisti"
 REGOLA_LIVELLO_TEMPORALE = "livello_temporale.estrai"
@@ -260,7 +261,7 @@ async def _merge_documento(
 
 async def _merge_evento(session: Any, event: EventoRisolto, now: str) -> str:
     query = (
-        "MERGE (e:Evento {id: $id}) "
+        "MERGE (e:Fatto {id: $id}) "
         "ON CREATE SET e.created_at = $created_at "
         "SET e.lemma = $lemma, "
         "e.tempo = $tempo, "
@@ -428,7 +429,7 @@ async def _merge_argomento(
 ) -> str:
     extra = ", r.preposizione = $preposizione" if ruolo == "OBL" else ""
     query = (
-        f"MATCH (e:Evento {{id: $e_id}}) "
+        f"MATCH (e:Fatto {{id: $e_id}}) "
         f"MATCH (m:Menzione {{id: $m_id}}) "
         f"MERGE (e)-[r:{ruolo}]->(m) "
         f"SET r.regola = $regola, r.versione_regole = $versione_regole{extra}"
@@ -453,8 +454,8 @@ async def _merge_arco(
 ) -> str:
     tipo = str(arco.tipo)
     query = (
-        f"MATCH (da:Evento {{id: $da_id}}) "
-        f"MATCH (a:Evento {{id: $a_id}}) "
+        f"MATCH (da:Fatto {{id: $da_id}}) "
+        f"MATCH (a:Fatto {{id: $a_id}}) "
         f"MERGE (da)-[r:{tipo} {{id: $rel_id}}]->(a) "
         f"SET r.base = $base, r.segnale = $segnale, r.run_id = $run_id, "
         f"r.regola = $regola, r.versione_regole = $versione_regole, "
@@ -618,7 +619,7 @@ async def sopprimi_collegato_ridondanti(session: Any, doc_id: str) -> int:
     """
     rows = await _run(
         session,
-        "MATCH (a:Evento {documento: $doc_id})-[c:COLLEGATO]-(b:Evento) "
+        "MATCH (e:Fatto {documento: $doc_id})-[c:COLLEGATO]-(b:Fatto) "
         "WHERE c.superato_da IS NULL AND EXISTS { MATCH (a)-[:SEQUENZA]-(b) } "
         "WITH DISTINCT c "
         "SET c.superato_da = 'sequenza' "
@@ -1324,7 +1325,7 @@ async def _merge_appartiene_a(
     stimato: bool,
 ) -> str:
     query = (
-        "MATCH (e:Evento {id: $e_id}) "
+        "MATCH (e:Fatto {id: $e_id}) "
         "MATCH (c:ClusterTemporale {id: $c_id}) "
         "MERGE (e)-[r:APPARTIENE_A]->(c) "
         "SET r.attivo = true, "
@@ -1361,7 +1362,7 @@ async def _disattiva_appartiene_a_obsoleti(
     MT6 tornerebbe ambiguo. L'arco vecchio resta, disattivato.
     """
     query = (
-        "MATCH (e:Evento {id: $e_id})-[r:APPARTIENE_A]->(c:ClusterTemporale) "
+        "MATCH (e:Fatto {id: $e_id})-[r:APPARTIENE_A]->(c:ClusterTemporale) "
         "WHERE c.id <> $c_id "
         "SET r.attivo = false, "
         "r.sostituito_da = $c_id, "
@@ -1381,8 +1382,8 @@ async def _disattiva_appartiene_a_obsoleti(
 
 async def _merge_precede_livello(session: Any, da_id: str, a_id: str) -> str:
     query = (
-        "MATCH (da:Evento {id: $da}) "
-        "MATCH (a:Evento {id: $a}) "
+        "MATCH (da:Fatto {id: $da}) "
+        "MATCH (a:Fatto {id: $a}) "
         "MERGE (da)-[r:PRECEDE]->(a) "
         "SET r.regola = coalesce(r.regola, $regola), "
         "r.versione_regole = $versione_regole, "
@@ -1404,8 +1405,8 @@ async def _merge_precede_livello(session: Any, da_id: str, a_id: str) -> str:
 
 async def _merge_contemporaneo(session: Any, da_id: str, a_id: str) -> str:
     query = (
-        "MATCH (da:Evento {id: $da}) "
-        "MATCH (a:Evento {id: $a}) "
+        "MATCH (da:Fatto {id: $da}) "
+        "MATCH (a:Fatto {id: $a}) "
         "MERGE (da)-[r:CONTEMPORANEO]->(a) "
         "SET r.regola = $regola, r.versione_regole = $versione_regole"
     )
@@ -1429,7 +1430,7 @@ async def _set_tempo_assoluto(
     revisioni: Any,
 ) -> str:
     query = (
-        "MATCH (e:Evento {id: $id}) "
+        "MATCH (e:Fatto {id: $id}) "
         "SET e.tempo_assoluto = $tempo_assoluto, "
         "e.tempo_assoluto_revisioni = $revisioni"
     )
@@ -1615,6 +1616,48 @@ async def persisti_livello_temporale(
             tempo = raw_tempo
             revisioni = [raw_tempo]
         await _set_tempo_assoluto(session, evento_id, tempo, revisioni)
+
+
+async def persisti_livello_entita(
+    session: Any,
+    result: LivelloEntitaResult,
+    doc_id: str,
+) -> None:
+    """Persiste le classificazioni delle entità nel database.
+    
+    Args:
+        session: Sessione di database Neo4j
+        result: Risultato della classificazione
+        doc_id: ID del documento
+    """
+    if not result.classificazioni:
+        return
+    
+    # Costruiamo un batch singolo per documento
+    queries = []
+    
+    for classificazione in result.classificazioni:
+        # menzione_id punta a un nodo :Menzione (SOGG/OGG/TEMPO) o :Fatto
+        # (auto-classificazione "Fatti") — il match copre entrambi i label.
+        query = (
+            "MATCH (m) WHERE m.id = $menzione_id AND (m:Fatto OR m:Menzione) "
+            "SET m.kernel_category = $categoria"
+        )
+        
+        params = {
+            "menzione_id": classificazione.menzione_id,
+            "categoria": classificazione.categoria.value
+        }
+        
+        queries.append((query, params))
+    
+    # Eseguiamo tutte le query in un batch
+    for query, params in queries:
+        try:
+            await session.run(query, **params)
+        except Exception as e:
+            print(f"Errore durante la persistenza della classificazione: {e}")
+            continue
 
 
 def _etichetta_ancora(ancora: AncoraTemporaleProposta) -> str:
@@ -1816,7 +1859,7 @@ async def _merge_appartiene_a_ancora(
     base: str | None,
 ) -> str:
     query = (
-        "MATCH (e:Evento {id: $e_id}) "
+        "MATCH (e:Fatto {id: $e_id}) "
         "MATCH (a:AncoraTemporale {id: $a_id}) "
         "MERGE (e)-[r:APPARTIENE_A {id: $rel_id}]->(a) "
         "SET r.attivo = true, "
@@ -1850,7 +1893,7 @@ async def _disattiva_appartiene_a_ancora_obsoleti(
 ) -> str:
     """Tombstone APPARTIENE_A toward another AncoraTemporale; never DELETE."""
     query = (
-        "MATCH (e:Evento {id: $e_id})-[r:APPARTIENE_A]->(a:AncoraTemporale) "
+        "MATCH (e:Fatto {id: $e_id})-[r:APPARTIENE_A]->(a:AncoraTemporale) "
         "WHERE a.id <> $a_id "
         "SET r.attivo = false, "
         "r.sostituito_da = $a_id, "
@@ -2092,8 +2135,8 @@ async def _merge_relazione_libera(
     spiegazione: str,
 ) -> str:
     query = (
-        f"MATCH (da:Evento {{id: $da_id}}) "
-        f"MATCH (a:Evento {{id: $a_id}}) "
+        f"MATCH (da:Fatto {{id: $da_id}}) "
+        f"MATCH (a:Fatto {{id: $a_id}}) "
         f"MERGE (da)-[r:{tipo} {{livello: '3'}}]->(a) "
         f"SET r.livello = '3', "
         f"r.regola = $regola, "
@@ -2245,7 +2288,7 @@ async def carica_archi_macro(
 
 _LISTA_DOCUMENTI_CYPHER = (
     "MATCH (d:Documento) "
-    "OPTIONAL MATCH (e:Evento {documento: d.id}) "
+    "OPTIONAL MATCH (e:Fatto {documento: d.id}) "
     "WHERE e.fuso_in IS NULL OR e.fuso_in = '' "
     "RETURN d.id AS id, d.testo AS testo, d.formato AS formato, "
     "d.updated_at AS updated_at, count(e) AS n_eventi "
@@ -2341,6 +2384,7 @@ __all__ = [
     "persisti_arco_macro",
     "persisti_documento",
     "persisti_livello_ancore",
+    "persisti_livello_entita",
     "persisti_livello_relazioni",
     "persisti_livello_temporale",
     "persisti_transizioni_zona",

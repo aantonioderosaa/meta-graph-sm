@@ -31,12 +31,33 @@ def _modalita(event: EventoRisolto) -> str:
     return getattr(event, "modalita", None) or "fattuale"
 
 
-def _is_realized_assertion(event: EventoRisolto) -> bool:
+def _is_realized_assertion(event: EventoRisolto, has_real_parent: bool = False) -> bool:
     """Main/coord finite past-present + modalita fattuale is a realized event.
 
     LLM leftover ``finale`` / ``completiva_di`` on "si tolse" must not demote
     the climax to NON_FATTUALE.
+    
+    But if an event has finale=True, it should never be considered realized in this sense.
+    
+    When has_real_parent is True, events with modalizzato or non-fattualita indicators are 
+    not considered realized assertions.
     """
+    # If this is a final event, don't consider it as realized assertion regardless of other factors
+    if getattr(event, "finale", False):
+        return False
+        
+    # When has_real_parent=True, events with modalizzato or non-fattualita indicators are 
+    # not considered realized assertions
+    if has_real_parent:
+        if event.modalizzato:
+            return False
+        if event.polarita_negata:
+            return False
+        if event.frase_tipo in _NON_FATTUALE_FRASI:
+            return False
+        if event.tempo == "futuro":
+            return False
+    
     seg = getattr(event, "segmentazione", None)
     return (
         _modalita(event) == "fattuale"
@@ -47,32 +68,62 @@ def _is_realized_assertion(event: EventoRisolto) -> bool:
     )
 
 
-def _local_fattualita(event: EventoRisolto) -> Fattualita:
+def _local_fattualita(event: EventoRisolto, parent_of: dict[object, EventoRisolto] | None = None) -> Fattualita:
+    # Check for IPOTETICO first - ruolo_se != "nessuno" 
     if event.ruolo_se != "nessuno":
         return "IPOTETICO"
+    
+    # Then check modalita == "ipotetico"
     if _modalita(event) == "ipotetico":
         return "IPOTETICO"
-    if event.polarita_negata:
-        return "NON_FATTUALE"
-    if _modalita(event) in {"volitivo", "deontico"}:
-        return "NON_FATTUALE"
-    if event.modalizzato and _modalita(event) != "fattuale":
-        return "NON_FATTUALE"
-    if _is_realized_assertion(event):
-        return "FATTUALE"
+        
+    # Handle modalizzato as a condition independent of modalita
     if event.modalizzato:
         return "NON_FATTUALE"
+    
+    if event.polarita_negata:
+        return "NON_FATTUALE"
+    
+    # Check for volitivo and deontico modalita - these should be NON_FATTUALE
+    if _modalita(event) in ("volitivo", "deontico"):
+        return "NON_FATTUALE"
+        
+    if event.frase_tipo in _NON_FATTUALE_FRASI:
+        return "NON_FATTUALE"
+    
+    if event.tempo == "futuro":
+        return "NON_FATTUALE"
+        
+    # Handle the special case for non_fattivo verbs with completiva_di  
+    # If an event has a real parent and it's syntactically embedded, check conditions
     if (
         event.completiva_di is not None
         and event.classe_verbo_reggente == "non_fattivo"
     ):
         return "NON_FATTUALE"
+    
+    # Handle the case for fattivo verbs with completiva_di 
+    # If an embedded event has classe_verbo_reggente="fattivo", it should be FATTUALE
+    if (
+        event.completiva_di is not None
+        and event.classe_verbo_reggente == "fattivo"
+    ):
+        return "FATTUALE"
+    
+    # Now check realized assertions  
+    if _is_realized_assertion(event):
+        # If we have parent information, this might be syntactically embedded
+        if parent_of is not None:
+            key = _key(event)
+            parent = parent_of.get(key)
+            if parent is not None and getattr(parent, 'classe_verbo_reggente', None) == "non_fattivo":
+                # If parent has classe_verbo_reggente="non_fattivo", embedded events should be NON_FATTUALE
+                return "NON_FATTUALE"
+        return "FATTUALE"
+    
     if event.finale:
         return "NON_FATTUALE"
-    if event.frase_tipo in _NON_FATTUALE_FRASI:
-        return "NON_FATTUALE"
-    if event.tempo == "futuro":
-        return "NON_FATTUALE"
+        
     return "FATTUALE"
 
 
@@ -127,10 +178,14 @@ def _inherit_down(
         current = queue.popleft()
         seen += 1
         parent = parent_of.get(_key(current))
+        # Apply inheritance only when:
+        # 1. Parent exists and is inherited (NON_FATTUALE or IPOTETICO) 
+        # AND
+        # 2. Current event is NOT realized by _is_realized_assertion() OR the current event has special non-fattualità attributes  
         if (
             parent is not None
             and parent.fattualita in _INHERITED
-            and not _is_realized_assertion(current)
+            and not _is_realized_assertion(current, has_real_parent=True)
         ):
             current.fattualita = parent.fattualita
         for child in children[_key(current)]:
@@ -161,12 +216,12 @@ def applica(
     factsheet: ChunkFactsheet | None = None,
 ) -> list[EventoRisolto]:
     """Assign ``fattualita`` and ``fonte`` in place; return the same list."""
-    for event in eventi:
-        event.fattualita = _local_fattualita(event)
-
+    
+    # Compute by_indice and parent_of before any fattualita calculation
     by_indice = _index_parents(eventi, factsheet)
     parent_of: dict[object, EventoRisolto] = {}
     children: dict[object, list[EventoRisolto]] = defaultdict(list)
+    
     for event in eventi:
         parent = _resolve_parent(event, by_indice)
         if parent is None:
@@ -174,6 +229,11 @@ def applica(
         parent_of[_key(event)] = parent
         children[_key(parent)].append(event)
 
+    # First pass: calculate local fattualita without inheritance
+    for event in eventi:
+        event.fattualita = _local_fattualita(event, parent_of)
+
+    # Apply inheritance logic with the information about real parents
     _inherit_down(eventi, parent_of, children)
     _assign_fonte(eventi, parent_of)
     return eventi

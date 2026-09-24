@@ -22,7 +22,7 @@ function evento(
     data: {
       id,
       label: id,
-      tipo: "Evento" as const,
+      tipo: "Fatto" as const,
       ...extra,
     },
   };

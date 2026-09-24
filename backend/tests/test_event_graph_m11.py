@@ -177,7 +177,7 @@ async def test_merge_evento_menzione_documento_quarantena_no_delete():
     session = FakeSession()
     outcome = await persisti(session, _base_graph(), job_id="job-1")
     blob = _blob(session)
-    assert "MERGE (e:Evento" in blob
+    assert "MERGE (e:Fatto" in blob
     assert "MERGE (m:Menzione" in blob
     assert "m.riferimenti = $riferimenti" in blob
     assert "m.occorrenze = $occorrenze" in blob
@@ -292,7 +292,7 @@ async def test_fuso_in_set_on_loser_still_merged():
     )
     session = FakeSession()
     await persisti(session, _sotto(winner, loser, menzioni=[_menzione("m-mario")]))
-    evento_runs = [(q, p) for q, p in session.runs if "MERGE (e:Evento" in q]
+    evento_runs = [(q, p) for q, p in session.runs if "MERGE (e:Fatto" in q]
     ids = {p["id"] for _, p in evento_runs}
     assert ids == {"ev-win", "ev-lose"}
     loser_params = next(p for _, p in evento_runs if p["id"] == "ev-lose")
@@ -326,7 +326,7 @@ async def test_superato_da_set_on_collegato():
 async def test_evento_provenance_regola_versione():
     session = FakeSession()
     await persisti(session, _base_graph())
-    evento_runs = [(q, p) for q, p in session.runs if "MERGE (e:Evento" in q]
+    evento_runs = [(q, p) for q, p in session.runs if "MERGE (e:Fatto" in q]
     assert evento_runs
     query, params = evento_runs[0]
     assert "e.versione_regole = $versione_regole" in query
@@ -339,7 +339,7 @@ async def test_evento_provenance_regola_versione():
 async def test_morphological_tempo_written_not_removed():
     session = FakeSession()
     await persisti(session, _base_graph())
-    evento_runs = [(q, p) for q, p in session.runs if "MERGE (e:Evento" in q]
+    evento_runs = [(q, p) for q, p in session.runs if "MERGE (e:Fatto" in q]
     assert evento_runs
     query, params = evento_runs[0]
     assert "e.tempo = $tempo" in query

@@ -47,6 +47,21 @@ export const SUCCESSIONE_ANCORA_COLOR = SUCCESSIONE_ZONA_COLOR;
 /** Node-trait swatch only — catena is not an arc family. */
 export const CATENA_COLOR = "#4F46E5";
 
+/** Keys are EntitaKernelCategoria values (event-graph local vocabulary, mirrors
+ * frontend/lib/graph-encoding.ts's E1-E8 palette for visual consistency —
+ * declared locally, no cross-import into the dormant Metagraph module). */
+export const KERNEL_CATEGORY_COLORS: Record<string, string> = {
+  Agente: "#0369A1",
+  OggettoFisico: "#B45309",
+  Luogo: "#15803D",
+  Evento: "#BE123C",
+  EntitaTemporale: "#0F766E",
+  EntitaInformativa: "#7C3AED",
+  CostruttoSociale: "#C2410C",
+  EntitaAstratta: "#334155",
+  Temporale: "#0EA5E9",
+};
+
 export const ARGOMENTALI = new Set([
   "SOGG",
   "OGG",
@@ -171,14 +186,20 @@ export function encodeNode(
   node: EventGraphNodeData | EventGraphNodeElement,
 ): EncodedNode {
   const data = asNodeData(node);
-  const tipo = String(data.tipo ?? "Evento");
+  const tipo = String(data.tipo ?? "Fatto");
   const piano = String(data.piano ?? "");
   const fattualita = String(data.fattualita ?? "");
   const desaturated = Boolean(fattualita) && fattualita !== "FATTUALE";
 
   let color: string = PIANO_FALLBACK;
   const isAncora = tipo === "AncoraTemporale" || tipo === "ClusterTemporale";
-  if (tipo === "Zona") {
+  // Vista "entita" only: member nodes (Menzione/Evento) carry a `categoria`
+  // field there and only there — outside that vista this is always empty,
+  // so this branch never fires for the "Tutto" gray Menzione styling below.
+  const categoriaKernel = data.categoria ? String(data.categoria) : "";
+  if (categoriaKernel && (tipo === "Menzione" || tipo === "Fatto")) {
+    color = KERNEL_CATEGORY_COLORS[categoriaKernel] ?? MENZIONE_COLOR;
+  } else if (tipo === "Zona") {
     color = ZONA_COLOR;
   } else if (isAncora) {
     color = CLUSTER_TEMPORALE_COLOR;
@@ -192,17 +213,20 @@ export function encodeNode(
     color = PIANO_COLORS.SFONDO;
   } else if (piano === "FUORI_LINEA") {
     color = PIANO_COLORS.FUORI_LINEA;
+  } else if (tipo === "KernelCategoria") {
+    color = KERNEL_CATEGORY_COLORS[categoriaKernel] ?? PIANO_FALLBACK;
   }
 
   if (desaturated) {
     color = desaturateHex(color);
   }
 
-  const filled = tipo === "Evento" || tipo === "Zona" || isAncora;
+  const isKernelCategoria = tipo === "KernelCategoria";
+  const filled = tipo === "Fatto" || tipo === "Zona" || isAncora || isKernelCategoria;
   const thin = tipo === "Menzione";
   const dashed =
     tipo === "Quarantena" || (isAncora && isTruthyFlag(data.stimato));
-  const hub = tipo === "Zona" || isAncora;
+  const hub = tipo === "Zona" || isAncora || isKernelCategoria;
 
   return {
     color,

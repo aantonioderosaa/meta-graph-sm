@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import Enum, unique
 from typing import Any, Literal, TypeVar, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -94,6 +95,55 @@ TraversalKind = Literal[
 ]
 
 
+@unique
+class EntitaKernelCategoria(str, Enum):
+    """Vocabolario scoped al solo event-graph live, non è EntityKernelType.
+
+    Questo enum definisce le categorie semantiche per le entità estratte 
+    durante il processo di event graph pipeline. Non deve essere confuso con
+    EntityKernelType che rappresenta il kernel vocabolario principale.
+    """
+    
+    Agente = "Agente"
+    OggettoFisico = "OggettoFisico"
+    Luogo = "Luogo"
+    Evento = "Evento"
+    EntitaTemporale = "EntitaTemporale"
+    EntitaInformativa = "EntitaInformativa"
+    CostruttoSociale = "CostruttoSociale"
+    EntitaAstratta = "EntitaAstratta"
+    Temporale = "Temporale"
+    Fatti = "Fatti"
+
+
+class EntitaKernelClassificata(BaseModel):
+    """Rappresenta una classificazione di un'entità con categoria e confidenza opzionale."""
+    
+    menzione_id: str
+    categoria: EntitaKernelCategoria
+    confidenza: float | None = None
+
+
+class LivelloEntitaResult(BaseModel):
+    """Contenitore per le classificazioni delle entità."""
+    
+    classificazioni: list[EntitaKernelClassificata]
+
+
+class EntitaKernelClassificata(BaseModel):
+    """Rappresenta una classificazione di un'entità con categoria e confidenza opzionale."""
+    
+    menzione_id: str
+    categoria: EntitaKernelCategoria
+    confidenza: float | None = None
+
+
+class LivelloEntitaResult(BaseModel):
+    """Contenitore per le classificazioni delle entità."""
+    
+    classificazioni: list[EntitaKernelClassificata]
+
+
 class ArgomentoGrezzo(BaseModel):
     ruolo: RuoloArgomentale
     preposizione: str | None = None
@@ -141,7 +191,7 @@ class ArcoEventoGrezzo(BaseModel):
 
 
 class PredicatoNonFinito(BaseModel):
-    """Free non-finite predicate: never an :Evento node (Parte A / A3–A4)."""
+    """Free non-finite predicate: never a :Fatto node (Parte A / A3–A4)."""
 
     lemma: str
     span: str
@@ -259,7 +309,7 @@ class ArgomentoRisolto(BaseModel):
 
 
 class EventoRisolto(BaseModel):
-    """Resolved :Evento fields known at write time; later MTs fill the rest."""
+    """Resolved :Fatto fields known at write time; later MTs fill the rest."""
 
     id: str = ""
     lemma: str = ""

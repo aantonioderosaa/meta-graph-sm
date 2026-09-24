@@ -379,19 +379,19 @@ def test_accettazione_catalogo_viste_tutto_ordine_relazioni_invariate():
     assert "PRECEDE" not in tipi
     assert "CONTEMPORANEO" not in tipi
     viste = catalogo()["viste"]
-    assert set(viste["tutto"]["nodi"]) == {"Evento", "Menzione", "Quarantena"}
+    assert set(viste["tutto"]["nodi"]) == {"Fatto", "Menzione", "Quarantena"}
     assert "SUCCESSIONE_ZONA" not in viste["tutto"]["archi"]
     assert "APPARTIENE_A" not in viste["tutto"]["archi"]
     assert "CONTIENE" not in viste["tutto"]["archi"]
     assert "CONTEMPORANEO" not in viste["tutto"]["archi"]
     assert "PRECEDE" not in viste["tutto"]["archi"]
-    assert set(viste["ordine"]["nodi"]) == {"Zona", "Evento"}
+    assert set(viste["ordine"]["nodi"]) == {"Zona", "Fatto"}
     assert set(viste["ordine"]["archi"]) == {
         "SUCCESSIONE_ZONA",
         "SEQUENZA",
         "COLLEGATO",
     }
-    assert viste["relazioni"]["nodi"] == ["Evento"]
+    assert viste["relazioni"]["nodi"] == ["Fatto"]
     assert set(viste["relazioni"]["archi"]) == {
         "CAUSA",
         "CONDIZIONE",

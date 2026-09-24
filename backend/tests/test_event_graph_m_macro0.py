@@ -200,7 +200,7 @@ def test_schema_contains_zona_constraint():
     assert "VECTOR" not in raw.upper()
     # Addendum 5: one Lucene fulltext index on :Evento (keyword/topic
     # retrieval), still no vector/ML embeddings — see test_event_graph_m1.py.
-    assert "eg_evento_testo" in raw
+    assert "eg_fatto_testo" in raw
     assert "eg_cluster_temporale_id" in raw
     assert "eg_cluster_temporale_doc" in raw
     assert ":ClusterTemporale" in raw
